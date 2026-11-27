@@ -3,6 +3,107 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const Audit = require('../www/audit-log.js');
+const Persistence = require('../www/persistence.js');
+const { IDBFactory } = require('fake-indexeddb');
+
+test('F247 diagnostic sessions use native-compressed persistence and migrate retained legacy sessions', async () => {
+  const indexedDB = new IDBFactory();
+  const now = Date.parse('2026-10-10T12:00:00Z');
+  const audit = Audit.create({ indexedDB, buildChannel: 'beta',
+    clock: () => now, wallClock: () => new Date(now).toISOString() });
+  let db;
+  try {
+    audit.event('fixture.lifecycle', { category: 'lifecycle', attrs: { stage: 'Fixture diagnostics' } });
+    assert.equal(await audit.flush(), true);
+    db = await new Promise(resolve => {
+      const request = indexedDB.open('birdchaser-diagnostics', 1);
+      request.onsuccess = () => resolve(request.result);
+    });
+    await new Promise(resolve => {
+      const tx = db.transaction('sessions', 'readwrite'), store = tx.objectStore('sessions');
+      for (const [id, age] of [['legacy-one', 1000], ['legacy-two', 2000], ['expired', 96 * 3600000]]) {
+        store.put({ session_id: id, started_at: new Date(now - age).toISOString(),
+          updated_at: new Date(now - age).toISOString(), events: [{ stage: 'Legacy fixture '.repeat(100) }] });
+      }
+      tx.oncomplete = resolve;
+    });
+    assert.equal(await audit.flush(), true);
+    const raw = await new Promise(resolve => {
+      const request = db.transaction('sessions').objectStore('sessions').getAll();
+      request.onsuccess = () => resolve(request.result);
+    });
+    assert.equal(raw.length, 3, 'expired sessions must still be pruned');
+    assert.ok(raw.every(row => row._persistence === 1 && row.payload.startsWith('z:')),
+      'new and retained legacy sessions must use the shared native codec');
+    const records = await Promise.all(raw.map(row => Persistence.unpackJson(row.payload)));
+    const current = records.find(row => row.session_id === audit.sessionId);
+    assert.equal(current.events[0].event, 'fixture.lifecycle');
+    assert.deepEqual(records.filter(row => row !== current).map(row => row.session_id).sort(),
+      ['legacy-one', 'legacy-two']);
+    const prototype = Object.getPrototypeOf(db), original = prototype.transaction;
+    prototype.transaction = function (...args) {
+      const tx = original.apply(this, args);
+      if (this.name === 'birdchaser-diagnostics' && args[1] === 'readwrite') {
+        const objectStore = tx.objectStore.bind(tx);
+        tx.objectStore = name => {
+          const store = objectStore(name), put = store.put.bind(store);
+          store.put = (...values) => { const request = put(...values); tx.abort(); return request; };
+          return store;
+        };
+      }
+      return tx;
+    };
+    try {
+      audit.event('aborted.fixture', { category: 'lifecycle' });
+      assert.equal(await audit.flush(), false, 'an aborted diagnostic write must not report durability');
+    } finally { prototype.transaction = original; }
+    assert.equal(await audit.clear(), true);
+    const stored = await Persistence.create({ text: Persistence.indexedDb({
+      database: db, store: 'sessions', keyPath: 'session_id'
+    }) }).listJson();
+    assert.deepEqual(stored, []);
+  } finally { await audit.clear(); if (db) db.close(); }
+});
+
+test('F247 clearing diagnostics cancels a flush while native compression is pending', async () => {
+  const indexedDB = new IDBFactory(), NativeResponse = globalThis.Response;
+  const audit = Audit.create({ indexedDB, buildChannel: 'beta' });
+  let release, db;
+  try {
+    let started;
+    const packing = new Promise(resolve => { started = resolve; });
+    globalThis.Response = class {
+      constructor(value) {
+        if (typeof value === 'string' && value.includes('held-diagnostic')) {
+          this.body = { pipeThrough: () => ({ snapshot: value }) };
+        } else if (value && value.snapshot) {
+          this.arrayBuffer = () => new Promise(resolve => {
+            release = () => {
+              const bytes = require('node:zlib').gzipSync(value.snapshot);
+              resolve(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
+            };
+            started();
+          });
+        } else return new NativeResponse(value);
+      }
+    };
+    audit.event('held-diagnostic', { category: 'lifecycle' });
+    const flush = audit.flush();
+    await packing;
+    const clear = audit.clear();
+    release();
+    assert.equal(await flush, false);
+    assert.equal(await clear, true);
+    db = await new Promise(resolve => {
+      const request = indexedDB.open('birdchaser-diagnostics', 1);
+      request.onsuccess = () => resolve(request.result);
+    });
+    const records = await Persistence.create({ text: Persistence.indexedDb({
+      database: db, store: 'sessions', keyPath: 'session_id'
+    }) }).listJson();
+    assert.deepEqual(records, []);
+  } finally { if (release) release(); globalThis.Response = NativeResponse; await audit.clear(); if (db) db.close(); }
+});
 
 test('F609 audit events are versioned JSONL with page, tags, and settings revision', () => {
   let now = Date.parse('2026-09-27T22:00:00Z');

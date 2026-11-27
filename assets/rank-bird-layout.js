@@ -1,20 +1,36 @@
 'use strict';
 
-module.exports = async function rankBirdLayout(scan, prepare, mutation, progress) {
+module.exports = async function rankBirdLayout(scan, prepare, mutation, progress, preparePersonal) {
   var A = window.__app, out = [];
   var mark = progress || function () {};
   function require(value, message) { if (!value) throw new Error('F1528 ' + message); }
   mark('F1528 preparing captured history');
   A.cancelStalledWork(); A.setActiveReport('wa'); A.setCountyView('');
-  await prepare(A, document, false);
+  await prepare(A, document, false, preparePersonal);
   mark('F1528 checking captured history');
   if (mutation === 'inline') {
     var style = document.createElement('style');
     style.textContent = '.rankrow .rankbirdlist{display:flex!important;}';
     document.head.append(style);
   }
+  if (mutation === 'photo-size' || mutation === 'photo-align') {
+    var photoStyle = document.createElement('style');
+    photoStyle.textContent = mutation === 'photo-size'
+      ? '.rankrow .rankbirdhistory{--rank-bird-icon-size:calc(34px * var(--s))!important;}'
+      : '.rankrow .rankbirdlist .rankbirdline > .name{align-items:center!important;}'
+        + '.rankrow .rankbirdline .ntext{align-self:center!important;}';
+    document.head.append(photoStyle);
+  }
   var cards = Array.from(document.querySelectorAll('#rankResults .rankrow:not(.rankhdr)'));
   require(cards.length === 3, 'three representative birders must render');
+  if (mutation === 'new-position') {
+    cards.forEach(function (card) {
+      card.querySelectorAll('.rankbirdline').forEach(function (line) {
+        var badge = line.querySelector('.ranknew');
+        if (badge) line.querySelector('.rankdetail').after(badge);
+      });
+    });
+  }
   var movement = cards[0].querySelector('.mv'), arrow = movement.querySelector('.rankmovearrow');
   var birdName = cards[0].querySelector('.rankbirdline .name');
   var rank = cards[0].querySelector('.rankstack .hsnum');
@@ -35,20 +51,33 @@ module.exports = async function rankBirdLayout(scan, prepare, mutation, progress
     'bird names must use the existing compact list text size');
   function geometry(expected, label) {
     var lines = Array.from(cards[0].querySelectorAll('.rankbirdline'));
+    var maxTopOffset = 0;
     require(lines.length === expected, label + ' has the wrong captured count');
     require(lines[0].parentElement.matches('.obs.card-sm.sppl'),
       'bird history uses the shared patch-style small-card list');
     lines.forEach(function (line, i) {
       var photo = line.querySelector('.rankbirdicon .thumb'), image = photo && photo.getBoundingClientRect();
       var box = line.getBoundingClientRect(), card = cards[0].getBoundingClientRect();
-      require(image && compactPhoto > 0 && Math.abs(image.width - compactPhoto) < .5
-        && Math.abs(image.height - compactPhoto) < .5,
-      'every bird photo must match the existing compact list icon size');
-      require(parseFloat(getComputedStyle(line.querySelector('.name')).minHeight) <= compactPhoto + .5,
-        'compact photos must not retain oversized row height');
+      require(image && compactPhoto > 0 && image.width >= compactPhoto * 1.25
+        && Math.abs(image.height - image.width) < .5,
+      'every bird photo must be noticeably larger than the compact list icon and remain square');
+      var nameBox = line.querySelector('.name > .ntext').getBoundingClientRect();
+      maxTopOffset = Math.max(maxTopOffset, Math.abs(image.top - nameBox.top));
+      require(Math.abs(image.top - nameBox.top) < .5,
+        'bird photo must align with the top of the name, not the middle of its metadata');
+      require(parseFloat(getComputedStyle(line.querySelector('.name')).minHeight) <= image.height + .5,
+        'bird rows must not retain excess height beyond their photo');
+      var badge = line.querySelector('.ranknew'), detailNode = line.querySelector('.rankdetail');
+      if (badge) {
+        require(badge.parentElement === line.querySelector('.name > .ntext')
+          && badge.nextElementSibling && badge.nextElementSibling.contains(detailNode),
+        'NEW must sit beside the bird name before the identifier/date');
+      }
       var detail = line.querySelector('.rankdetail').textContent;
       require(/^\([A-Z]{4}\//.test(detail),
-        'every bird keeps its official four-letter code');
+        'every bird keeps its official four-letter code: '+JSON.stringify({
+          detail,code:line.querySelector('[data-sp]')?.dataset.sp,name:line.querySelector('.ntext')?.textContent
+        }));
       var identifiers = /^\(([A-Z]{4})\/([a-z0-9]+)\)/.exec(detail);
       require(identifiers && identifiers[2] === line.querySelector('[data-sp]').dataset.sp,
         'every bird keeps its exact eBird taxon identifier beside its four-letter code');
@@ -64,7 +93,11 @@ module.exports = async function rankBirdLayout(scan, prepare, mutation, progress
       }
     });
     var result = scan(label);
-    out.push(Object.assign(result, { rankBirdHistory: { birds: expected, photos: lines.length, separateLines: true } }));
+    out.push(Object.assign(result, { rankBirdHistory: {
+      birds: expected, photos: lines.length, separateLines: true,
+      photoWidth: lines[0].querySelector('.thumb').getBoundingClientRect().width,
+      compactPhotoWidth: compactPhoto, maxTopOffset: maxTopOffset
+    } }));
   }
   mark('F1528 waiting for layout frames');
   await new Promise(function (resolve) { requestAnimationFrame(function () { requestAnimationFrame(resolve); }); });

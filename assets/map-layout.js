@@ -12,7 +12,7 @@ async function mapLayout(scan, mutation) {
     homeKeys=['lat','lng'].map(part=>[A.homeKey(part),localStorage.getItem(A.homeKey(part))]);
     A.resetTransientAnchor();
     localStorage.setItem(A.homeKey('lat'),'46.4');localStorage.setItem(A.homeKey('lng'),'-120.4');
-    const recentRow={subId:'S1395AUDIT',isoObsDate:A.todayStr()+' 09:00',numSpecies:12,
+    const recentRow={subId:'S1395AUDIT',isoObsDate:A.todayStr()+' 09:00',numSpecies:12,subnational1Code:'US-WA',
       loc:{locId:'L1395AUDIT',name:'Representative public patch',isHotspot:true,latitude:46.5,longitude:-120.5}};
     window.fetch=(url,init)=>/api\.ebird\.org/.test(String(url))?Promise.resolve({ok:true,status:200,
       headers:{get:()=>null},json:()=>Promise.resolve(/product\/lists\//.test(String(url))?[recentRow]:[])}):savedFetch(url,init);
@@ -76,12 +76,15 @@ async function mapLayout(scan, mutation) {
     const search=document.getElementById('regionChooserSearch');search.value='US-WA';search.dispatchEvent(new Event('input'));
     const filterButtons=[...document.querySelectorAll('[data-region-location]')];
     if(mutation==='chooser-target')Object.assign(filterButtons[0].style,{minHeight:'12px',height:'12px'});
+    filterButtons[0].scrollIntoView({block:'center'});
+    await paint();
     const modeReference=document.getElementById('destBtn').closest('section').querySelector('.modebtn');
     const modeMinimum=parseFloat(getComputedStyle(modeReference).minHeight);
     const filters=filterButtons.map(button=>{
       const rect=button.getBoundingClientRect();
-      return {label:button.textContent,...box(button),hit:button.contains(
-        document.elementFromPoint(rect.left+rect.width/2,rect.top+rect.height/2))};
+      const hit=document.elementFromPoint(rect.left+rect.width/2,rect.top+rect.height/2);
+      return {label:button.textContent,...box(button),hit:button.contains(hit),
+        hitElement:hit&&{tag:hit.tagName,id:hit.id,className:hit.className}};
     });
     check(filters.length===3&&filters.every(r=>r.height>=modeMinimum-.5&&r.width>43.5&&r.hit),
       'F1392 filter targets must match shared mode sizing and remain reachable',{modeMinimum,filters});
@@ -129,7 +132,7 @@ async function mapLayout(scan, mutation) {
     check(recentBox.width>0&&Math.abs(recentBox.width/recentBox.height-8/5)<.025,
       'F1395 populated Recent map collapsed or changed ratio',recentBox);
     const savedL=window.L;
-    try {window.L=undefined;A.renderRecentChecklistBatch([{subId:'S1395SVG',isoObsDate:A.todayStr()+' 09:00',
+    try {window.L=undefined;A.renderRecentChecklistBatch([{subId:'S1395SVG',isoObsDate:A.todayStr()+' 09:00',subnational1Code:'US-WA',
       loc:{locId:'L1395SVG',name:'Representative fallback patch',isHotspot:true,latitude:46.5,longitude:-120.5}}],1,1);}
     finally{window.L=savedL;}
     const fallback=document.querySelector('#recentMap .mapcanvas svg'), fallbackBox=fallback&&box(fallback);

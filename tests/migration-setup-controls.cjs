@@ -3,12 +3,13 @@ const fs = require('node:fs');
 const path = require('node:path');
 module.exports = function registerMigrationSetupControls({
   test, assert, boot, seedSeen, seedRarityChase, fixtureIsoWeek, sampleDateForWeek, foySourceFixture,
-  formatObsStamp, IDBFactory, waitFor, HTML, f821Page, f821Hotspots, otherStateMegaAlertHtml, surgeSourceRoot
+  formatObsStamp, IDBFactory, waitFor, HTML, f821Page, f821Hotspots, otherStateMegaAlertHtml, surgeSourceRoot,
+  readPersistedFixture
 }) {
   function baselineSensitive(app) {
     const A = app.window.__app, now = new app.window.Date();
     const parts = A.birdcastLocalParts(now, A.getReport());
-    A.birdGenSensitiveJournal({
+    return A.birdGenSensitiveJournalAsync({
       source: 'highCountPage', sourceOwner: A.surgeRetainedContext(),
       sourceRegion: A.activeScope().effectiveRegion,
       sourceMonth: parts.year + '-' + String(parts.month).padStart(2, '0'),
@@ -140,7 +141,8 @@ module.exports = function registerMigrationSetupControls({
       assert.equal(rules.find(rule => rule.selectorText === '.hdrid .hdrrank, .hdrid .hdrcount')
         .style.getPropertyValue('min-height'), '44px');
       assert.equal(app.window.getComputedStyle(app.document.querySelector('header .brandmark')).width, '44px');
-      assert.equal(app.document.querySelector('header > .brand').nextElementSibling.id, 'hdrPeriod');
+      assert.equal(app.document.querySelector('header > .brand').nextElementSibling.id, 'hdrHome');
+      assert.equal(app.$('hdrHome').nextElementSibling.id, 'hdrScope');
       assert.match(HTML, /header \.brandtext h1 \{ font-size: calc\(24px/);
     } finally { app.window.close(); }
   });
@@ -242,7 +244,7 @@ module.exports = function registerMigrationSetupControls({
       try {
         const A = app.window.__app;
         if (county) A.setCountyView('US-WA-033');
-        baselineSensitive(app);
+        await baselineSensitive(app);
         const source = await A.loadMassFlockAlertSource(false, A.activeScope());
         const requests = app.state.fetches.length;
         const area = county ? 'King County' : 'Washington';
@@ -271,7 +273,7 @@ module.exports = function registerMigrationSetupControls({
         assert.equal(app.$('appSheet').querySelector('[data-loc],[data-subid],[data-q]'), null);
         assert.equal(app.state.fetches.length, requests, 'coarse display/action makes no new source request');
         const history = app.window.localStorage.getItem(A.sensitiveJournalKey());
-        A.birdGenSensitiveJournal({ ...source, sourceRegion: 'US-OR',
+        await A.birdGenSensitiveJournalAsync({ ...source, sourceRegion: 'US-OR',
           acquired: true, inventoryComplete: true, state: 'ok' }, new app.window.Date());
         assert.equal(app.window.localStorage.getItem(A.sensitiveJournalKey()), history,
           'foreign-region evidence cannot alter the acquired-area journal');
@@ -297,7 +299,7 @@ module.exports = function registerMigrationSetupControls({
         A.fgWindowReset();
         A.fgSchedReset(now);
         if (region !== 'US-WA') A.setCountyView(region);
-        baselineSensitive(app);
+        await baselineSensitive(app);
         const source = await A.loadMassFlockAlertSource(false, A.activeScope());
         assert.notEqual(source.state, 'failed');
         A.renderSurge([], [], [], [], [], { massSource: source, mass: source.state });
@@ -640,7 +642,7 @@ module.exports = function registerMigrationSetupControls({
       /bird-list\?.*rank=hc/.test(url) ? preparedSensitivePage() : [] });
     try {
       const A = app.window.__app;
-      baselineSensitive(app);
+      await baselineSensitive(app);
       const source = await A.loadMassFlockAlertSource(false, A.activeScope());
       assert.notEqual(source.state, 'failed');
       assert.equal(source.evidenceRows.length, 0);
@@ -669,18 +671,18 @@ module.exports = function registerMigrationSetupControls({
       assert.equal(card.getAttribute('data-surge-latest'), String(first[0].time));
       const history = app.window.localStorage.getItem(A.sensitiveJournalKey());
       for (const change of [{ sourceOwner: 'wrong-owner' }, { sourceRegion: 'US-OR' }]) {
-        A.birdGenSensitiveJournal({ ...source, acquired: true, inventoryComplete: true,
+        await A.birdGenSensitiveJournalAsync({ ...source, acquired: true, inventoryComplete: true,
           state: 'ok', ...change }, new app.window.Date());
         assert.equal(app.window.localStorage.getItem(A.sensitiveJournalKey()), history);
       }
       const nextMonth = new Date();
       nextMonth.setUTCMonth(nextMonth.getUTCMonth() + 1, 15);
-      A.birdGenSensitiveJournal(source, nextMonth);
+      await A.birdGenSensitiveJournalAsync(source, nextMonth);
       assert.equal(A.birdGenSensitiveRows(nextMonth).length, 0);
       const newMonth = nextMonth.getUTCFullYear() + '-' + String(nextMonth.getUTCMonth() + 1).padStart(2, '0');
-      A.birdGenSensitiveJournal({ ...source, sourceMonth: newMonth }, nextMonth);
+      await A.birdGenSensitiveJournalAsync({ ...source, sourceMonth: newMonth }, nextMonth);
       assert.equal(A.birdGenSensitiveRows(nextMonth).length, 0);
-      A.birdGenSensitiveJournal({
+      await A.birdGenSensitiveJournalAsync({
         ...source, sourceMonth: newMonth, acquiredAt: nextMonth.getTime(),
         acquired: true, inventoryComplete: true, state: 'ok'
       }, nextMonth);
@@ -698,7 +700,7 @@ module.exports = function registerMigrationSetupControls({
       const A = app.window.__app;
       A.setCountyView('US-WA-033');
       assert.equal(A.activeScope().effectiveRegion, 'US-WA-033');
-      baselineSensitive(app);
+      await baselineSensitive(app);
       const source = await A.loadMassFlockAlertSource(false, A.activeScope());
       const cards = A.birdGenSensitiveRows(new app.window.Date());
       assert.equal(cards.length, 1);
@@ -1034,6 +1036,8 @@ module.exports = function registerMigrationSetupControls({
       const option = app.$('setupHomeOptions').querySelectorAll('[data-setup-home-option]')[1];
       option.checked = true;
       option.dispatchEvent(new app.window.Event('change', { bubbles: true }));
+      await waitFor(() => app.$('appSheet') && !app.$('appSheet').hidden,
+        'retained radio selection opens its review');
       assert.ok(app.$('appSheet') && !app.$('appSheet').hidden,
         'radio selection must open its result review');
       assert.match(app.$('setupHomeCandidate').textContent, /Springfield/);
@@ -1053,6 +1057,8 @@ module.exports = function registerMigrationSetupControls({
       await waitFor(() => app.$('appSheet').dataset.infoId === 'setup-home-replace'
         && !app.$('appSheet').hidden, 'replacement remains explicit after Back');
       app.click(app.$('appSheet').querySelector('[data-setup-confirm-continue]'));
+      await waitFor(() => app.$('setupSheetBody').dataset.setupStep === 'region',
+        'retained replacement approval opens region review');
       assert.equal(app.$('setupSheetBody').dataset.setupStep, 'region');
       assert.equal(app.$('setupHomeReplace'), null, 'F1178 no replacement checkbox on region');
       app.click(app.$('setupNext'));
@@ -1253,6 +1259,8 @@ module.exports = function registerMigrationSetupControls({
       assert.ok(app.$('setupHomeMap').querySelector('.mapcanvas svg, .mapcanvas .leaflet-marker-icon'),
         'saved Home map is visible on entry');
       app.click(app.$('setupHomeApprove'));
+      await waitFor(() => app.$('appSheet') && !app.$('appSheet').hidden,
+        'retained saved Home opens its review');
       assert.ok(app.$('appSheet') && !app.$('appSheet').hidden, 'saved Home needs the same result review');
       assert.equal(app.$('appSheet').dataset.infoId, 'setup-home-confirmed');
       assert.match(app.$('appSheet').textContent, /Saved synthetic Home/);
@@ -1309,6 +1317,8 @@ module.exports = function registerMigrationSetupControls({
       assert.equal(app.$('setupHomePlace').value, 'Unvalidated synthetic replacement');
       assert.equal(A.getHome().lat, lat);
       app.click(app.$('setupUseSavedHome'));
+      await waitFor(() => app.$('appSheet') && !app.$('appSheet').hidden,
+        'retained saved Home choice opens its review');
       app.click(app.$('appSheet').querySelector('[data-setup-confirm-continue]'));
       assert.equal(app.state.fetches.filter(url => /photon/.test(url)).length, 0,
         'confirming an unchanged saved point must not start another region lookup');
@@ -1355,7 +1365,7 @@ module.exports = function registerMigrationSetupControls({
         app.click(app.$('appSheet').querySelector('[data-setup-confirm-continue]'));
         app.window.localStorage.setItem(A.BC_PROFILE_PTR, profile);
         assert.equal(A.getHome().lat, change === 'saved' ? 47.8 : 47.7);
-        assert.equal(JSON.parse(app.window.localStorage.getItem('bc_setup_home_draft_v1')).replacementConsent, undefined);
+        assert.equal(readPersistedFixture(app.window, 'bc_setup_home_draft_v1').replacementConsent, undefined);
         assert.notEqual(app.$('setupSheetBody').dataset.setupStep, 'seen');
         assert.deepEqual(app.state.errors, []);
       } finally { app.window.close(); }
@@ -1402,7 +1412,7 @@ module.exports = function registerMigrationSetupControls({
         if (change === 'identity')
           A.applyCapturedIdentity({ status: 'ok', displayName: 'Different Synthetic Owner' });
         else {
-          const draft = JSON.parse(app.window.localStorage.getItem('bc_setup_home_draft_v1'));
+          const draft = readPersistedFixture(app.window, 'bc_setup_home_draft_v1');
           draft.point = { lat: 48, lng: -123, label: 'Changed synthetic Home' };
           app.window.localStorage.setItem('bc_setup_home_draft_v1', JSON.stringify(draft));
         }
@@ -1665,7 +1675,7 @@ module.exports = function registerMigrationSetupControls({
       app.click(app.$('homeCurrentLocation'));
       await waitFor(() => !app.$('homeDeviceSave').hidden, 'device Home approval');
       assert.equal(JSON.stringify(A.getHome()), initial);
-      app.click(app.$('homeFindCancel'));
+      app.click(app.$('clearHomeBtn'));
       assert.equal(app.$('homeDeviceSave').hidden, true);
       assert.equal(JSON.stringify(A.getHome()), initial);
       app.click(app.$('homeCurrentLocation'));
@@ -1710,7 +1720,7 @@ module.exports = function registerMigrationSetupControls({
           assert.equal(requests, 1);
           if (outcome === 'denied') fail({ code: 1, message: 'Permission denied' });
           if (outcome === 'timeout') { assert.equal(typeof timeout, 'function'); timeout(); }
-          if (outcome === 'cancel') app.click(app.$(surface === 'setup' ? 'setupHomeCancel' : 'homeFindCancel'));
+          if (outcome === 'cancel') app.click(app.$(surface === 'setup' ? 'setupHomeCancel' : 'clearHomeBtn'));
           if (outcome === 'close') {
             if (surface === 'setup') app.click(app.$('setupSheetClose')); else A.showMenu();
           }

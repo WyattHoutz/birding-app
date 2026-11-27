@@ -112,9 +112,9 @@ test('F1462 actual Bird Gen rebuilds mixed-county groups from bounded raw eviden
       return {rows:byFile,cv:A.computeChaseRows(A.chaseProfile(),A.getReportSlug(),byFile),
         feedComplete:true,partial:false};
     };
-    const control=A.surgeObservedResult(source(inside),now);
+    const control=(await A.surgeObservedResultAsync(source(inside),now));
     const mixed=source(inside.concat(outside,inside));
-    const before=JSON.stringify(mixed), result=A.surgeObservedResult(mixed,now);
+    const before=JSON.stringify(mixed), result=(await A.surgeObservedResultAsync(mixed,now));
     assert.equal(JSON.stringify(mixed),before,'consumer projection must not rewrite retained source evidence');
     assert.deepEqual(JSON.parse(JSON.stringify(result.needs)),JSON.parse(JSON.stringify(control.needs)),
       'outside county parties, timestamps and duplicate feeds cannot change a qualifying local group');
@@ -126,11 +126,11 @@ test('F1462 actual Bird Gen rebuilds mixed-county groups from bounded raw eviden
     assert.equal(retained.merged.length,4,'actual retained reconstruction must repeat the early projection');
     assert.equal(retained.evidenceRows[file].length,12,'retain the original acquired source');
     const unknown={...inside[0],subId:'SUNKNOWN1462',subnational2Code:undefined,lat:undefined,lng:undefined};
-    const uncertain=A.surgeObservedResult(source(inside.concat(unknown)),now);
+    const uncertain=(await A.surgeObservedResultAsync(source(inside.concat(unknown)),now));
     assert.equal(uncertain.state,'partial','unknown membership cannot produce a complete receipt');
     assert.equal(uncertain.scopeWithheld,1);
     assert.equal(uncertain.merged.length,4);
-    const failed=A.surgeObservedResult({...mixed,feedFailed:true},now);
+    const failed=(await A.surgeObservedResultAsync({...mixed,feedFailed:true},now));
     assert.equal(failed.state,'failed','positive scoped evidence cannot heal a failed dependency');
     const key=A.twitchJournalKey();
     A.setCountyView('US-WA-061');
@@ -244,6 +244,110 @@ test('F1462 actual Recent refresh preserves non-refreshed raw evidence and scope
   } finally {app.window.close();}
 });
 
+test('F1536 main header combines year-region chooser and routes Home to the active editor without saving', async () => {
+  for (const kind of ['home','temp','unset']) {
+    const app = await boot({home:kind !== 'unset',storage:kind === 'temp'
+      ? {'ebird_home_lat:shared-v1':'19.65','ebird_home_lng:shared-v1':'-155.99',
+        'ebird_home_place:shared-v1':'Permanent Home elsewhere',
+        ebird_temp_home_v1:JSON.stringify({lat:47.8,lng:-122.3,label:'Saved trip'})} : undefined});
+    const A = app.window.__app;
+    try {
+      A.setCountyView('US-WA-033'); A.setPersonalPeriod('all'); A.showMenu();
+      const reconciled = await A.reconcileSavedBase();
+      if (kind === 'temp') assert.equal(reconciled.choice,'temp','the fixture retains a genuinely active Temp Home');
+      const saved = JSON.stringify([A.getHome(),A.tempHome()]);
+      const owner = A.activeScope().cacheIdentity;
+      const home = app.$('hdrHome'), scope = app.$('hdrScope');
+      assert.equal(app.$('hdrPeriod'),null,'there is only one year-region control');
+      assert.equal(home.nextElementSibling,scope,'Home precedes the combined chooser button');
+      assert.match(home.getAttribute('aria-label'),/Home.*settings/i);
+      assert.equal(home.querySelector('svg').getAttribute('aria-hidden'),'true');
+      assert.equal(scope.textContent,'All US-WA-033');
+      assert.equal(scope.textContent,app.$('navScopeTag').textContent);
+      for (const property of ['padding','borderRadius','border','backgroundColor','fontWeight']) {
+        assert.equal(app.window.getComputedStyle(scope.firstElementChild)[property],
+          app.window.getComputedStyle(app.$('navScopeTag'))[property],property+' matches the submenu');
+      }
+      app.click(home);
+      const editor = app.$(kind === 'temp' ? 'settingsTempHomeEditor' : 'settingsHomeEditor');
+      assert.equal(app.$('settingsPanel').hidden,false);
+      assert.equal(editor.open,true);
+      await waitFor(()=>app.document.activeElement===editor.querySelector('input'),'active Home editor focus');
+      assert.equal(JSON.stringify([A.getHome(),A.tempHome()]),saved);
+      assert.equal(A.activeScope().cacheIdentity,owner);
+      assert.equal(A.personalPeriod(),'all');
+      A.showMenu(); scope.focus(); app.click(scope);
+      assert.equal(app.$('regionChooser').hidden,false);
+      assert.ok(app.$('regionChooserPeriod').querySelector('[aria-pressed="true"]'));
+      app.click(app.$('regionChooserClose'));
+      assert.equal(app.document.activeElement,scope);
+      assert.equal(JSON.stringify([A.getHome(),A.tempHome()]),saved);
+      assert.equal(A.activeScope().cacheIdentity,owner);
+      assert.deepEqual(app.state.errors,[]);
+    } finally {app.window.close();}
+  }
+});
+
+test('F1535 Clear cancels pending and reviewed Home and Temp edits without changing saved locations', async () => {
+  for (const kind of ['home','temp']) {
+    let release, held=true;
+    const feature={properties:{name:'New candidate',state:'Washington',country:'United States'},
+      geometry:{type:'Point',coordinates:[-122.2,47.7]}};
+    const app=await boot({storage:kind==='temp'?{ebird_temp_home_v1:JSON.stringify({
+      lat:47.8,lng:-122.3,label:'Saved trip'
+    })}:undefined,fetch:url=>/photon.*api/.test(url)
+      ? held?new Promise(resolve=>{release=resolve;}):{features:[feature]}:null});
+    const A=app.window.__app;
+    try {
+      const prefix=kind==='temp'?'tempHome':'home';
+      const editor=app.$(kind==='temp'?'settingsTempHomeEditor':'settingsHomeEditor');
+      const input=app.$(prefix+'Place'), clear=app.$(kind==='temp'?'tempClearHomeBtn':'clearHomeBtn');
+      const go=app.$(kind==='temp'?'tempGeocodeBtn':'geocodeBtn');
+      const saved=JSON.stringify([A.getHome(),A.tempHome()]);
+      A.openSavedLocationEditor(kind);
+      assert.equal([...editor.querySelectorAll('button')].some(button=>button.textContent.trim()==='Cancel'),false);
+      input.value='held candidate';go.click();
+      await waitFor(()=>release,kind+' pending lookup');
+      clear.click();
+      assert.equal(input.value,'');
+      assert.equal(editor.open,false,kind+' Clear closes the unsaved editor');
+      assert.equal(app.document.activeElement,editor.querySelector('summary'));
+      release({features:[feature]});
+      await new Promise(resolve=>setTimeout(resolve,30));
+      assert.equal(app.$(prefix+'CandidateReview').hidden,true,kind+' late lookup cannot restore approval');
+      assert.equal(app.$(prefix+'Choices').children.length,0);
+      assert.equal(JSON.stringify([A.getHome(),A.tempHome()]),saved);
+      held=false;
+      A.openSavedLocationEditor(kind);
+      assert.ok(input.value,'reopening restores the saved address');
+      input.value='new candidate';go.click();
+      await waitFor(()=>!app.$(prefix+'CandidateReview').hidden,kind+' candidate review');
+      const staleSave=app.$(prefix+'DeviceSave');
+      clear.click();staleSave.click();
+      assert.equal(app.$(prefix+'CandidateReview').hidden,true);
+      assert.equal(editor.open,false);
+      assert.equal(JSON.stringify([A.getHome(),A.tempHome()]),saved,kind+' Clear must not save or remove an override');
+    }finally{app.window.close();}
+  }
+});
+
+test('F1535 Clear leaves an unset required Home editor empty and usable', async () => {
+  const app=await boot({home:false});
+  try {
+    const A=app.window.__app;
+    A.openSavedLocationEditor('home');
+    app.$('homePlace').value='47.6, -122.3';app.$('geocodeBtn').click();
+    await waitFor(()=>!app.$('homeCandidateReview').hidden,'unsaved first Home');
+    app.$('clearHomeBtn').click();
+    assert.equal(A.getHome(),null);
+    assert.equal(app.$('homePlace').value,'');
+    assert.equal(app.$('settingsHomeEditor').open,true);
+    assert.equal(app.$('homeCandidateReview').hidden,true);
+    assert.equal(app.document.activeElement,app.$('homePlace'));
+    assert.equal(app.$('geocodeBtn').disabled,false);
+  }finally{app.window.close();}
+});
+
 test('F1533 one active card exposes ordered Maps links and protects default Home until explicit restoration', async () => {
   const app = await boot({storage:{ebird_temp_home_v1:JSON.stringify({
     lat:19.7,lng:-155.1,label:'Island trip'
@@ -251,7 +355,7 @@ test('F1533 one active card exposes ordered Maps links and protects default Home
   const A = app.window.__app;
   try {
     A.openSavedLocationEditor('temp');
-    app.$('tempHomeFindCancel').click();
+    app.$('tempClearHomeBtn').click();
     assert.match(app.$('homeSettingsTitle').textContent,/Temp Home \(Active\)/);
     const links = [...app.$('homeSettingsBubble').querySelectorAll('.saved-location-value a')];
     assert.equal(links.length,2);
@@ -267,11 +371,13 @@ test('F1533 one active card exposes ordered Maps links and protects default Home
     app.$('tempClearHomeBtn').click();
     assert.equal(app.$('tempHomePlace').value,'');
     assert.equal(JSON.stringify([A.getHome(),A.tempHome()]),original,'Clear is draft-only');
-    app.$('tempHomeFindCancel').click();
+    assert.equal(app.$('settingsTempHomeEditor').open,false,'Clear also cancels editing');
+    A.openSavedLocationEditor('temp');
     assert.equal(app.$('tempHomePlace').value,'Island trip');
     await waitFor(()=>/Temp Home:.*beyond/.test(app.$('savedLocationWarnings').textContent),'saved Temp warning');
     assert.match(app.$('savedLocationWarnings').textContent,/Region stays unchanged/);
     app.$('tempHomeRestore').click();
+    await app.$('tempHomeRestore')._tempHomeSave;
     assert.equal(A.tempHome(),null);
     assert.match(app.$('homeSettingsTitle').textContent,/🏠 Home \(Active\)/);
     assert.equal(app.$('homeSavedSummary').querySelector('a').href,links[1].href);
@@ -279,10 +385,11 @@ test('F1533 one active card exposes ordered Maps links and protects default Home
     assert.equal(app.$('homeSavedSummary').hidden,true,'editing hides duplicate read-only Home');
     app.$('clearHomeBtn').click();
     assert.ok(A.getHome(),'clearing Home draft must not erase saved Home');
-    app.$('homeFindCancel').click();
+    assert.equal(app.$('settingsHomeEditor').open,false,'Clear also cancels editing');
+    A.openSavedLocationEditor('home');
     assert.ok(A.getHome());
     assert.equal(app.$('homePlace').value,app.window.localStorage.getItem(A.homeKey('place'))
-      || A.getHome().lat+', '+A.getHome().lng,'Cancel restores the saved address even for an unlabeled coordinate Home');
+      || A.getHome().lat+', '+A.getHome().lng,'reopening restores the saved address even for an unlabeled coordinate Home');
   } finally {app.window.close();}
 });
 
@@ -344,12 +451,53 @@ test('F1533 live geocoder candidates deduplicate, disambiguate and retire stale 
     assert.equal(app.$('homeCandidateReview').hidden,true);
     phase='held'; app.$('geocodeBtn').click();
     await waitFor(()=>release,'held search');
-    app.$('homeFindCancel').click();
+    app.$('clearHomeBtn').click();
     release({features:[feature(47.8,'Late town')]});
     await new Promise(resolve=>setTimeout(resolve,30));
     assert.equal(app.$('homeCandidateReview').hidden,true);
     assert.equal(JSON.stringify(A.getHome()),original);
   } finally {app.window.close();}
+});
+
+test('F1537 repeated Victoria lookup labels retain distinct points and identify Home and Temp choices', async () => {
+  const feature=(lat,lng,type,name='Victoria')=>({
+    properties:{name,state:'British Columbia',country:'Canada',city:'Victoria',osm_value:type},
+    geometry:{type:'Point',coordinates:[lng,lat]}
+  });
+  const city=feature(48.4284,-123.3656,'city');
+  const features=[city,city,feature(48.4266,-123.3751,'administrative'),
+    feature(48.435,-123.37,'city'),
+    feature(48.43,-123.39,'nature_reserve','Victoria Harbour Migratory Bird Sanctuary')];
+  for (const kind of ['home','temp']) {
+    const app=await boot({storage:kind==='temp'?{ebird_temp_home_v1:JSON.stringify({
+      lat:47.8,lng:-122.3,label:'Saved trip'
+    })}:undefined,fetch:url=>/photon.*api/.test(url)?{features}:null});
+    const A=app.window.__app, prefix=kind==='temp'?'tempHome':'home';
+    try {
+      const saved=JSON.stringify([A.getHome(),A.tempHome()]);
+      const owner=A.activeScope().cacheIdentity;
+      A.openSavedLocationEditor(kind);
+      app.$(prefix+'Place').value='Victoria';
+      app.$(kind==='temp'?'tempGeocodeBtn':'geocodeBtn').click();
+      await waitFor(()=>app.$(prefix+'Choices').querySelectorAll('button').length>0,kind+' Victoria choices');
+      const buttons=[...app.$(prefix+'Choices').querySelectorAll('button')];
+      assert.equal(buttons.length,4,'only the duplicate point is collapsed');
+      const labels=buttons.map(button=>button.textContent);
+      assert.equal(new Set(labels).size,4,'distinct coordinates must never have indistinguishable labels');
+      assert.match(labels[0],/city; 48\.42840, -123\.36560/,'provider detail is visible');
+      assert.match(labels[1],/administrative; 48\.42660, -123\.37510/);
+      assert.match(labels[2],/city; 48\.43500, -123\.37000/,'matching feature types still have distinct coordinates');
+      assert.equal(labels[3],'Victoria Harbour Migratory Bird Sanctuary, British Columbia, Canada',
+        'already-distinct labels remain concise');
+      assert.equal(app.$(prefix+'CandidateReview').hidden,true,'no point is guessed from a repeated label');
+      buttons[1].click();
+      await waitFor(()=>!app.$(prefix+'CandidateReview').hidden,kind+' selected point review');
+      assert.match(app.$(prefix+'CandidateSummary').textContent,/48\.42660, -123\.37510/);
+      assert.equal(JSON.stringify([A.getHome(),A.tempHome()]),saved,'selection is not Save');
+      assert.equal(A.activeScope().cacheIdentity,owner);
+      assert.deepEqual(app.state.errors,[]);
+    } finally {app.window.close();}
+  }
 });
 
 test('F1533 candidate distance uses exact selected boundary and Save rejects changed radius or scope', async () => {
@@ -455,6 +603,7 @@ test('F1518 explicit Temp saves preserve consent but refresh actual reachability
     app.$('tempGeocodeBtn').click();
     await waitFor(()=>!app.$('tempHomeCandidateReview').hidden,'explicit Temp review');
     app.$('tempHomeDeviceSave').click();
+    await app.$('tempHomeDeviceSave')._tempHomeSave;
     await new Promise(resolve=>setTimeout(resolve,40));
   }
   try {
@@ -663,13 +812,14 @@ test('F1515 actual Temp editor requires explicit save, survives restart, and nev
     assert.equal(A.tempHome(),null);
     assert.equal(app.$('tempHomeCandidateReview').hidden,false);
     assert.match(app.$('tempHomeCandidateSummary').textContent,/Not saved/);
-    app.$('tempHomeCandidateCancel').click();
+    app.$('tempClearHomeBtn').click();
     assert.equal(A.tempHome(),null);
     A.openSavedLocationEditor('temp');
     app.$('tempHomePlace').value = '19.7, -155.1';
     app.$('tempGeocodeBtn').click();
     await new Promise(r=>setTimeout(r,30));
     app.$('tempHomeDeviceSave').click();
+    await app.$('tempHomeDeviceSave')._tempHomeSave;
     assert.equal(A.tempHome().lat,19.7);
     assert.equal(JSON.stringify(A.getHome()),original);
     assert.match(app.$('homeSettingsTitle').textContent,/Temp Home \(Active\)/);
@@ -693,6 +843,230 @@ test('F1515 actual Temp editor requires explicit save, survives restart, and nev
     assert.equal(A.tempHome(),null);
     assert.equal(JSON.stringify(A.getHome()),original);
   } finally {app.window.close();}
+});
+
+function f1544BoundaryDocument() {
+  if (process.env.BIRDCHASER_BOUNDARY_PROBE) {
+    return JSON.parse(fs.readFileSync(process.env.BIRDCHASER_BOUNDARY_PROBE, 'utf8'));
+  }
+  return { type: 'FeatureCollection', features: [{ type: 'Feature',
+    properties: { PRUID: '59', PRENAME: 'British Columbia' },
+    geometry: { type: 'Polygon',
+      coordinates: [[[-139,48],[-114,48],[-114,61],[-139,61],[-139,48]]] }
+  }] };
+}
+
+test('F1544 actual BC fetching keeps filtering independent and reconciles Home and Temp from compressed geometry', async () => {
+  for (const choice of ['temp', 'home']) {
+    let release;
+    const app = await boot({ sample: false, nativeCompression: true, storage: {
+      ebird_custom_regions: JSON.stringify([{ slug: 'u-f1544-bc', label: 'British Columbia',
+        stateCode: 'CA-BC', lat: 48.45, lng: -123.4 }]), ebird_report: 'u-f1544-bc',
+      ebird_temp_home_v1: JSON.stringify({ lat: 48.45, lng: -123.4, label: 'Victoria trip' })
+    }, fetch: url => /geo\.statcan\.gc\.ca/.test(url)
+      ? new Promise(resolve => { release = () => resolve(f1544BoundaryDocument()); }) : [] });
+    const W = app.window, A = W.__app;
+    try {
+      await waitFor(() => release, 'actual on-demand BC request');
+      W.localStorage.setItem(A.chaseMiKey(), '5');
+      const prepared = await Promise.race([
+        A.ensurePatchScope(A.activeScope()).then(() => true),
+        new Promise(resolve => setTimeout(() => resolve(false), 100))
+      ]);
+      assert.equal(prepared, true, 'known administrative scope must not wait for the held polygon');
+      const inside = { speciesCode: 'amerob', lat: 48.45, lng: -123.4,
+        countryCode: 'CA', subnational1Code: 'CA-BC' };
+      assert.equal(A.patchEvidenceRows([inside, { ...inside, subnational1Code: 'CA-AB' }]).length, 1);
+      if (choice === 'home') {
+        W.localStorage.setItem(A.homeKey('lat'), '49.2827');
+        W.localStorage.setItem(A.homeKey('lng'), '-123.1207');
+      }
+      const originalHome = JSON.stringify(A.getHome()), pending = A.reconcileSavedBase();
+      if (choice === 'home') A.setPersonalPeriod('all');
+      release(); release = null;
+      assert.equal((await pending).choice, choice);
+      assert.equal(JSON.stringify(A.getHome()), originalHome);
+      assert.equal(!!A.tempHome(), choice === 'temp');
+      assert.equal(app.$('savedBaseRegionNotice').hidden, true, 'known usable geometry retires the unknown caption');
+      assert.equal(A.patchEvidenceRows([{ ...inside, lat: 47.6, lng: -122.3 }]).length, 0,
+        'once loaded, the same polygon rejects coordinates outside the selected region');
+      const key = W.BirdRegionBoundaries.cacheKey('CA-BC'), raw = W.localStorage.getItem(A.bcReal(key));
+      assert.ok(raw.startsWith('z:'));
+      assert.equal((await A.unpackJson(raw)).boundary.sourceId, '59');
+      assert.equal(app.state.fetches.filter(url => /geo\.statcan\.gc\.ca/.test(url)).length, 1);
+      const storage = {};
+      for (let i = 0; i < W.localStorage.length; i++) {
+        const k = W.localStorage.key(i); storage[k] = W.localStorage.getItem(k);
+      }
+      const restarted = await boot({ sample: false, nativeCompression: true, home: false, storage,
+        fetch: url => /geo\.statcan\.gc\.ca/.test(url) ? { __status: 503 } : [] });
+      try {
+        const B = restarted.window.__app;
+        const result = await B.reconcileSavedBase();
+        assert.ok(result && result.choice === choice);
+        assert.equal(restarted.state.fetches.filter(url => /geo\.statcan\.gc\.ca/.test(url)).length, 0,
+          'compressed geometry supports offline restart without another provider call');
+        assert.equal(JSON.stringify(B.getHome()), originalHome);
+      } finally { restarted.window.close(); }
+    } finally { if (release) release(); W.close(); }
+  }
+});
+
+test('F1544 actual boundary completion cannot cache or restore after profile, region or erasure changes', async () => {
+  for (const change of ['profile', 'region', 'erase']) {
+    let release;
+    const app = await boot({ sample: false, nativeCompression: true, storage: {
+      ebird_custom_regions: JSON.stringify([{ slug: 'u-f1544-owner', label: 'British Columbia',
+        stateCode: 'CA-BC', lat: 48.45, lng: -123.4 }]), ebird_report: 'u-f1544-owner',
+      ebird_temp_home_v1: JSON.stringify({ lat: 48.45, lng: -123.4, label: 'Saved trip' })
+    }, fetch: url => /geo\.statcan\.gc\.ca/.test(url)
+      ? new Promise(resolve => { release = () => resolve(f1544BoundaryDocument()); }) : [] });
+    const W = app.window, A = W.__app;
+    try {
+      await waitFor(() => release, 'held actual BC geometry');
+      const pending = A.reconcileSavedBase(), snapshot = {};
+      for (let i = 0; i < W.localStorage.length; i++) {
+        const k = W.localStorage.key(i); snapshot[k] = W.localStorage.getItem(k);
+      }
+      if (change === 'region') {
+        A.setActiveReport('wa');
+        assert.equal((await A.reconcileSavedBase()).choice, 'home');
+        assert.equal(A.tempHome(), null, 'the new region may legitimately restore reachable Home');
+      }
+      else {
+        if (change === 'erase') A.scrubPersonalData();
+        else W.localStorage.setItem(A.BC_PROFILE_PTR, 'F1544-other');
+        for (const [k,v] of Object.entries(snapshot)) {
+          if (k !== A.BC_PROFILE_PTR) W.localStorage.setItem(A.bcReal(k),v);
+        }
+        assert.equal(A.activeScope().effectiveRegion, 'CA-BC',
+          'keep geography identical to isolate profile/monotonic erasure ownership');
+      }
+      const bases = JSON.stringify([A.getHome(),A.tempHome()]);
+      release(); release = null;
+      assert.equal(await pending, null, change + ': reject the previous boundary owner');
+      assert.equal(W.localStorage.getItem(W.BirdRegionBoundaries.cacheKey('CA-BC')), null,
+        change + ': obsolete geometry cannot enter the shared cache');
+      assert.equal(JSON.stringify([A.getHome(),A.tempHome()]), bases,
+        change + ': obsolete geometry cannot change the current saved bases');
+    } finally { if (release) release(); W.close(); }
+  }
+});
+
+test('F1544 actual Home and Here resolve an on-demand Kansas county without downloading sibling polygons', async () => {
+  for (const mode of ['home', 'here', 'partial', 'foreign']) {
+    const ring = [[-97.6,37.4],[-97,37.4],[-97,38],[-97.6,38],[-97.6,37.4]];
+    const doc = properties => ({ type: 'FeatureCollection', features: [{
+      type: 'Feature', properties, geometry: { type: 'Polygon', coordinates: [ring] }
+    }] });
+    const app = await boot({ sample: false, report: 'ks', nativeCompression: true,
+      location: { lat: 37.7, lng: -97.3 },
+      storage: { ebird_home_lat: '37.7', ebird_home_lng: '-97.3' },
+      fetch: url => {
+        if (/photon/.test(url)) return { features: [{ properties: { state: 'Kansas', countrycode: 'US' } }] };
+        if (/ref\/region\/list\/subnational2\/US-KS/.test(url)) return [
+          { code: 'US-KS-173', name: 'Sedgwick' }, { code: 'US-KS-015', name: 'Butler' }
+        ];
+        if (/ref\/region\/info\/US-KS-173/.test(url)) return {
+          bounds: { minX: -97.6, maxX: -97, minY: 37.4, maxY: 38 }
+        };
+        if (/ref\/region\/info\/US-KS-015/.test(url)) return mode === 'partial' ? {} : {
+          bounds: { minX: -96.9, maxX: -96.5, minY: 37.4, maxY: 38 }
+        };
+        if (/tigerweb\.geo\.census\.gov/.test(url)) {
+          return /\/5\/query/.test(url)
+            ? doc({ GEOID: mode === 'foreign' ? '20015' : '20173',
+              STATE: '20', COUNTY: mode === 'foreign' ? '015' : '173', BASENAME: 'Sedgwick' })
+            : doc({ GEOID: '20', STUSAB: 'KS', BASENAME: 'Kansas' });
+        }
+        return [];
+      } });
+    const A = app.window.__app;
+    try {
+      const saved = JSON.stringify([A.getHome(), A.tempHome()]);
+      A.openRegionChooser();
+      app.click(app.document.querySelector('[data-region-location="' + (mode === 'here' ? 'here' : 'home') + '"]'));
+      await waitFor(() => !/Resolving/.test(app.$('regionChooserLocationStatus').textContent),
+        mode + ': exact on-demand county lookup');
+      const county = app.$('regionChooserLocationStack')
+        .querySelector('[data-region-choice="county:ks:US-KS-173"]:not([hidden])');
+      assert.equal(!!county, mode !== 'partial' && mode !== 'foreign',
+        mode + ': only identified geometry and complete candidate coverage can certify a county');
+      const calls = app.state.fetches.filter(url => /tigerweb.*\/5\/query/.test(url));
+      assert.equal(calls.length, 1, mode + ': all consumers share the one candidate polygon');
+      assert.equal(new URL(calls[0]).searchParams.get('where'), "GEOID='20173'");
+      assert.equal(JSON.stringify([A.getHome(), A.tempHome()]), saved);
+      assert.equal(A.activeScope().effectiveRegion, 'US-KS', 'finding a county never selects it');
+      assert.equal(app.state.locations.length, mode === 'here' ? 1 : 0);
+    } finally { app.window.close(); }
+  }
+});
+
+test('F1542 unknown boundaries show a passive named Temp Home, not a repair request', async () => {
+  const app = await boot({ sample: false, storage: {
+    ebird_custom_regions: JSON.stringify([{ slug: 'u-bc', label: 'British Columbia',
+      stateCode: 'CA-BC', lat: 48.45, lng: -123.4 }]),
+    ebird_report: 'u-bc',
+    ebird_temp_home_v1: JSON.stringify({ lat: 48.45, lng: -123.4, label: 'Synthetic trip base' }),
+  }, fetch: () => [] });
+  try {
+    const A = app.window.__app, before = JSON.stringify([A.getHome(), A.tempHome()]);
+    assert.equal((await A.reconcileSavedBase()).choice, 'unknown');
+    const notice = app.$('savedBaseRegionNotice');
+    assert.equal(notice.hidden, false);
+    assert.equal(notice.dataset.noticeKind, 'passive');
+    assert.match(notice.querySelector('span').textContent, /^Temp Home \(Active\): Synthetic trip base/);
+    assert.match(notice.querySelector('span').textContent, /unknown.*unchanged/i);
+    assert.equal(notice.querySelector('button').hidden, true);
+    assert.doesNotMatch(notice.querySelector('span').textContent, /Review|if needed|Set a Temp/i);
+    assert.equal(JSON.stringify([A.getHome(), A.tempHome()]), before);
+    app.window.localStorage.removeItem('ebird_temp_home_v1');
+    await A.reconcileSavedBase();
+    assert.match(notice.querySelector('span').textContent, /^Home \(Active\):/);
+    assert.equal(notice.querySelector('button').hidden, true);
+  } finally { app.window.close(); }
+});
+
+test('F1543 returning Home survives a period change but rejects changed geographic owners', async () => {
+  for (const change of ['period', 'region', 'profile', 'home', 'temp', 'radius']) {
+    const app = await boot({ sample: false, storage: {
+      ebird_custom_regions: JSON.stringify([{ slug: 'u-bc', label: 'British Columbia',
+        stateCode: 'CA-BC', lat: 48.45, lng: -123.4 }]), ebird_report: 'u-bc',
+      ebird_temp_home_v1: JSON.stringify({ lat: 48.45, lng: -123.4, label: 'Synthetic trip' }),
+    } });
+    let release;
+    try {
+      const A = app.window.__app, store = app.window.localStorage;
+      const originalHome = JSON.stringify(A.getHome()), fetch = app.window.fetch;
+      app.window.fetch = (url, init) => /region-boundaries-wa\.json/.test(String(url))
+        ? new Promise(resolve => { release = () => resolve({ ok: true,
+          json: async () => JSON.parse(fs.readFileSync(wwwFixture('region-boundaries-wa.json'), 'utf8')) }); })
+        : fetch(url, init);
+      A.setActiveReport('wa');
+      await waitFor(() => release, 'held Washington boundary: ' + change);
+      const pending = A.reconcileSavedBase();
+      if (change === 'period') A.setPersonalPeriod('all');
+      if (change === 'region') A.setActiveReport('u-bc');
+      if (change === 'profile') store.setItem(A.BC_PROFILE_PTR, 'F1543-other-profile');
+      if (change === 'home') store.setItem(A.homeKey('lat'), '47.8');
+      if (change === 'temp') store.setItem('ebird_temp_home_v1',
+        JSON.stringify({ lat: 48.5, lng: -123.5, label: 'Replacement trip' }));
+      if (change === 'radius') store.setItem(A.chaseMiKey(), '5');
+      const changed = JSON.stringify([A.getHome(), A.tempHome()]);
+      release(); release = null;
+      const decision = await pending;
+      if (change === 'period') {
+        assert.ok(decision, 'a period-only refresh still owns the geographic decision');
+        assert.equal(decision.choice, 'home');
+        assert.equal(A.tempHome(), null, 'period-only refresh cannot strand Temp Home');
+        assert.equal(JSON.stringify(A.getHome()), originalHome);
+      } else {
+        assert.equal(decision, null, change + ': reject stale boundary completion');
+        assert.equal(JSON.stringify([A.getHome(), A.tempHome()]), changed,
+          change + ': preserve the newer saved locations');
+      }
+    } finally { if (release) release(); app.window.close(); }
+  }
 });
 
 test('F1530 aggregate Top 100 preserves both saved bases without an irrelevant Temp repair', async () => {
@@ -742,6 +1116,7 @@ test('F1515 region switching restores reachable Home but unsupported aggregate g
     app.$('tempGeocodeBtn').click();
     await new Promise(r=>setTimeout(r,30));
     app.$('tempHomeDeviceSave').click();
+    await app.$('tempHomeDeviceSave')._tempHomeSave;
     A.setActiveReport('lower48');
     await A.reconcileSavedBase();
     assert.notEqual(A.tempHome(),null,'unknown geometry must not clear the old saved Temp');
@@ -815,7 +1190,7 @@ test('F1515 failed and ambiguous Temp lookups preserve saved points and reject l
     await waitFor(()=>!app.$('tempHomeCandidateReview').hidden,'chosen unsaved review');
     assert.match(app.$('tempHomeCandidateSummary').textContent,/Ambiguous town.*47\.70000.*Not saved/);
     assert.equal(JSON.stringify(A.activeSavedBase()),saved,'a preferred search hit is still only a candidate');
-    app.$('tempHomeCandidateCancel').click();
+    app.$('tempClearHomeBtn').click();
     phase='held';
     app.$('tempHomePlace').value='Late town';
     app.$('tempGeocodeBtn').click();
@@ -872,7 +1247,7 @@ test('F1515 actual Bird Gen scoring, Recent and native configuration use saved T
     const before=JSON.stringify(rows);
     const savedContext=A.surgeRetainedContext(), journal=A.twitchJournalKey();
     A.useFoundAnchor({lat:45,lng:-120},'Quick planner');
-    let result=A.surgeObservedResult({cv:{merged:rows},partial:false},now);
+    let result=(await A.surgeObservedResultAsync({cv:{merged:rows},partial:false},now));
     assert.deepEqual(Array.from(result.needs,n=>n.locId),['LNEAR1515']);
     assert.equal(JSON.stringify(rows),before,'distance projection cannot mutate raw or retained rows');
     A.renderSurge([],[],[],result.needs,result.merged,{
@@ -893,7 +1268,7 @@ test('F1515 actual Bird Gen scoring, Recent and native configuration use saved T
     assert.equal(A.anchorPoint().lat,44,'Here really resolves GPS for its one-off search');
     assert.equal(A.surgeRetainedContext(),savedContext,'Here cannot change Bird Gen source context');
     assert.equal(JSON.parse(A.birdGenNotificationConfiguration().profileJSON).home.lat,47.61);
-    result=A.surgeObservedResult({cv:{merged:rows},partial:false},now);
+    result=(await A.surgeObservedResultAsync({cv:{merged:rows},partial:false},now));
     assert.deepEqual(Array.from(result.needs,n=>n.locId),['LNEAR1515']);
   } finally {A.cancelStalledWork();app.window.close();}
 });
@@ -1066,7 +1441,7 @@ test('F1515 changed saved base creates quiet TWITCH and target baselines without
       return {profile,rows,feedStates,feedComplete:true,cv:{merged:[]}};
     }
     let evidence=source();
-    A.surgeObservedResult(evidence,now,true);
+    (await A.surgeObservedResultAsync(evidence,now,true));
     const originalJournal=A.twitchJournalKey();
     await A.saveChaseSnapshot(evidence.profile.slug,[],evidence.rows,evidence.feedStates);
     A.menuChaseWarm();
@@ -1079,12 +1454,13 @@ test('F1515 changed saved base creates quiet TWITCH and target baselines without
     app.$('tempGeocodeBtn').click();
     await waitFor(()=>!app.$('tempHomeCandidateReview').hidden,'new saved-base review');
     app.$('tempHomeDeviceSave').click();
+    await app.$('tempHomeDeviceSave')._tempHomeSave;
     assert.notEqual(A.twitchJournalKey(),originalJournal);
     assert.equal(A.menuChaseBadge('sec-allUnseenBtn'),null,'old derived targets cannot cross saved bases');
     evidence=source();
-    assert.equal(A.surgeObservedResult(evidence,now,true).twitchRows.length,0,
+    assert.equal((await A.surgeObservedResultAsync(evidence,now,true)).twitchRows.length,0,
       'first complete source at a new base is a baseline even during explicit recovery');
-    assert.deepEqual(JSON.parse(store.getItem(A.twitchJournalKey())).known,['verfly']);
+    assert.deepEqual(readPersistedFixture(app.window, A.twitchJournalKey()).known,['verfly']);
     await A.saveChaseSnapshot(evidence.profile.slug,[],evidence.rows,evidence.feedStates);
     A.menuChaseWarm();
     await waitFor(()=>A.menuChaseBadge('sec-allUnseenBtn'),'new saved-base badge');
@@ -1138,7 +1514,7 @@ test('F1532 hotspot hydration retains verified directory provenance without admi
       }
       assert.equal(app.state.fetches.filter(url=>/data\/obs\/L153201\/recent/.test(url)).length,1,
         variant+' warm projection must reuse the raw location response');
-      const broad = JSON.parse(app.window.localStorage.getItem('ebird_locsp_v2:'+place.locId+':3')).v;
+      const broad = (await A.unpackJson(app.window.localStorage.getItem('ebird_locsp_v2:'+place.locId+':3'))).v;
       assert.equal(broad.length,variant === 'empty'?0:1,
         variant+' scoped hydration must not narrow the shared normalized cache');
       if (variant === 'conflicting') {
@@ -1147,6 +1523,47 @@ test('F1532 hotspot hydration retains verified directory provenance without admi
       }
       assert.deepEqual(app.state.errors,[]);
     } finally {app.window.close();}
+  }
+});
+
+test('F1541 card hydration stays visibly pending over retained birds until completion, failure or cancellation', async () => {
+  for (const outcome of ['complete', 'cancel', 'navigate', 'failure']) {
+    let release;
+    const bird = { speciesCode: 'amerob', comName: 'American Robin', locId: 'L1541PROGRESS',
+      lat: 47.75, lng: -122.16, obsDt: recentObsStamp(), subId: 'S1541PROGRESS' };
+    const app = await boot({ sample: false, fetch: url => /data\/obs\/L1541PROGRESS\/recent/.test(url)
+      ? new Promise(resolve => { release = () => resolve(outcome === 'failure' ? { __status: 400 } : [bird]); }) : [] });
+    try {
+      const A = app.window.__app;
+      await seedSeen(app, [], null, [bird]);
+      A.showSection('sec-destBtn', { load: false });
+      A.renderDestinations([{ locId: bird.locId, locName: 'Synthetic pending patch',
+        lat: bird.lat, lng: bird.lng, dist: 1, score: 1, rare: 0,
+        species: [{ code: 'amerob', comName: 'American Robin', dateStr: bird.obsDt }] }],
+      app.$('destMap'), app.$('destResults'), true);
+      const pending = A.hydrateLocSpecies(app.$('destResults'));
+      await waitFor(() => release, 'held actual hotspot card request');
+      const status = app.$('destResults').querySelector('.patch-loading');
+      assert.ok(status, 'card must not look finished while its request is pending');
+      assert.match(status.textContent, /Checking recent sightings/);
+      assert.equal(status.getAttribute('role'), 'status');
+      assert.match(app.$('destResults').textContent, /American Robin/);
+      if (outcome === 'cancel' || outcome === 'navigate') {
+        if (outcome === 'cancel') A.cancelStalledWork();
+        else A.showMenu();
+        assert.equal(app.$('destResults').querySelector('.patch-loading'), null,
+          'cancellation clears pending feedback even before the provider responds');
+      }
+      release(); release = null;
+      await pending;
+      assert.equal(app.$('destResults').querySelector('.patch-loading'), null);
+      assert.match(app.$('destResults').textContent, /American Robin/);
+      if (outcome === 'failure') {
+        assert.match(app.$('destResults').querySelector('.patch-load-error')?.textContent || '',
+          /unavailable.*retained/);
+      } else assert.equal(app.$('destResults').querySelector('.patch-load-error'), null);
+      assert.deepEqual(app.state.errors, []);
+    } finally { if (release) release(); app.window.__app.cancelStalledWork(); app.window.close(); }
   }
 });
 
@@ -1179,10 +1596,14 @@ test('F1532 cold provincial patches paint before a held direct scan without laun
     await assert.doesNotReject(waitFor(()=>release && /American Robin/.test(app.$('destResults').textContent),
       'useful provincial bird card before the second hotspot finishes'));
     assert.match(app.$('destStatus').textContent,/Partial/);
+    assert.equal(app.$('destStatus').getAttribute('aria-busy'),'true',
+      'useful early cards cannot mark a held direct scan complete');
+    assert.match(app.$('destStatus').textContent,/Loading more patch birds/i);
     release();release=null;
     await waitFor(()=>/hotspots from direct evidence/.test(app.$('destStatus').textContent),
       'bounded direct scan completion');
     await waitFor(()=>app.$('destResults').querySelector('[data-unseen-n]'),'completed evidence hydration');
+    await waitFor(()=>app.$('destStatus').getAttribute('aria-busy')==='false','settled direct scan status');
     assert.match(app.$('destResults').textContent,/American Robin/);
     assert.equal(app.state.fetches.filter(url=>/\/recent\/amerob(?:\?|$)/.test(url)).length,0,
       'Today patches must not start unrelated per-species enrichment');
@@ -1370,8 +1791,8 @@ test('F1460 actual Cold and Busy patches filter mixed evidence before scores and
       'checklist projection must disclose withheld source rows');
     assert.ok(!app.$('coldResults').querySelector('[data-ckl-sub^="S1460MIX"]'));
     assert.ok(!app.$('coldResults').querySelector('[data-ckl-sub="S1460ALIAS"],[data-ckl-sub="S1460PARTIAL"]'));
-    assert.equal(app.window.localStorage.getItem(normalizedKey), normalized,
-      'scoped enrichment cannot overwrite the geography-free broad normalized cache');
+    assert.equal(JSON.stringify(await A.unpackJson(app.window.localStorage.getItem(normalizedKey))), normalized,
+      'scoped enrichment cannot change the geography-free broad normalized evidence');
     assert.equal(A.currentBusySnapshot(true), null, 'the scoped scan must not publish the Bird Gen source snapshot');
     assert.ok(A.currentBusySnapshot(true, scope),
       'scoped completion must populate its own completed snapshot');
@@ -1565,7 +1986,7 @@ test('F1460 actual Favorite picker filters before its limit and rejects an old c
   try {
     const A = app.window.__app;
     await A.ensureActiveCountyCatalog(); A.setCountyView('US-WA-053');
-    A.setFavs([]); A.showSection('sec-favResults',{load:false});
+    await A.setFavs([]); A.showSection('sec-favResults',{load:false});
     app.$('favSearch').value = 'sample';
     await A.runFavSearch();
     const buttons = app.$('favFound').querySelectorAll('.favadd');
@@ -1574,8 +1995,9 @@ test('F1460 actual Favorite picker filters before its limit and rejects an old c
     const stale = buttons[0].cloneNode(true);
     buttons[0].click();
     assert.equal(A.getFavs()[0].co,'US-WA-053','save retains actual directory administrative evidence');
+    assert.equal((await buttons[0]._choiceReceipt).saved,true);
     assert.match(app.$('favResults').textContent,/Sample Inside Marsh/);
-    A.setFavs([]); A.setCountyView('US-WA-033');
+    await A.setFavs([]); A.setCountyView('US-WA-033');
     app.$('favFound').appendChild(stale);
     stale.click();
     assert.equal(A.getFavs().length,0,'a retained old-county picker may not save into the new context');
@@ -2448,6 +2870,7 @@ test('F1366 actual Logout confirms once, removes only active personal data and r
       [prefix+'ebird_watchlist_v1']:'[]', [prefix+'bc_private_future']:'personal',
       [prefix+'bc_setup_step_v1']:profile?'summary':'loading', [other+'ebird_api_key']:'OTHERKEY',
       bc_theme:'dark', bc_display_profile:'large', 'bc_ref:neutral':'public',
+      ebird_profile_identity_v2:'ebird-only',
       ebird_profile_names:JSON.stringify({'':'First','2':'Second'})
     } });
     try {
@@ -2486,7 +2909,9 @@ test('F1366 actual Logout confirms once, removes only active personal data and r
       assert.equal(store.getItem('bc_ref:neutral'),'public');
       assert.equal(store.getItem('bc_theme'),'dark');
       assert.equal(store.getItem('bc_display_profile'),'large');
-      assert.equal(JSON.parse(store.getItem('ebird_profile_names'))[profile],undefined);
+      assert.deepEqual(readPersistedFixture(app.window, 'ebird_profile_names'),
+        profile ? { '': 'First' } : { '2': 'Second' },
+        'acknowledged cleanup preserves the inactive eBird profile label');
       A.applyCapturedIdentity({status:'ok',displayName:'Late old identity'});
       assert.equal(A.getDisplayName(),'');
       const storage=Object.fromEntries(Array.from({length:store.length},(_,i)=>[store.key(i),store.getItem(store.key(i))]));
@@ -2580,6 +3005,43 @@ test('F1366 storage and diagnostic failures remain fail-closed and retry the unf
   }
 });
 
+test('F247 actual Logout rejects empty or unreadable erasure remnants and retries only the active slot', async () => {
+  for (const profile of ['', '2']) {
+    for (const residual of ['', 'j:null', 'z:invalid', 'malformed']) {
+      const key = 'bc_private_presence247', prefix = profile ? 'bcp:2:' : '';
+      const other = profile ? '' : 'bcp:2:';
+      const app = await boot({ indexedDB: new IDBFactory(), storage: {
+        bc_profile: profile, [prefix + key]: residual, [other + key]: 'inactive'
+      } });
+      const remove = app.window.Storage.prototype.removeItem;
+      let broken = true;
+      try {
+        const A = app.window.__app, store = app.window.localStorage;
+        app.window.confirm = () => true;
+        app.window.Storage.prototype.removeItem = function (target) {
+          if (broken && target === prefix + key) return;
+          return remove.call(this, target);
+        };
+        assert.equal(await A.logoutActiveProfile(), false, 'a retained record is not verified erasure');
+        assert.match(app.$('settingsLogoutStatus').textContent, /Personal storage cleanup could not be verified/);
+        assert.equal(store.getItem(prefix + key), residual);
+        assert.equal(store.getItem(other + key), 'inactive');
+        assert.equal(store.getItem(prefix + 'bc_logout_setup_account'), null);
+        A.openSetupSheet();
+        assert.equal(app.$('setupSheet').hidden, true, 'failed erasure cannot open a new account');
+        broken = false;
+        assert.equal(await A.logoutActiveProfile(), true, app.$('settingsLogoutStatus').textContent);
+        assert.equal(store.getItem(prefix + key), null);
+        assert.equal(store.getItem(other + key), 'inactive');
+        assert.equal(store.getItem(prefix + 'bc_logout_setup_account'), '1');
+      } finally {
+        app.window.Storage.prototype.removeItem = remove;
+        app.window.close();
+      }
+    }
+  }
+});
+
 test('F1366 Logout cancels a held setup owner and late personal replies cannot repopulate the clean slot', async () => {
   const app=await setupOwnedSeenApp(['stable']);
   let release,pending;
@@ -2645,20 +3107,21 @@ test('F1266 actual Settings exports and restores selected personal choices witho
     assert.doesNotMatch(app.$('personalBackupPreview').textContent, /Favorite patches/);
     A.setFavs([{ ...favorite, locName: 'Changed while preview open' }]);
     app.click(app.$('personalBackupSave'));
+    await waitFor(() => !app.$('personalBackupSave').hasAttribute('aria-busy'), 'acknowledged selected merge');
     assert.match(app.$('personalBackupStatus').textContent, /saved and read back successfully/);
     assert.deepEqual(arr(A.getWatchlist(), row => ({ code: row.code, name: row.name })),
       [{ code: 'amerob', name: 'American Robin' }, { code: 'chispa', name: 'Chipping Sparrow' }]);
     assert.equal(A.getFavs()[0].locName, 'Changed while preview open');
     assert.equal(store.getItem('synthetic_history'), 'keep');
     assert.equal(store.getItem('ebird_api_key'), 'TESTKEY');
-    A.setWatchlist([{ code: 'chispa', name: 'Chipping Sparrow' }]);
-    A.setFavs([favorite]);
+    await A.setWatchlist([{ code: 'chispa', name: 'Chipping Sparrow' }]);
+    await A.setFavs([favorite]);
     app.$('personalBackupFavorites').checked = true;
     app.click(app.$('personalBackupExport'));
     assert.deepEqual(JSON.parse(app.$('personalBackupText').value).watch,
       [{ code: 'chispa', name: 'Chipping Sparrow' }], 'ordinary edits use the restored store');
     assert.deepEqual(JSON.parse(app.$('personalBackupText').value).favorites, [favorite]);
-    A.setWatchlist([]); A.setFavs([]);
+    await A.setWatchlist([]); await A.setFavs([]);
     const beforeFile = store.getItem('ebird_personal_choices_v1'), input = app.$('personalBackupImport');
     Object.defineProperty(input, 'files', { configurable: true,
       value: [new app.window.File([JSON.stringify(exported)], 'synthetic-personal-lists.json', { type: 'application/json' })] });
@@ -2673,7 +3136,10 @@ test('F1266 actual Settings exports and restores selected personal choices witho
       if (key.endsWith('ebird_personal_choices_v1')) writes++;
       return originalSet.call(this, key, value);
     };
-    try { app.click(app.$('personalBackupSave')); }
+    try {
+      app.click(app.$('personalBackupSave'));
+      await waitFor(() => !app.$('personalBackupSave').hasAttribute('aria-busy'), 'acknowledged combined restore');
+    }
     finally { app.window.Storage.prototype.setItem = originalSet; }
     assert.equal(writes, 1, 'combined selected restoration is one atomic app-owned write');
     assert.deepEqual(arr(A.getWatchlist(), row => ({ code: row.code, name: row.name })), exported.watch);
@@ -2715,6 +3181,7 @@ test('F1266 actual Settings rejects unknown identities and requires consent for 
     assert.equal(store.getItem('ebird_personal_choices_v1'), null);
     app.window.confirm = () => true;
     app.click(app.$('personalBackupSave'));
+    await waitFor(() => !app.$('personalBackupSave').hasAttribute('aria-busy'), 'acknowledged empty replacement');
     assert.equal(A.getWatchlist().length, 0);
     assert.match(app.$('personalBackupStatus').textContent, /saved and read back/);
     assert.equal(store.getItem('ebird_watchlist_v1'), raw, 'legacy bytes are not destructively cleared');
@@ -2746,6 +3213,7 @@ test('F1266 actual Settings refuses stale previews, failed writes and cross-prof
       return originalSet.call(this, key, value);
     };
     app.click(app.$('personalBackupSave'));
+    await waitFor(() => !app.$('personalBackupSave').hasAttribute('aria-busy'), 'rejected backup quota write');
     assert.match(app.$('personalBackupStatus').textContent, /Saving failed; existing choices were retained/);
     assert.equal(store.getItem('ebird_personal_choices_v1'), null);
     assert.equal(A.getWatchlist()[0].name, 'Updated saved name');
@@ -2756,6 +3224,7 @@ test('F1266 actual Settings refuses stale previews, failed writes and cross-prof
       return originalSet.call(this, key, value);
     };
     app.click(app.$('personalBackupSave'));
+    await waitFor(() => !app.$('personalBackupSave').hasAttribute('aria-busy'), 'rejected silent backup write');
     assert.match(app.$('personalBackupStatus').textContent, /Saving failed; existing choices were retained/,
       'silent storage rejection is not a successful restore');
     assert.equal(A.getWatchlist().length, 1);
@@ -2787,7 +3256,16 @@ test('F1272 actual Year List and Search additions share unseen geographic target
       rows: [{ code: 'amerob', name: 'American Robin' }] };
     store.setItem(key, JSON.stringify(checked));
     A.updateMyYear();
-    app.click(app.$('myYearList').querySelector('.myYearWatchlist[data-code="amerob"]'));
+    const add = app.$('myYearList').querySelector('.myYearWatchlist[data-code="amerob"]');
+    assert.ok(add, 'the owned Year List must expose its actual Watch action');
+    assert.equal(add.disabled, false, 'the Year List Watch action must be interactive');
+    app.click(add);
+    assert.deepEqual(app.state.errors, [], 'the actual Watch action must not throw');
+    assert.equal(A.getWatchlist()[0] && A.getWatchlist()[0].code, 'amerob',
+      'the actual Year List action must expose its copied pending intent');
+    await A.drainPersonalChoiceWrites();
+    assert.equal(A.getWatchlist()[0] && A.getWatchlist()[0].code, 'amerob',
+      'the actual Year List action must acknowledge its canonical Watch identity');
     const yearBytes = store.getItem('ebird_watchlist_v1');
     await seedCurrentSeen(app, []);
     A.renderWatch();
@@ -2795,14 +3273,17 @@ test('F1272 actual Year List and Search additions share unseen geographic target
     assert.equal(A.personalListEvidence().count, 0);
     assert.ok(app.$('nvResults').querySelector('[data-sp="amerob"]'), 'a geographically listed unseen target remains visible');
     app.click(app.$('nvResults').querySelector('.nvdel'));
+    await A.drainPersonalChoiceWrites();
     app.$('nvSearch').value = 'Robin';
     A.runNvSearch();
     await waitFor(() => app.$('nvFound').querySelector('.nvadd'), 'same-taxon search Add');
     app.click(app.$('nvFound').querySelector('.nvadd'));
+    await A.drainPersonalChoiceWrites();
     assert.equal(store.getItem('ebird_watchlist_v1'), yearBytes, 'both actual Add paths save the same canonical identity');
     A.addWatch('chispa', 'Chipping Sparrow');
     A.addWatch('unknownwatched', 'Synthetic unresolved target');
     A.addWatch('amerobform', 'Synthetic Robin form');
+    await A.drainPersonalChoiceWrites();
     const before = store.getItem('ebird_watchlist_v1'), scopeButton = app.$('nvScopePick');
     A.renderWatch();
     assert.equal(app.$('nvResults').querySelector('[data-sp="chispa"]'), null);
@@ -2841,7 +3322,7 @@ test('F1272 actual visible Watch upgrades pending legacy geographic evidence and
     const key = A.speciesCacheKey(A.getObsRegion());
     store.setItem(key, JSON.stringify({ at: Date.now(), expected: 1,
       rows: [{ code: 'amerob', name: 'American Robin' }] }));
-    A.setWatchlist([{ code: 'amerob', name: 'American Robin' }, { code: 'chispa', name: 'Chipping Sparrow' }]);
+    await A.setWatchlist([{ code: 'amerob', name: 'American Robin' }, { code: 'chispa', name: 'Chipping Sparrow' }]);
     const bytes = store.getItem('ebird_watchlist_v1');
     app.open(/Watch List/);
     await waitFor(() => typeof release === 'function', 'actual regional reference request');
@@ -2853,7 +3334,7 @@ test('F1272 actual visible Watch upgrades pending legacy geographic evidence and
     await waitFor(() => app.$('nvResults').querySelectorAll('.nvdel').length === 1, 'checked source completion repaint');
     assert.ok(app.$('nvResults').querySelector('[data-sp="amerob"]'));
     assert.equal(app.$('nvScopePick'), button);
-    assert.deepEqual(JSON.parse(store.getItem(key)).listedCodes, ['amerob']);
+    assert.deepEqual(readPersistedFixture(app.window, key).listedCodes, ['amerob']);
     assert.equal(store.getItem('ebird_watchlist_v1'), bytes);
     assert.equal(A.watchCodes().chispa, 1);
     A.setActiveReport('hi'); A.renderWatch();
@@ -3502,8 +3983,8 @@ test('F1295 Home address submission stays with the field, respects composition a
   } finally { if (release) release({ ok: true, json: async () => ({ features: [] }) }); app.window.close(); }
 });
 
-async function pendingHomeRegionFixture(online = true) {
-  const app = await boot({ sample: false, home: false });
+async function pendingHomeRegionFixture(online = true, nativeCompression = false, labelSuffix = '') {
+  const app = await boot({ sample: false, home: false, nativeCompression });
   const W = app.window, A = W.__app, requests = [], timers = [];
   const fetch = W.fetch, timeout = W.setTimeout.bind(W), clear = W.clearTimeout.bind(W);
   const now = W.Date.now.bind(W.Date);
@@ -3529,7 +4010,7 @@ async function pendingHomeRegionFixture(online = true) {
     }
     if (/photon\.komoot\.io\/api/.test(String(url))) {
       return Promise.resolve({ ok: true, json: async () => ({ features: [
-        { geometry: { coordinates: [-121, 48] }, properties: { name: 'Synthetic Home' } },
+        { geometry: { coordinates: [-121, 48] }, properties: { name: 'Synthetic Home' + labelSuffix } },
         { geometry: { coordinates: [-120, 47] }, properties: { name: 'Synthetic Other Home' } },
       ] }) });
     }
@@ -3547,7 +4028,7 @@ async function pendingHomeRegionFixture(online = true) {
     await waitFor(() => app.$('appSheet').dataset.infoId === 'setup-home-confirmed'
       && !app.$('appSheet').hidden, 'Home approval');
     app.click(app.$('appSheet').querySelector('[data-setup-confirm-continue]'));
-    await new Promise(resolve => setImmediate(resolve));
+    await waitFor(() => app.$('setupSheetBody').dataset.setupStep === 'region', 'retained Home approval opens region');
     assert.equal(app.$('setupSheetBody').dataset.setupStep, 'region',
       'region step must open without waiting for the held lookup');
     if (online) await waitFor(() => requests.length === 1, 'owned region request');
@@ -3625,7 +4106,7 @@ test('F1353 stalled region attempts time out when transport ignores abort, retry
     assert.equal(app.$('setupNext').disabled, true);
     assert.equal(app.$('setupBack').disabled, false);
     assert.equal(A.getHome(), null);
-    assert.ok(JSON.parse(app.window.localStorage.getItem('bc_setup_home_draft_v1')).approved);
+    assert.ok(readPersistedFixture(app.window, 'bc_setup_home_draft_v1').approved);
     assert.equal([...app.$('setupSheet').querySelectorAll('button')]
       .filter(button => /retry/i.test(button.textContent)).length, 0, 'no required Retry button');
     assert.deepEqual(app.state.errors, []);
@@ -3667,7 +4148,7 @@ test('F1353 cancel, Back, Close and scope changes retain Home and reject late na
       fixture.resolve(0);
       await new Promise(resolve => setImmediate(resolve));
       assert.equal(app.window.__app.getHome(), null, action + ' cannot save Home');
-      const draft = JSON.parse(app.window.localStorage.getItem('bc_setup_home_draft_v1'));
+      const draft = readPersistedFixture(app.window, 'bc_setup_home_draft_v1');
       assert.ok(draft.point && draft.approved);
       assert.equal(draft.region, null, action + ' cannot accept late region data');
       if (action === 'cancel') {
@@ -4138,6 +4619,41 @@ test('F1310 actual registry resource retains original durable acquisition age on
     assert.equal(app.state.fetches.filter(url => /ref\/hotspot\/US-WA-033/.test(url)).length, 0);
     assert.deepEqual(app.state.errors, []);
   } finally { release(base); app.window.close(); }
+});
+
+test('F247 actual Busy registry receipts preserve native restart age without reacquisition', async () => {
+  const path = 'ref/hotspot/US-WA-033?fmt=json', key = 'bc_ref:' + path;
+  const at = Date.now() - 300000, lifetime = 7 * 24 * 60 * 60 * 1000;
+  const rows = Array.from({ length: 40 }, (_, index) => ({
+    locId: 'L247' + index, locName: 'Synthetic retained public registry ' + index,
+    lat: 47.6, lng: -122.3,
+  }));
+  let saved = JSON.stringify({ t: at, v: rows });
+  for (const restart of [false, true]) {
+    const app = await boot({ sample: false, nativeCompression: true,
+      storage: { [key]: saved }, fetch: () => [] });
+    const W = app.window, A = W.__app;
+    try {
+      saved = W.localStorage.getItem(key);
+      assert.ok(saved.startsWith('z:'), 'the actual retained registry must use native compression');
+      const tasks = A.acquireInitialDatasetTasks(A.activeScope(), { current: () => true });
+      const registry = tasks.resources.add({
+        id: 'f247-registry-age', label: () => 'Retained registry', sections: [], enabled: () => true,
+        needs: () => ({ source: { ref: { provider: 'busy-registry', params: { code: 'US-WA-033' } },
+          requiredFor: 'usable', priority: 'current' } }),
+        project: inputs => ({ usable: !!inputs.source && inputs.source.state === 'ready',
+          evidence: inputs.source || null }),
+        retainAndVerify: projection => projection.evidence,
+      });
+      const result = await registry.start();
+      assert.equal(result.state, 'ready');
+      assert.equal(result.acquiredAt, at, 'compressed reference reuse cannot renew acquisition age');
+      assert.equal(result.expiresAt, at + lifetime, 'a retained reference keeps its seven-day expiry');
+      assert.equal(app.state.fetches.filter(url => /ref\/hotspot\/US-WA-033/.test(url)).length, 0);
+      assert.equal(JSON.stringify(A.ebRefGet(path)), JSON.stringify(rows));
+      assert.deepEqual(app.state.errors, []);
+    } finally { W.close(); }
+  }
 });
 
 test('F1310 actual failed required party detail cannot certify Busy readiness and heals selectively', async () => {
@@ -4663,7 +5179,7 @@ test('F1288 actual Taxonomy proof is revalidated before work and stale metadata 
           ? new Promise(resolve => { releaseBusy = resolve; }) : { state: 'ready', value: {} };
       });
       if (stale) {
-        const meta = JSON.parse(store.getItem('bc_taxonomy_v1'));
+        const meta = readPersistedFixture(app.window, 'bc_taxonomy_v1');
         meta.checkedAt = 1;
         store.setItem('bc_taxonomy_v1', JSON.stringify(meta));
         assert.equal(await A.restoreTaxonomyNames(), true);
@@ -4703,20 +5219,20 @@ test('F1288 owned Rankings are omitted only with both durable boards and missing
       const region = A.getReport().stateCode, period = A.personalBoardPeriod(), name = A.getDisplayName();
       for (const metric of ['spp', 'cl']) {
         const rr = { region, max: 500, metric, rowLimit: metric === 'spp' ? 500 : undefined };
-        assert.equal(A.rankCachePut(A.rankCacheOwnerKey(rr, period, name), {
+        assert.equal(await A.rankCachePut(A.rankCacheOwnerKey(rr, period, name), {
           region, period, metric, profile: A.bcProfile(), ownerRevision: A.identityRevision(),
           readAt: new Date().toISOString(),
           rows: [{ rank: 1, species: 10, checklists: 20, name: 'Synthetic Leader' }]
         }), true);
       }
       if (missing) {
-        const [key, entry] = Object.entries(JSON.parse(store.getItem(A.RANK_CACHE_KEY)))[0];
+        const [key, entry] = Object.entries(await A.unpackJson(store.getItem(A.RANK_CACHE_KEY)))[0];
         const prototype = app.window.Storage.prototype, original = prototype.setItem;
         prototype.setItem = function (key, value) {
           if (key !== A.RANK_CACHE_KEY) return original.call(this, key, value);
         };
         try {
-          assert.equal(A.rankCachePut(key, {
+          assert.equal(await A.rankCachePut(key, {
             ...entry.data, readAt: new Date(Date.now() + 1).toISOString()
           }), false, 'a failed read-back establishes a real session-only answer');
         } finally { prototype.setItem = original; }
@@ -4806,13 +5322,13 @@ test('F1279 actual setup-to-Menu handoff reuses complete Busy data while manual 
       assert.equal(app.$('menuPanel').hidden, false);
       if (!overlap) {
         const orderKey = 'bc_surge_acquired_v1:' + A.activeScope().cacheIdentity;
-        const order = JSON.parse(store.getItem(orderKey)), acquiredAt = Date.now() - 60000;
+        const order = readPersistedFixture(app.window, A.bcReal(orderKey)), acquiredAt = Date.now() - 60000;
         order.times.hotspots = acquiredAt;
         store.setItem(orderKey, JSON.stringify(order));
         app.click(app.$('recentBirdGenRefresh'));
         await A.refreshFullBirdGen('normal');
         assert.equal(registryReads(), before, 'normal Contents Refresh must reuse the fresh Busy source');
-        assert.equal(JSON.parse(store.getItem(orderKey)).times.hotspots, acquiredAt,
+        assert.equal(readPersistedFixture(app.window, A.bcReal(orderKey)).times.hotspots, acquiredAt,
           'a normal successful reuse cannot renew the source acquisition-order age');
         pullMenu(app);
         await A.refreshFullBirdGen('normal');
@@ -5082,7 +5598,7 @@ test('F1292 quiet personal return revalidates one exact source and updates share
     assert.equal(A.personalListEvidence().failure, '');
     assert.ok(A.getReportSeen().rename, 'target projections use newly verified membership');
     const owner = A.personalListOwner();
-    assert.equal(JSON.parse(app.window.localStorage.getItem(A.personalListKey(owner))).rows.length, 2);
+    assert.equal(readPersistedFixture(app.window, A.personalListKey(owner)).rows.length, 2);
     assert.equal(calls.length, 1, 'quiet synchronization cannot reacquire unrelated provider inputs');
     await A.preparePersonalList(A.activeScope(), false);
     assert.equal(calls.length, 1, 'normal reuse does not renew or reacquire the checked source');
@@ -5107,7 +5623,7 @@ test('F1292 quiet personal return retains exact session verification and avoids 
   try {
     const A = app.window.__app;
     app.window.localStorage.setItem(A.IDENTITY_META_KEY, JSON.stringify({
-      ...JSON.parse(app.window.localStorage.getItem(A.IDENTITY_META_KEY)), profileId: 'fixture-account'
+      ...readPersistedFixture(app.window, A.IDENTITY_META_KEY), profileId: 'fixture-account'
     }));
     const clock = f1142Clock(app, new Date(Date.now() + 2000).toISOString());
     const visibility = personalReturnVisibility(app), calls = [], originalFetch = app.window.fetch;
@@ -5155,6 +5671,7 @@ test('F1292 quiet personal return preserves retained evidence and never opens ch
     try {
       const A = app.window.__app, visibility = personalReturnVisibility(app);
       f1142Clock(app, new Date(Date.now() + 2000).toISOString());
+      await A.readPersonalListCache(A.personalListKey(A.personalListOwner()));
       const key = A.personalListKey(A.personalListOwner()), saved = app.window.localStorage.getItem(key);
       const originalFetch = app.window.fetch;
       let opened = 0, reads = 0;
@@ -5307,7 +5824,7 @@ test('F1292 personal Reload queues one exact forced continuation behind normal a
         assert.equal(new Set(reads).size, 1, 'forced continuation cannot widen the exact source');
         assert.equal(A.personalListEvidence().complete, true);
         assert.equal(A.personalListEvidence().count, 2, 'newer verified source must reach shared projections');
-        assert.equal(JSON.parse(app.window.localStorage.getItem(A.personalListKey(owner))).rows.length, 2,
+        assert.equal(readPersistedFixture(app.window, A.personalListKey(owner)).rows.length, 2,
           'forced result must survive durable readback');
         await A.preparePersonalList(scope, false);
         assert.equal(reads.length, 2, 'verified latest evidence remains normally reusable');
@@ -5860,7 +6377,7 @@ test('F1461 standalone Mega projects selected county before groups while retaini
       assert.match(app.$('abaStatus').textContent,/1 ABA Code 3\+ species.*1 reports/);
       assert.ok([...app.$('abaResults').querySelectorAll('a.rbalink')]
         .some(link=>link.href.includes('/alert/rba/'+county+'?')));
-      const snapshot=JSON.parse(app.window.localStorage.getItem(A.MEGA_SNAP_KEY));
+      const snapshot=readPersistedFixture(app.window, A.MEGA_SNAP_KEY);
       assert.equal(snapshot.rows.length,2,'shared parent snapshot is not filtered for Bird Gen');
       const view=A.megaViewState().view;
       assert.equal(view.rawRows.length,1,'local grouping and qualification see only selected membership');
@@ -6545,7 +7062,7 @@ test('F1249 memory-only Busy and ranking snapshots cannot certify initial readin
       const data = { region: request.region, period, metric, profile: A.bcProfile(),
         ownerRevision: A.identityRevision(), readAt: new Date().toISOString(),
         rows: [{ rank: 1, species: 10, name: 'Sample Leader' }] };
-      assert.equal(A.rankCachePut(A.rankCacheOwnerKey(request, period, name), data), false);
+      assert.equal(await A.rankCachePut(A.rankCacheOwnerKey(request, period, name), data), false);
     }
     const tasks = A.acquireInitialDatasetTasks(A.activeScope(), { current: () => true });
     const downloads = app.state.fetches.length;
@@ -7944,7 +8461,7 @@ test('F1045/F1058 migration dates and all current alerts agree without opening M
       { code: 'oldmig', name: 'Tropical Kingbird', date: day(-10), observedAt: day(-10)+' 08:00' },
       { code: 'newmig', name: 'New Migrant', date: day(0), observedAt: day(0)+' 08:00' }
     ];
-    A.firstYearWrite(ctx.region, ctx.year, page);
+    await A.firstYearWrite(ctx.region, ctx.year, page);
     app.window.localStorage.setItem('bc_arrival_v1:US-WA|Washington', JSON.stringify({
       at: Date.now(), done: {
         'Current migrans': { day: day(0).slice(5), records: 100 },
@@ -7971,12 +8488,12 @@ test('F1045/F1058 migration dates and all current alerts agree without opening M
     assert.equal(news[0].ageLabel, 'Expected / Observed');
     assert.match(news[0].extra, /not a confirmed arrival/);
     assert.equal(app.state.fetches.length, before, 'computing cached migration alerts spends no requests');
-    A.firstYearWrite(ctx.region, ctx.year, { ...page, rows: [] });
+    await A.firstYearWrite(ctx.region, ctx.year, { ...page, rows: [] });
     const empty = A.migrationSignificantRows(now, null);
     assert.equal(empty.length, 1, 'expected opportunities survive a successful empty observed source');
     assert.equal(empty[0].data['migration-group-count'], 2);
     assert.doesNotMatch(empty[0].extra, /New Migrant/);
-    A.firstYearWrite(ctx.region, ctx.year, { ...page, rows: [{
+    await A.firstYearWrite(ctx.region, ctx.year, { ...page, rows: [{
       code: 'newmig', name: 'New Migrant', date: `${ctx.year}-12-30`,
       observedAt: `${ctx.year}-12-30 08:00`
     }, {
@@ -7994,6 +8511,338 @@ test('F1045/F1058 migration dates and all current alerts agree without opening M
     assert.equal(A.migrationUnifiedRows(null, boundary,
       { arrivals: false, departures: true, tonight: false }).length, 0);
   } finally { app.window.close(); }
+});
+
+test('F247 native Twitch history is hydrated before synchronous retained projection', async () => {
+  const app = await boot({ sample: false, nativeCompression: true });
+  const A = app.window.__app, W = app.window;
+  try {
+    await A.ensurePatchScope(A.activeScope());
+    await seedSeen(app, [], null, [{ code: 'verfly', name: 'Vermilion Flycatcher' }]);
+    const day = new Date(); day.setHours(12, 0, 0, 0);
+    const now = day.getTime(), home = A.activeSavedBase();
+    W.Date.now = () => now;
+    const bird = { code: 'verfly', name: 'Vermilion Flycatcher', kind: 'Rarity',
+      dateStr: `${A.todayStr()} 11:50`, locId: 'LNATIVE247', subId: 'SNATIVE247',
+      lat: 47.75, lon: -122.16, count: 1, subnational1Code: 'US-WA' };
+    const journal = { version: 1, footprint: JSON.stringify([home.lat, home.lng, A.chaseMaxMi()]),
+      known: ['verfly', ...Array.from({ length: 80 }, (_, i) => 'native247' + i)],
+      episodes: { verfly: { firstAt: now, when: bird.dateStr, locId: bird.locId,
+        lat: bird.lat, lon: bird.lon } } };
+    const key = A.twitchJournalKey(), raw = 'z:' + zlib.gzipSync(JSON.stringify(journal)).toString('base64');
+    W.localStorage.setItem(key, raw);
+    await A.loadSurgeRetainedAsync();
+    const projected = A.surgeObservedResult({ partial: true, cv: { merged: [bird] } }, now);
+    assert.equal(projected.twitchRows.length, 1,
+      'native retained history must preserve its confirmed episode in actual synchronous replay');
+    assert.equal(projected.twitchRows[0].firstAt, now);
+    assert.equal(W.localStorage.getItem(key), raw, 'read-only replay must not replace native history');
+  } finally { W.close(); }
+});
+
+async function nativeTwitchFixture(options = {}) {
+  const app = await boot({ sample: false, nativeCompression: true, ...options });
+  const A = app.window.__app, W = app.window;
+  await A.ensurePatchScope(A.activeScope());
+  const day = new Date(); day.setHours(12, 0, 0, 0);
+  const now = day.getTime(), started = Date.now();
+  W.Date.now = () => now + (options.advancingClock ? Date.now() - started : 0);
+  const birds = Array.from({ length: 40 }, (_, i) => ({
+    code: 'twitch247' + i, name: 'Native Twitch247 bird ' + i, kind: 'Rarity',
+    dateStr: `${A.todayStr()} 11:50`, locId: 'LTWITCH247', subId: 'STWITCH247_' + i,
+    lat: 47.75, lon: -122.16, count: 1, subnational1Code: 'US-WA'
+  }));
+  birds.forEach(bird => {
+    bird.obsId = W.BirdLogic.obsKey({
+      speciesCode: bird.code, obsDt: bird.dateStr, locId: bird.locId, subId: bird.subId
+    });
+  });
+  await seedSeen(app, [], null, birds.concat({ code: 'next247', name: 'Next native bird' }));
+  const source = (merged) => {
+    const profile = A.birdGenObservationProfile(), rows = {}, feedStates = {};
+    W.BirdLogic.planFeeds(profile).forEach(feed => {
+      rows[feed.file] = feed.kind === 'notable' ? merged.map(bird => ({
+        speciesCode: bird.code, comName: bird.name, locId: bird.locId, locName: 'Native public patch',
+        lat: bird.lat, lng: bird.lon, obsDt: bird.dateStr, subId: bird.subId, howMany: 1,
+        subnational1Code: 'US-WA'
+      })) : [];
+      feedStates[feed.file] = 'ok';
+    });
+    return { profile, rows, feedStates, cv: { merged }, feedComplete: true };
+  };
+  await A.surgeObservedResultAsync(source([]), now);
+  return { app, A, W, now, birds, source };
+}
+
+test('F247 Twitch native acquisition withholds new episodes until owned acknowledgment and preserves copied inputs', async () => {
+  const { A, W, now, birds, source } = await nativeTwitchFixture();
+  const key = A.twitchJournalKey(), before = W.localStorage.getItem(key), input = source(birds);
+  let pending, done = false;
+  const packing = holdPersonalSnapshotEncoding(W, value => value.episodes?.twitch2470);
+  try {
+    pending = A.surgeObservedResultAsync(input, now).finally(() => { done = true; });
+    input.cv.merged[0].name = 'Caller mutated input';
+    Object.values(input.rows).flat().forEach(row => { row.obsReviewed = true; row.obsValid = false; });
+    await waitFor(() => packing.ready() || done, 'actual Twitch native journal packing');
+    assert.equal(packing.ready(), true, 'native evaluation must use copied admission evidence, not later caller rejection');
+    assert.equal(done, false, 'acquisition completion must join actual native persistence');
+    assert.equal(W.localStorage.getItem(key), before, 'packing cannot allocate raw journal bytes first');
+    assert.equal(A.surgeObservedResult(source(birds), now).twitchRows.length, 0,
+      'synchronous early paint cannot admit unacknowledged new episodes');
+    packing.release();
+    const observed = await pending;
+    assert.equal(observed.twitchRows.length, 40);
+    assert.equal(observed.twitchRows.find(row => row.code === 'twitch2470').name, 'Native Twitch247 bird 0');
+    assert.match(W.localStorage.getItem(key), /^z:/);
+    assert.equal(Object.keys(readPersistedFixture(W, key).episodes).length, 40);
+    assert.equal(A.surgeObservedResult({ partial: true, cv: { merged: birds } }, now).twitchRows.length, 40,
+      'the synchronous projector may display confirmed native episodes after acknowledgment');
+  } finally {
+    W.dispatchEvent(new W.Event('unload'));
+    packing.release(); await Promise.allSettled([pending].filter(Boolean));
+    packing.restore(); W.close();
+  }
+});
+
+test('F247 Twitch native packing rejects replaced, retired, erased and silently failed journals', async () => {
+  for (const action of ['pre', 'source', 'profile', 'identity', 'scope', 'erase', 'noop', 'late']) {
+    const { app, A, W, now, birds, source } = await nativeTwitchFixture();
+    const key = A.twitchJournalKey(), before = W.localStorage.getItem(key);
+    const proto = W.Storage.prototype, get = proto.getItem, set = proto.setItem;
+    const foreign = 'j:' + JSON.stringify({ ...readPersistedFixture(W, key), known: ['foreign247'] });
+    let pending, done = false;
+    const packing = holdPersonalSnapshotEncoding(W, value => value.episodes?.twitch2470);
+    try {
+      pending = A.surgeObservedResultAsync(source(birds), now).finally(() => { done = true; });
+      if (action === 'pre') W.localStorage.setItem(key, foreign);
+      await waitFor(() => packing.ready() || done, 'owned Twitch packing admission');
+      if (action === 'pre') {
+        assert.equal(done, true, 'a source changed before packing must be promptly rejected');
+        assert.equal((await pending).twitchRows.length, 0);
+        assert.equal(W.localStorage.getItem(key), foreign);
+        continue;
+      }
+      assert.equal(packing.ready(), true);
+      if (action === 'source') W.localStorage.setItem(key, foreign);
+      if (action === 'profile') W.localStorage.setItem(A.BC_PROFILE_PTR, '2');
+      if (action === 'identity') {
+        W.Capacitor = { Plugins: { CapgoInAppBrowser: { clearAllBrowsingData: () => Promise.resolve() } } };
+        A.bcSetProfile('2');
+        await waitFor(() => A.bcProfile() === '2', 'Twitch profile departure');
+        A.bcSetProfile('');
+        await waitFor(() => A.bcProfile() === '', 'Twitch profile return');
+      }
+      if (action === 'scope') { A.setCountyView('US-WA-033'); A.setCountyView(''); }
+      if (action === 'erase') {
+        const retained = Object.fromEntries(Object.keys(W.localStorage).map(key => [key, W.localStorage.getItem(key)]));
+        A.scrubPersonalData(); await A.drainProfileNameWrites();
+        for (const [key, value] of Object.entries(retained)) W.localStorage.setItem(key, value);
+      }
+      if (action === 'noop') proto.setItem = function (target, value) {
+        if (target !== key) return set.call(this, target, value);
+      };
+      if (action === 'late') {
+        let armed = true;
+        proto.getItem = function (target) {
+          const value = get.call(this, target);
+          if (target === key && armed) { armed = false; set.call(this, target, foreign); }
+          return value;
+        };
+      }
+      packing.release();
+      assert.equal((await pending).twitchRows.length, 0,
+        action + ': rejected or unacknowledged packing must not admit new episodes');
+      proto.getItem = get; proto.setItem = set;
+      assert.equal(W.localStorage.getItem(key), action === 'source' || action === 'late' ? foreign : before,
+        action + ': pending work must preserve the actual retained source');
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      proto.getItem = get; proto.setItem = set;
+      W.dispatchEvent(new W.Event('unload'));
+      packing.release(); await Promise.allSettled([pending].filter(Boolean));
+      packing.restore(); W.close();
+    }
+  }
+});
+
+test('F247 Twitch native queued acquisitions compose only acknowledged same-source history', async () => {
+  const { A, W, now, birds, source } = await nativeTwitchFixture();
+  const key = A.twitchJournalKey();
+  const next = { ...birds[0], code: 'next247', name: 'Next native bird', subId: 'SNEXT247' };
+  let first, second;
+  const packing = holdPersonalSnapshotEncoding(W, value => value.episodes?.twitch2470);
+  try {
+    first = A.surgeObservedResultAsync(source(birds), now);
+    await waitFor(packing.ready, 'first queued Twitch native packing');
+    second = A.surgeObservedResultAsync(source(birds.concat(next)), now + 60000);
+    packing.release();
+    assert.equal((await first).twitchRows.length, 40);
+    assert.equal((await second).twitchRows.length, 41);
+    const saved = readPersistedFixture(W, key);
+    assert.equal(Object.keys(saved.episodes).length, 41);
+    assert.equal(saved.episodes.twitch2470.firstAt, now, 'queued composition must not reset a confirmed episode');
+    assert.equal(saved.episodes.next247.firstAt, now + 60000);
+  } finally {
+    W.dispatchEvent(new W.Event('unload'));
+    packing.release(); await Promise.allSettled([first, second].filter(Boolean));
+    packing.restore(); W.close();
+  }
+});
+
+test('F247 actual Recent Twitch acquisition joins native receipts and rejects navigation retirement', async () => {
+  for (const cancel of [false, true]) {
+    let rows = [];
+    const { app, A, W, now, birds, source } = await nativeTwitchFixture({
+      advancingClock: true,
+      fetch: url => /data\/obs\//.test(url) ? rows : null
+    });
+    await A.refreshRecentBirdGen(false);
+    rows = Object.values(source(birds).rows).find(value => value.length);
+    const key = A.twitchJournalKey(), before = W.localStorage.getItem(key);
+    let pending, done = false;
+    const packing = holdPersonalSnapshotEncoding(W, value => value.episodes?.twitch2470);
+    try {
+      pending = A.refreshRecentBirdGen(true).finally(() => { done = true; });
+      await waitFor(packing.ready, 'actual Recent source native Twitch packing');
+      assert.equal(done, false, 'actual Recent completion must join its native journal receipt');
+      assert.equal(W.localStorage.getItem(key), before);
+      assert.equal(app.$('surgeResults').querySelectorAll('[data-alert-kind="twitch"]').length, 0,
+        'actual acquired cards cannot precede native acknowledgment');
+      assert.doesNotMatch(app.$('recentBirdGenStatus').textContent, /Notable sightings checked/);
+      if (cancel) A.showSection(app.$('settingsPanel').closest('section').id, { load: false });
+      packing.release(); await pending;
+      if (cancel) {
+        assert.equal(W.localStorage.getItem(key), before,
+          'native packing cannot commit an episode for a retired actual navigation owner');
+        assert.equal(app.$('surgeResults').querySelectorAll('[data-alert-kind="twitch"]').length, 0);
+      } else {
+        assert.equal(Object.keys(readPersistedFixture(W, key).episodes).length, 40);
+        assert.equal(app.$('surgeResults').querySelectorAll('[data-alert-kind="twitch"]').length, 40);
+        assert.match(app.$('recentBirdGenStatus').textContent, /Notable sightings checked/);
+        const firstAt = readPersistedFixture(W, key).episodes.twitch2470.firstAt;
+        assert.ok(firstAt >= now && firstAt <= W.Date.now());
+      }
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      W.dispatchEvent(new W.Event('unload'));
+      A.fgCancelAll('Twitch native fixture cleanup');
+      packing.release(); await Promise.allSettled([pending].filter(Boolean));
+      packing.restore(); W.close();
+    }
+  }
+});
+
+test('F247 Twitch native failed receipt cannot project history superseded by a foreign journal', async () => {
+  const { A, W, now, birds, source } = await nativeTwitchFixture();
+  const key = A.twitchJournalKey(), next = { ...birds[0], code: 'next247', name: 'Next native bird' };
+  let pending;
+  const packing = holdPersonalSnapshotEncoding(W, value => value.episodes?.next247);
+  try {
+    assert.equal((await A.surgeObservedResultAsync(source(birds), now)).twitchRows.length, 40);
+    pending = A.surgeObservedResultAsync(source(birds.concat(next)), now + 60000);
+    await waitFor(packing.ready, 'Twitch replacement after a confirmed existing episode');
+    const foreign = 'j:' + JSON.stringify({ ...readPersistedFixture(W, key), episodes: {}, known: ['foreign247'] });
+    W.localStorage.setItem(key, foreign);
+    packing.release();
+    assert.equal((await pending).twitchRows.length, 0,
+      'failed receipts cannot borrow prior confirmed episodes from a superseded source');
+    assert.equal(W.localStorage.getItem(key), foreign);
+  } finally {
+    W.dispatchEvent(new W.Event('unload'));
+    packing.release(); await Promise.allSettled([pending].filter(Boolean));
+    packing.restore(); W.close();
+  }
+});
+
+test('F247 Twitch failed acknowledgment cannot rebase a queued acquisition and explicit retry recovers retained bytes', async () => {
+  const { A, W, now, birds, source } = await nativeTwitchFixture();
+  const key = A.twitchJournalKey(), proto = W.Storage.prototype, set = proto.setItem, get = proto.getItem;
+  const next = { ...birds[0], code: 'next247', name: 'Next native bird' };
+  let first, second, unreadable = false;
+  const packing = holdPersonalSnapshotEncoding(W, value => value.episodes?.twitch2470);
+  try {
+    first = A.surgeObservedResultAsync(source(birds), now);
+    await waitFor(packing.ready, 'unacknowledged queued Twitch native packing');
+    second = A.surgeObservedResultAsync(source(birds.concat(next)), now + 60000);
+    proto.setItem = function (target, value) {
+      set.call(this, target, value);
+      if (target === key) unreadable = true;
+    };
+    proto.getItem = function (target) {
+      if (target === key && unreadable) {
+        unreadable = false;
+        throw new W.DOMException('Synthetic native readback denial', 'SecurityError');
+      }
+      return get.call(this, target);
+    };
+    packing.release();
+    assert.equal((await first).twitchRows.length, 0);
+    assert.equal((await second).twitchRows.length, 0,
+      'a failed receipt cannot advance the queued source version');
+    proto.setItem = set; proto.getItem = get;
+    assert.equal(Object.keys(readPersistedFixture(W, key).episodes).length, 40);
+    const recovered = await A.surgeObservedResultAsync(source(birds.concat(next)), now + 60000);
+    assert.equal(recovered.twitchRows.length, 41, 'an explicit verified read can recover physically retained history');
+    assert.equal(readPersistedFixture(W, key).episodes.twitch2470.firstAt, now);
+  } finally {
+    proto.setItem = set; proto.getItem = get;
+    W.dispatchEvent(new W.Event('unload'));
+    packing.release(); await Promise.allSettled([first, second].filter(Boolean));
+    packing.restore(); W.close();
+  }
+});
+
+test('F247 Twitch acquisition cannot advance a baseline from scope-withheld raw coverage', async () => {
+  const { A, W, now, source } = await nativeTwitchFixture();
+  try {
+    A.setCountyView('US-WA-033');
+    const key = A.twitchJournalKey();
+    const input = source([]);
+    Object.values(input.rows).forEach(rows => rows.push({
+      speciesCode: 'next247', comName: 'Next native bird', subId: 'SUNKNOWN247',
+      locId: 'LUNKNOWN247', obsDt: `${A.todayStr()} 11:50`
+    }));
+    const observed = await A.surgeObservedResultAsync(input, now);
+    assert.equal(observed.state, 'partial');
+    assert.ok(observed.scopeWithheld > 0);
+    assert.equal(W.localStorage.getItem(key), null,
+      'complete raw transport is not complete qualified coverage for Twitch baseline admission');
+  } finally { W.close(); }
+});
+
+test('F247 Twitch allocation-time intents borrow only their acknowledged same-source predecessor', async () => {
+  for (const foreign of [false, true]) {
+    const { A, W, now, birds, source } = await nativeTwitchFixture();
+    const key = A.twitchJournalKey(), proto = W.Storage.prototype, set = proto.setItem;
+    const next = { ...birds[0], code: 'next247', name: 'Next native bird' };
+    let first, second;
+    const packing = holdPersonalSnapshotEncoding(W, value => value.episodes?.twitch2470);
+    try {
+      first = A.surgeObservedResultAsync(source(birds), now);
+      await waitFor(packing.ready, 'first allocation-time Twitch journal');
+      let armed = true;
+      proto.setItem = function (target, raw) {
+        if (target === key && armed) {
+          armed = false;
+          if (foreign) set.call(this, target, 'j:' + JSON.stringify({
+            version: 1, footprint: 'foreign247', known: [], episodes: {}
+          }));
+          second = A.surgeObservedResultAsync(source(birds.concat(next)), now + 60000);
+        }
+        return set.call(this, target, raw);
+      };
+      packing.release();
+      assert.equal((await first).twitchRows.length, 40);
+      assert.ok(second, 'the actual backend must admit the newer intent');
+      assert.equal((await second).twitchRows.length, foreign ? 0 : 41,
+        'only an intent admitted on its same-source predecessor may inherit the acknowledgment');
+      assert.equal(Object.keys(readPersistedFixture(W, key).episodes).length, foreign ? 40 : 41);
+    } finally {
+      proto.setItem = set; W.dispatchEvent(new W.Event('unload'));
+      packing.release(); await Promise.allSettled([first, second].filter(Boolean));
+      packing.restore(); W.close();
+    }
+  }
 });
 
 test('F990 TWITCH integration baselines complete sources, persists episodes and withholds failed writes', async () => {
@@ -8025,19 +8874,19 @@ test('F990 TWITCH integration baselines complete sources, persists episodes and 
       });
       return { profile, rows, feedStates, cv: { merged }, feedComplete: true, ...extra };
     };
-    assert.equal(A.surgeObservedResult(source([bird], { partial: true }), now).twitchRows.length, 0);
+    assert.equal((await A.surgeObservedResultAsync(source([bird], { partial: true }), now)).twitchRows.length, 0);
     assert.equal(store.getItem(A.twitchJournalKey()), null, 'partial coverage cannot establish a baseline');
-    assert.equal(A.surgeObservedResult(source([]), now).twitchRows.length, 0);
-    const baseline = JSON.parse(store.getItem(A.twitchJournalKey()));
+    assert.equal((await A.surgeObservedResultAsync(source([]), now)).twitchRows.length, 0);
+    const baseline = readPersistedFixture(app.window, A.twitchJournalKey());
     assert.deepEqual(baseline.known, []);
-    const first = A.surgeObservedResult(source([bird]), now).twitchRows;
+    const first = (await A.surgeObservedResultAsync(source([bird]), now)).twitchRows;
     assert.equal(first.length, 1);
     assert.equal(first[0].firstAt, now);
     assert.equal(first[0].reports, 1);
     assert.equal(first[0].lowerBound, true);
     assert.equal(first[0].unreviewed, true);
     const second = { ...bird, subId: 'SF990B', dateStr: `${A.todayStr()} 11:55` };
-    const update = A.surgeObservedResult(source([bird, second]), now + 60000).twitchRows;
+    const update = (await A.surgeObservedResultAsync(source([bird, second]), now + 60000)).twitchRows;
     assert.equal(update.length, 1);
     assert.equal(update[0].firstAt, now, 'a new report cannot reset detection age');
     assert.equal(update[0].reports, 2);
@@ -8048,7 +8897,7 @@ test('F990 TWITCH integration baselines complete sources, persists episodes and 
       return originalSet.call(this, key, value);
     };
     const newBird = { ...bird, code: 'shtsan', name: 'Sharp-tailed Sandpiper', subId: 'SNEW990' };
-    const denied = A.surgeObservedResult(source([bird, newBird]), now + 120000).twitchRows;
+    const denied = (await A.surgeObservedResultAsync(source([bird, newBird]), now + 120000)).twitchRows;
     assert.deepEqual(Array.from(denied, row => row.code), ['verfly'],
       'only the already-persisted episode may survive a failed journal write');
     app.window.Storage.prototype.setItem = originalSet;
@@ -8065,15 +8914,15 @@ test('F990 TWITCH integration baselines complete sources, persists episodes and 
       }
       return originalGet.call(this, key);
     };
-    const unreadable = A.surgeObservedResult(source([bird, newBird]), now + 180000).twitchRows;
+    const unreadable = (await A.surgeObservedResultAsync(source([bird, newBird]), now + 180000)).twitchRows;
     assert.deepEqual(Array.from(unreadable, row => row.code), ['verfly'],
       'a successful write without a successful read-back must not expose a new episode');
     app.window.Storage.prototype.setItem = originalSet;
     app.window.Storage.prototype.getItem = originalGet;
-    assert.equal(A.surgeObservedResult(source([bird, newBird]), now + 180000).twitchRows.length, 2,
+    assert.equal((await A.surgeObservedResultAsync(source([bird, newBird]), now + 180000)).twitchRows.length, 2,
       'a subsequent verified read recovers the persisted episode without creating another');
     store.removeItem(A.twitchJournalKey());
-    assert.equal(A.surgeObservedResult(source([bird, newBird]), now + 180000).twitchRows.length, 0,
+    assert.equal((await A.surgeObservedResultAsync(source([bird, newBird]), now + 180000)).twitchRows.length, 0,
       'lost history establishes a silent baseline, not duplicate arrivals');
     assert.deepEqual(app.state.errors, []);
   } finally { app.window.close(); }
@@ -8099,8 +8948,8 @@ test('F998 real rarity loader establishes TWITCH baseline and discovers a subseq
     const first = await A.getChaseRarity(true);
     assert.equal(first.feedComplete, true);
     assert.ok(!Array.isArray(first.rows), 'production results remain keyed by feed');
-    assert.equal(A.surgeObservedResult(first, now.getTime()).twitchRows.length, 0);
-    assert.deepEqual(JSON.parse(store.getItem(A.twitchJournalKey())).known, []);
+    assert.equal((await A.surgeObservedResultAsync(first, now.getTime())).twitchRows.length, 0);
+    assert.deepEqual(readPersistedFixture(app.window, A.twitchJournalKey()).known, []);
     const count = () => app.state.fetches.filter(url => /data\/obs\//.test(url)).length;
     const before = count();
     const cached = await A.getChaseRarity();
@@ -8113,13 +8962,13 @@ test('F998 real rarity loader establishes TWITCH baseline and discovers a subseq
     const eligible = observations[0];
     observations = [{ ...eligible, obsReviewed: true, obsValid: false }];
     const rejected = await A.getChaseRarity(true);
-    assert.equal(A.surgeObservedResult(rejected, now.getTime()).twitchRows.length, 0,
+    assert.equal((await A.surgeObservedResultAsync(rejected, now.getTime())).twitchRows.length, 0,
       'reviewed-and-rejected raw evidence must not become an arrival through normalization');
-    assert.deepEqual(JSON.parse(store.getItem(A.twitchJournalKey())).known, []);
+    assert.deepEqual(readPersistedFixture(app.window, A.twitchJournalKey()).known, []);
     observations = [{ ...eligible, obsValid: false }];
     const fresh = await A.getChaseRarity(true);
     assert.ok(count() > before, 'force must acquire current notable sources');
-    const rows = A.surgeObservedResult(fresh, now.getTime()).twitchRows;
+    const rows = (await A.surgeObservedResultAsync(fresh, now.getTime())).twitchRows;
     assert.deepEqual(Array.from(rows, row => row.code), ['verfly']);
     assert.equal(rows[0].reports, 1, 'duplicate feed copies do not invent parties');
     assert.equal(rows[0].unreviewed, true);
@@ -8136,7 +8985,7 @@ test('F998 real rarity loader establishes TWITCH baseline and discovers a subseq
     ];
     for (const extra of controls) {
       store.removeItem(A.twitchJournalKey());
-      A.surgeObservedResult({ ...fresh, ...extra }, now.getTime());
+      (await A.surgeObservedResultAsync({ ...fresh, ...extra }, now.getTime()));
       assert.equal(store.getItem(A.twitchJournalKey()), null,
         'incomplete, stale and legacy-shaped results cannot establish a baseline: ' + JSON.stringify(extra));
     }
@@ -8165,15 +9014,15 @@ test('F998 real snapshot and full chase results preserve explicit TWITCH acquisi
     const snapshot = await A.getChaseRarity();
     assert.equal(calls(), before, 'snapshot path must not need live observations');
     assert.equal(snapshot.feedComplete, true);
-    A.surgeObservedResult(snapshot, Date.now());
+    (await A.surgeObservedResultAsync(snapshot, Date.now()));
     assert.ok(W.localStorage.getItem(A.twitchJournalKey()), 'real snapshot can baseline silently');
     W.localStorage.removeItem(A.twitchJournalKey());
     const full = await A.getChase(true);
     assert.equal(full.feedComplete, true);
-    A.surgeObservedResult(full, Date.now());
+    (await A.surgeObservedResultAsync(full, Date.now()));
     assert.ok(W.localStorage.getItem(A.twitchJournalKey()), 'real full wave can baseline silently');
     W.localStorage.removeItem(A.twitchJournalKey());
-    A.surgeObservedResult(await A.getChaseRarity(), Date.now());
+    (await A.surgeObservedResultAsync(await A.getChaseRarity(), Date.now()));
     assert.ok(W.localStorage.getItem(A.twitchJournalKey()), 'rarity reuse of a complete full wave can baseline');
     assert.deepEqual(app.state.errors, []);
   } finally { app.window.close(); }
@@ -8191,7 +9040,7 @@ test('F998 failed and malformed real notable reads cannot become a successful em
       const full = await A.getChase(true);
       assert.equal(full.feedComplete, false);
       assert.equal(full.feedFailed, true);
-      A.surgeObservedResult(full, Date.now());
+      (await A.surgeObservedResultAsync(full, Date.now()));
       assert.equal(app.window.localStorage.getItem(A.twitchJournalKey()), null);
     } finally { app.window.close(); }
   }
@@ -8231,11 +9080,11 @@ for (const previouslyKnown of [false, true]) {
         const source = await A.getChaseRarity(true);
         assert.equal(source.feedComplete, true);
         assert.ok(!Array.isArray(source.rows), 'use the real feed-keyed acquisition contract');
-        return A.surgeObservedResult(source, now);
+        return (await A.surgeObservedResultAsync(source, now));
       }
       assert.equal((await acquire()).twitchRows.length, 0);
       const journalKey = A.twitchJournalKey();
-      assert.deepEqual(JSON.parse(store.getItem(journalKey)).known, []);
+      assert.deepEqual(readPersistedFixture(app.window, journalKey).known, []);
       const bird = { speciesCode: 'laplon', comName: 'Lapland Longspur',
         sciName: 'Calcarius lapponicus', obsDt: formatObsStamp(new Date(now)),
         locId: 'LF1007', locName: 'Example public patch', subId: 'SF1007',
@@ -8246,7 +9095,7 @@ for (const previouslyKnown of [false, true]) {
       if (previouslyKnown) {
         observations = reports;
         assert.equal((await acquire()).twitchRows.length, 0);
-        assert.deepEqual(JSON.parse(store.getItem(journalKey)).known, ['laplon']);
+        assert.deepEqual(readPersistedFixture(app.window, journalKey).known, ['laplon']);
       }
       const journal = store.getItem(journalKey);
       personal = ownedPersonalListFixture({ codes: ['tax1'], count: 2 });
@@ -8265,7 +9114,7 @@ for (const previouslyKnown of [false, true]) {
         'the complete corrected list overrides the erroneous prior listing');
       assert.equal(A.isSpeciesSeen('tax1', 'Synthetic bird 1', null, true), true,
         'other verified membership survives the correction');
-      assert.equal(JSON.parse(store.getItem(listKey)).codes.includes('laplon'), false,
+      assert.equal(readPersistedFixture(app.window, listKey).codes.includes('laplon'), false,
         'durable readback must remove the incorrect code too');
       assert.equal(!!A.watchCodes().laplon, false);
       assert.equal(store.getItem(journalKey), journal,
@@ -8300,9 +9149,9 @@ for (const previouslyKnown of [false, true]) {
           && row.dateStr.slice(0, 10) === earlier.obsDt.slice(0, 10)),
         'the real loader retains the earlier source evidence through normalization');
       }
-      const beforeRecovery = JSON.parse(store.getItem(journalKey));
+      const beforeRecovery = readPersistedFixture(app.window, journalKey);
       await A.refreshRecentBirdGen(true);
-      const recovered = JSON.parse(store.getItem(journalKey));
+      const recovered = readPersistedFixture(app.window, journalKey);
       assert.equal(recovered.episodes.laplon.recovered, previouslyKnown,
         'actual Menu Refresh repairs the known-but-never-alerted case without changing normal arrivals');
       if (!previouslyKnown) {
@@ -8321,7 +9170,7 @@ for (const previouslyKnown of [false, true]) {
       }
       assert.equal(app.$('recentBirdGenRows').querySelectorAll('[data-recent-kind="twitch"]').length, 2);
       await A.refreshRecentBirdGen(true);
-      assert.deepEqual(JSON.parse(store.getItem(journalKey)).episodes, recovered.episodes,
+      assert.deepEqual(readPersistedFixture(app.window, journalKey).episodes, recovered.episodes,
         'repeated actual Refresh cannot duplicate or reset either episode');
       assert.deepEqual(app.state.errors, []);
     } finally { app.window.close(); }
@@ -8342,11 +9191,11 @@ test('F1007 recovery withholds incomplete acquisition and failed journal readbac
     await A.refreshRecentBirdGen(false);
     const key = A.twitchJournalKey(), saved = store.getItem(key);
     assert.ok(saved);
-    assert.equal(JSON.parse(saved).episodes.verfly, undefined, 'first coverage is still silent');
+    assert.equal(readPersistedFixture(app.window, key).episodes.verfly, undefined, 'first coverage is still silent');
     assert.match(app.$('recentBirdGenStatus').textContent, /baseline saved/);
     const source = await A.getChaseRarity(true);
     for (const extra of [{ partial: true }, { stale: true }, { feedComplete: false }, { feedStates: {} }]) {
-      assert.equal(A.surgeObservedResult({ ...source, ...extra }, Date.now(), true).twitchRows.length, 0);
+      assert.equal((await A.surgeObservedResultAsync({ ...source, ...extra }, Date.now(), true)).twitchRows.length, 0);
       assert.equal(store.getItem(key), saved);
     }
     A.setFavs([{ locId: 'LF1007CONTEXT', locName: 'Example saved public patch',
@@ -8371,7 +9220,7 @@ test('F1007 recovery withholds incomplete acquisition and failed journal readbac
     assert.match(app.$('recentBirdGenStatus').textContent, /Notable refresh failed.*retained results kept/);
     response = [bird];
     await A.refreshRecentBirdGen(true);
-    assert.equal(JSON.parse(store.getItem(key)).episodes.verfly.recovered, true);
+    assert.equal(readPersistedFixture(app.window, key).episodes.verfly.recovered, true);
     assert.equal(app.$('surgeResults').querySelectorAll('[data-alert-kind="twitch"]').length, 1);
     assert.deepEqual(app.state.errors, []);
   } finally {
@@ -8402,7 +9251,7 @@ test('F1007 explicit Refresh arriving during automatic Menu acquisition waits fo
     const before = app.state.fetches.filter(url => /data\/obs\//.test(url)).length;
     await explicit;
     assert.equal(app.state.fetches.filter(url => /data\/obs\//.test(url)).length, before + 3);
-    const episode = JSON.parse(store.getItem(A.twitchJournalKey())).episodes.verfly;
+    const episode = readPersistedFixture(app.window, A.twitchJournalKey()).episodes.verfly;
     assert.ok(episode, 'the explicit fresh wave must recover the never-alerted opportunity');
     assert.equal(episode.recovered, true);
     assert.ok(app.$('recentBirdGenRows').querySelector('[data-recent-kind="twitch"]'));
@@ -8431,7 +9280,7 @@ for (const cancel of [false, true]) {
       A.showSection(app.$('surgeBtn').closest('section').id, { load: false });
       await A.loadSurge('F1007-automatic');
       const key = A.twitchJournalKey(), saved = store.getItem(key);
-      assert.equal(JSON.parse(saved).episodes.verfly, undefined, 'automatic full-feed work stays conservative');
+      assert.equal(readPersistedFixture(app.window, key).episodes.verfly, undefined, 'automatic full-feed work stays conservative');
       if (cancel) held = new Promise(resolve => { release = () => resolve([bird]); });
       const before = app.state.fetches.filter(url => /data\/obs\//.test(url)).length;
       const refreshed = A.loadSurge(null, false, { fullRefresh: true });
@@ -8447,7 +9296,7 @@ for (const cancel of [false, true]) {
       if (cancel) {
         assert.equal(store.getItem(key), saved, 'a completed obsolete source cannot create an episode');
       } else {
-        const episode = JSON.parse(store.getItem(key)).episodes.verfly;
+        const episode = readPersistedFixture(app.window, key).episodes.verfly;
         assert.ok(episode, 'the actual full-feed reload must recover the opportunity');
         assert.equal(episode.recovered, true);
         assert.ok(app.$('surgeResults').querySelector('[data-alert-kind="twitch"]'));
@@ -8718,7 +9567,7 @@ test('F1143/F1146/F1314 disabled Nemesis stays inaccessible while Target Birds u
     app.$('allUnseenBtn').click();
     assert.equal(app.$('allUnseenStatus').textContent, status,
       'the retained button cannot start Nemesis-only work');
-    assert.equal(app.window.localStorage.getItem('bc_menu_shortcuts_v1'), saved);
+    assert.deepEqual(readPersistedFixture(app.window, 'bc_menu_shortcuts_v1'), JSON.parse(saved));
     assert.deepEqual(shortcutIds(app), ['easyBtn']);
     const definition = JSON.parse(app.$('menu-definition').textContent);
     assert.equal(definition.find(row => row.at === 'allUnseenBtn').icon, '🐦');
@@ -8757,13 +9606,15 @@ test('F1047 Nemesis menu badge defaults hidden, saves explicit opt-in and obeys 
     const select = app.$('nemesisMenuBadge');
     select.value = 'show';
     select.dispatchEvent(new app.window.Event('change'));
-    assert.equal(app.window.localStorage.getItem('bc_nemesis_menu_badge_v1'), 'show');
+    assert.equal(await select._menuBadgePreferenceSave, true);
+    assert.equal(readPersistedFixture(app.window, 'bc_nemesis_menu_badge_v1'), 'show');
     assert.ok(A.menuBadge('allUnseenBtn', 'sec-allUnseenBtn'));
     app.window.localStorage.setItem('bc_report_menu_badges_v1', 'hide');
     assert.equal(A.menuBadge('allUnseenBtn', 'sec-allUnseenBtn'), null);
     app.window.localStorage.removeItem('bc_report_menu_badges_v1');
     select.value = 'hide';
     select.dispatchEvent(new app.window.Event('change'));
+    assert.equal(await select._menuBadgePreferenceSave, true);
     assert.equal(A.menuBadge('allUnseenBtn', 'sec-allUnseenBtn'), null);
     assert.equal(app.state.fetches.length, reads, 'badge settings must not fetch');
     const set = app.window.Storage.prototype.setItem;
@@ -8773,6 +9624,7 @@ test('F1047 Nemesis menu badge defaults hidden, saves explicit opt-in and obeys 
     };
     select.value = 'show';
     select.dispatchEvent(new app.window.Event('change'));
+    assert.equal(await select._menuBadgePreferenceSave, false);
     assert.equal(select.value, 'hide');
     assert.match(app.$('nemesisMenuBadgeStatus').textContent, /could not be saved/);
     assert.equal(A.menuBadge('allUnseenBtn', 'sec-allUnseenBtn'), null);
@@ -8899,6 +9751,67 @@ test('F1046 hotspot retry recovers an initially empty custom county dependency w
     assert.equal(requests.filter(url => /product\/lists\/US-MI-161/.test(url)).length,1);
     assert.equal(requests.filter(url => /data\/obs\/|alert\/summary|top100/.test(url)).length,0);
   } finally { app.window.close(); }
+});
+
+test('F1538 CA-BC recovers county feeds and renders acquired Mass alerts without refreshing healthy sources', async () => {
+  let empty=true, blocked=true;
+  const region={slug:'u-british-columbia',label:'British Columbia',stateCode:'CA-BC',
+    lat:48.43,lng:-123.37,tzStdOffset:-8,tzObservesDst:true};
+  const places=[['CP',48.43],['CV',48.46]].map(([county,lat],index)=>({
+    locId:'L15380'+(index+1),locName:'Public BC '+county,lat,lng:-123.37,
+    subnational2Code:'CA-BC-'+county,subnational1Code:'CA-BC',countryCode:'CA'
+  }));
+  const app=await boot({sample:false,report:region.slug,home:false,storage:{
+    ebird_custom_regions:JSON.stringify([region]),
+    'ebird_home_lat:u-british-columbia':'48.43','ebird_home_lng:u-british-columbia':'-123.37'
+  },fetch(url) {
+    if (/ref\/region\/list\/subnational2\/CA-BC/.test(url)) return [
+      {code:'CA-BC-CP',name:'Capital'},{code:'CA-BC-CV',name:'Cowichan Valley'}
+    ];
+    if (/ref\/hotspot\/CA-BC/.test(url)) return empty?[]:places;
+    if (/bird-list/.test(url)) return blocked?'<html>anubis_challenge</html>':f821Page([{
+      code:'snogoo',name:'Snow Goose',count:4000,region:'CA-BC',locId:'L153801',
+      locName:'Public BC CP'
+    }]);
+    if (/alert\/summary/.test(url)) return otherStateMegaAlertHtml();
+    return [];
+  }});
+  try {
+    const A=app.window.__app, box=app.$('surgeResults');
+    A.setCountySeed({}); A.LOADERS.surgeBtn.reachability=false;
+    await seedSeen(app,[]);
+    A.showSection('sec-surgeBtn',{load:false});
+    await A.loadSurge();
+    assert.equal(box.dataset.sourceHotspots,'failed','no county coverage is a failure, not a confirmed empty feed');
+    assert.equal(box.dataset.sourceObservations,'ok');
+    await waitFor(()=>box.dataset.sourceMass==='failed','blocked optional Mass source to settle');
+    assert.equal(box.dataset.sourceMass,'failed');
+    assertSurgeDiagnostic(app,/no checklist feeds|Hotspot activity feeds failed/);
+    empty=false;
+    let before=app.state.fetches.length;
+    await A.retrySurgeSources(['hotspots']);
+    assert.equal(box.dataset.sourceHotspots,'ok');
+    assert.deepEqual(Array.from(A.getCounties(),row=>row.code).sort(),['CA-BC-CP','CA-BC-CV']);
+    let requests=app.state.fetches.slice(before);
+    for (const county of ['CP','CV']) assert.equal(
+      requests.filter(url=>url.includes('product/lists/CA-BC-'+county)).length,1);
+    assert.equal(requests.filter(url=>/data\/obs\/|alert\/summary|top100|bird-list/.test(url)).length,0,
+      'county recovery must not restart healthy or unrelated sources');
+    blocked=false; before=app.state.fetches.length;
+    const previousRequests=new Set(app.state.fetches);
+    await A.retrySurgeSources(['mass']);
+    assert.notEqual(box.dataset.sourceMass,'failed');
+    assert.ok(A.loadSurgeRetained()?.mass, 'actual Retry completion must include its retained Mass receipt');
+    assert.equal(A.loadSurgeRetained().mass.rows.length,1,
+      app.window.__dbg.buf.filter(row=>/Mass Flock verdict/.test(row.msg)).map(row=>row.msg).join('\n'));
+    assert.match(box.textContent,/Snow Goose/,'successful BC Mass acquisition reaches the actual feed');
+    assert.match(box.querySelector('[data-count-kind="mass"]').getAttribute('aria-label'),/1 /);
+    requests=app.state.fetches.slice(before);
+    assert.deepEqual(requests.filter(url=>/product\/lists\/|data\/obs\/|alert\/summary|top100/.test(url)
+      && previousRequests.has(url)),[],
+    'Mass recovery must not refetch existing healthy endpoints; newly discovered county feeds may start');
+    assert.deepEqual(app.state.errors,[]);
+  } finally {app.window.close();}
 });
 
 test('F1046 favorite failed-location retry reuses successful evidence and keeps a repeated failure eligible', async () => {
@@ -9335,7 +10248,7 @@ test('F1011 internal full refresh retains forced acquisition through the optiona
     await seedSeen(app, [], null, [{ code: 'verfly', name: bird.comName },
       { code: 'margod', name: 'Marbled Godwit' }]);
     await A.refreshRecentBirdGen(true);
-    assert.deepEqual(JSON.parse(app.window.localStorage.getItem(A.twitchJournalKey())).known, [],
+    assert.deepEqual(readPersistedFixture(app.window, A.twitchJournalKey()).known, [],
       'the control starts with a complete empty baseline, not a first-run notification');
     await A.saveSurgeRetainedPart('favorite', { state: 'ok', rows: [{
       code: 'margod', name: 'Marbled Godwit', time: Date.now(),
@@ -9343,7 +10256,7 @@ test('F1011 internal full refresh retains forced acquisition through the optiona
       subnational1Code:'US-WA',lat:47.75,lng:-122.16,
       locName: 'Retained public marsh', checklistId: 'SF1011KEEP',
     }] });
-    A.saveMegaSnapshot([], true);
+    await A.saveMegaSnapshot([], true);
     assert.equal(app.$('recentBirdGenLatest'), null, 'internal forced acquisition needs no competing menu action');
     const beforeUnsafe = app.state.fetches.length;
     for (const gesture of [{ y: 30 }, { x: 100, y: 80 }, { scrollTop: 1 }, { fingers: 2 }]) {
@@ -9421,7 +10334,7 @@ test('F1011 internal full refresh retains forced acquisition through the optiona
     const warm = [/notable/, /alert\/summary/, /alert\.birdcast/, /top100/, /product\/lists\//]
       .map(re => [re, count(re)]);
     const acquisitionKey = 'bc_surge_acquired_v1:' + A.activeScope().cacheIdentity;
-    const acquisition = JSON.parse(app.window.localStorage.getItem(acquisitionKey));
+    const acquisition = readPersistedFixture(app.window, A.bcReal(acquisitionKey));
     assert.equal(acquisition.times.favorites, undefined, 'failure cannot stamp a successful acquisition');
     const ordered = ['mass', 'favorites', 'birdcast', 'mega', 'foy'];
     ordered.forEach((source, i) => { acquisition.times[source] = Date.now() - (5 - i) * 60000; });
@@ -9442,7 +10355,7 @@ test('F1011 internal full refresh retains forced acquisition through the optiona
       .map(message => message.split(' · ')[1]);
     assert.deepEqual(starts.filter(source => ordered.includes(source)), ordered,
       'the real ready-source callbacks run oldest-success first, without waiting for a failed source');
-    const nextAcquisition = JSON.parse(app.window.localStorage.getItem(acquisitionKey));
+    const nextAcquisition = readPersistedFixture(app.window, A.bcReal(acquisitionKey));
     assert.ok(nextAcquisition.times.favorites > acquisition.times.favorites);
     assert.equal(nextAcquisition.times.birdcast, acquisition.times.birdcast,
       'a partial BirdCast result is not fresh successful acquisition history');
@@ -10158,7 +11071,7 @@ test('F1025 old location coverage cannot mask provisional hydration or its retai
       assert.ok(bird, 'broader coverage must replace the old confirmed-only subset');
       assert.equal(bird.querySelector('.revok,.revpend'), null,
         'location hydration retains review evidence without labelling an unqualified species');
-      const cached = JSON.parse(ls.getItem('ebird_locsp_v2:L10251:3'));
+      const cached = await A.unpackJson(ls.getItem('ebird_locsp_v2:L10251:3'));
       assert.equal(cached.v.find(row => row.code === 'lcspet').reviewState, 'pending');
       assert.equal(bird.querySelector('.revok'), null);
       assert.match(bird.querySelector('.spwhen').textContent, /\d+\/\d+/);
@@ -10225,15 +11138,15 @@ test('F1025 old historic day markers and migration samples cannot claim broader 
     assert.equal(A.todHasDay(county, date), false, 'an old completed day needs broader sampling');
     const timed = await A.todFetchCounties([county], [date], () => {});
     assert.ok(timed.some(row => row.speciesCode === 'lcspet'));
-    A.todAccumulate(timed);
+    await A.todAccumulate(timed);
     const count = A.todLoad().hours.lcspet.length;
-    A.todAccumulate(timed);
+    await A.todAccumulate(timed);
     assert.equal(A.todLoad().hours.lcspet.length, count, 'resampling is not double-counted');
     const migration = A.migLoad();
     assert.equal(migration.samples[A.migSampleKey(date)], undefined,
       'an old weekly subset cannot suppress broader acquisition');
     await A.migFetchDate([county], date, migration);
-    A.migSave(migration);
+    assert.equal(await A.migSave(migration), true);
     assert.deepEqual(Array.from(A.migLoad().samples[A.migSampleKey(date)]), ['lcspet']);
     assert.equal(ls.getItem(todKey), oldTod, 'original historical evidence remains stored');
     assert.equal(ls.getItem(migKey), oldMig, 'original migration history remains stored');
@@ -10758,12 +11671,13 @@ test('F1023 actual summary acquisition retains observer attribution in the indep
   try {
     await app.window.__app.loadAbaAlert();
     snapshot = app.window.localStorage.getItem(app.window.__app.MEGA_SNAP_KEY);
-    assert.equal(JSON.parse(snapshot).rows[0].userDisplayName, row.observer,
+    assert.equal(readPersistedFixture(app.window, app.window.__app.MEGA_SNAP_KEY).rows[0].userDisplayName, row.observer,
       'the durable projection must not discard an already-authorized summary observer');
-    assert.equal(JSON.parse(snapshot).rows[0].subnational1Code, 'US-WA',
+    assert.equal(readPersistedFixture(app.window, app.window.__app.MEGA_SNAP_KEY).rows[0].subnational1Code, 'US-WA',
       'retained summaries must preserve the administration their local consumers require');
   } finally { app.window.close(); }
   const retained = await boot({ sample: false, storage: { ebird_mega_snapshot_v1: snapshot },
+    IntersectionObserver: class { observe() {} unobserve() {} disconnect() {} },
     fetch: url => /data\/obs\/.*\/recent\/litsti/.test(url) ? [{
       speciesCode: row.code, comName: row.name, subId: row.subId,
       obsDt: recentObsStamp(), locName: 'Synthetic private location',
@@ -10776,7 +11690,8 @@ test('F1023 actual summary acquisition retains observer attribution in the indep
     assert.ok(node);
     assert.equal(node.querySelector('.ckwho')?.textContent, row.observer,
       'initial private projection can use its own retained summary without fetching details');
-    assert.equal(retained.state.fetches.filter(url => /product\/checklist\/view\//.test(url)).length, 0);
+    assert.equal(retained.state.fetches.filter(url => /product\/checklist\/view\//.test(url)).length, 0,
+      JSON.stringify({ calls: retained.state.fetches, trace: retained.window.__megaSourceTrace }));
     assert.deepEqual(retained.state.errors, []);
   } finally { retained.window.close(); }
 });
@@ -10911,6 +11826,7 @@ test('F1016 legacy membership cannot populate Mega or Bird Gen and its dated rep
       ? new Promise(resolve => { release = resolve; }) : [] });
   try {
     const A = app.window.__app;
+    const baseline = app.window.localStorage.getItem(A.MEGA_SNAP_KEY);
     await seedSeen(app, [], null, [row]);
     A.renderSurge([], [], [], [], []);
     assert.equal(app.document.querySelector('#surgeResults [data-alert-kind="mega"]'), null,
@@ -10918,13 +11834,14 @@ test('F1016 legacy membership cannot populate Mega or Bird Gen and its dated rep
     const pending = A.loadAbaAlert();
     assert.equal(app.document.querySelector('#abaResults [data-mega-code="mallar3"]'), null,
       'legacy observations are retained evidence, not current index membership');
-    assert.equal(app.window.localStorage.getItem(A.MEGA_SNAP_KEY), saved,
+    assert.equal(app.window.localStorage.getItem(A.MEGA_SNAP_KEY), baseline,
       'do not wipe the old observations while acquiring ownership proof');
+    await waitFor(() => release, 'alert starts after its captured snapshot is decoded');
     release(otherStateMegaAlertHtml());
     await pending;
     assert.deepEqual(JSON.parse(JSON.stringify(A.abaArchiveFor('US-WA', 'mallar3'))), [row],
       'successful empty membership replacement must retain the old dated report and observer');
-    assert.deepEqual(JSON.parse(app.window.localStorage.getItem(A.MEGA_SNAP_KEY)).rows, []);
+    assert.deepEqual(readPersistedFixture(app.window, A.MEGA_SNAP_KEY).rows, []);
     A.renderSurge([], [], [], [], []);
     assert.equal(app.document.querySelector('#surgeResults [data-alert-kind="mega"]'), null);
     assert.deepEqual(app.state.errors, []);
@@ -10941,6 +11858,7 @@ test('F1016 failed archive write or readback cannot replace the previous dated M
     const app = await boot({ sample: false, storage: { ebird_mega_snapshot_v1: saved },
       fetch: url => /alert\/summary/.test(url) ? otherStateMegaAlertHtml() : [] });
     const originalSet = app.window.Storage.prototype.setItem;
+    const baseline = app.window.localStorage.getItem(app.window.__app.MEGA_SNAP_KEY);
     try {
       app.window.Storage.prototype.setItem = function (key, value) {
         if (key === 'ebird_aba_archive_v1') {
@@ -10950,7 +11868,7 @@ test('F1016 failed archive write or readback cannot replace the previous dated M
         return originalSet.call(this, key, value);
       };
       await app.window.__app.loadAbaAlert();
-      assert.equal(app.window.localStorage.getItem(app.window.__app.MEGA_SNAP_KEY), saved,
+      assert.equal(app.window.localStorage.getItem(app.window.__app.MEGA_SNAP_KEY), baseline,
         failure + ' must preserve the dated reports in their original owner');
       assert.deepEqual(app.state.errors, []);
     } finally {
@@ -10993,7 +11911,7 @@ for (const source of ['requested', 'different selection', 'RBA page']) {
       await pending;
       const saved = app.window.localStorage.getItem(app.window.__app.MEGA_SNAP_KEY);
       assert.equal(!!saved, source === 'requested');
-      if (saved) assert.equal(JSON.parse(saved).rows[0].speciesCode, 'litsti');
+      if (saved) assert.equal(readPersistedFixture(app.window, app.window.__app.MEGA_SNAP_KEY).rows[0].speciesCode, 'litsti');
       assert.deepEqual(app.state.errors, []);
     } finally { page.window.close(); app.window.close(); }
   });
@@ -11106,9 +12024,9 @@ test('F966 standings and chase writes reclaim reproducible large caches without 
           return set.call(this, name, value);
         };
         if (kind === 'standing') {
-          assert.equal(A.rankCachePut('F966', { rows: [{ name: 'Synthetic '.repeat(300) }] }), true,
+          assert.equal(await A.rankCachePut('F966', { rows: [{ name: 'Synthetic '.repeat(300) }] }), true,
             prefix + ': the standing stayed session-only despite reclaimable evidence');
-          assert.equal(JSON.parse(W.localStorage.getItem(key)).F966.data.rows.length, 1);
+          assert.equal((await A.unpackJson(W.localStorage.getItem(key))).F966.data.rows.length, 1);
         } else {
           const codes = Array.from({ length: 400 }, (_, index) =>
             crypto.createHash('sha256').update('F966-' + index).digest('hex').slice(0, 16));
@@ -11150,10 +12068,10 @@ test('F966 standings and chase never report durability when storage silently dro
   try {
     assert.equal(await A.saveChaseSnapshot('wa', ['old'], {}, {}), true);
     proto.setItem = function (key, value) {
-      if (key === A.RANK_CACHE_KEY || String(key).startsWith('ebird_chase_v1:')) return;
+      if (key === A.bcReal(A.RANK_CACHE_KEY) || String(key).startsWith('ebird_chase_v1:')) return;
       return set.call(this, key, value);
     };
-    assert.equal(A.rankCachePut('F966', { rows: [{ name: 'Latest session standing' }] }), false);
+    assert.equal(await A.rankCachePut('F966', { rows: [{ name: 'Latest session standing' }] }), false);
     assert.equal(A.rankCacheEntries().F966.data.rows[0].name, 'Latest session standing');
     assert.equal(await A.saveChaseSnapshot('wa', ['new'], {}, {}), false);
     assert.deepEqual(Array.from((await A.loadChaseSnapshot('wa')).codes), ['old']);
@@ -11353,6 +12271,7 @@ test('F948 Mega validates source rows and reports actual durable persistence', a
   const app = await boot({ sample: false, storage: { ebird_mega_snapshot_v1: previous },
     fetch: url => /alert\/summary/.test(url) ? body : [] });
   const W = app.window, A = W.__app, proto = W.Storage.prototype, set = proto.setItem;
+  const baseline = W.localStorage.getItem(A.MEGA_SNAP_KEY);
   try {
     for (body of [
       '<html>anubis_challenge</html>', '<div class="Observation"></div>',
@@ -11360,10 +12279,10 @@ test('F948 Mega validates source rows and reports actual durable persistence', a
       otherStateMegaAlertHtml() + '<div class="Observation"></div>',
     ]) {
       assert.equal(await A.lazyRefreshMegaSnapshot(), false, body);
-      assert.equal(W.localStorage.getItem(A.MEGA_SNAP_KEY), previous);
+      assert.equal(W.localStorage.getItem(A.MEGA_SNAP_KEY), baseline);
     }
     await A.loadAbaAlert();
-    assert.equal(W.localStorage.getItem(A.MEGA_SNAP_KEY), previous,
+    assert.equal(W.localStorage.getItem(A.MEGA_SNAP_KEY), baseline,
       'foreground loading must not replace last-good data with a partially parsed source');
     body = otherStateMegaAlertHtml();
     proto.setItem = function (key, value) {
@@ -11371,7 +12290,7 @@ test('F948 Mega validates source rows and reports actual durable persistence', a
       return set.call(this, key, value);
     };
     assert.equal(await A.lazyRefreshMegaSnapshot(), false);
-    assert.equal(W.localStorage.getItem(A.MEGA_SNAP_KEY), previous);
+    assert.equal(W.localStorage.getItem(A.MEGA_SNAP_KEY), baseline);
     assert.equal(A.megaAlertSourceState(A.megaLane([])), 'failed');
     const tasks = A.acquireInitialDatasetTasks(A.activeScope(), { current: () => true });
     await assert.rejects(tasks.mega.acquire(false), /Mega snapshot is unavailable/);
@@ -11381,13 +12300,13 @@ test('F948 Mega validates source rows and reports actual durable persistence', a
     assert.equal(await A.lazyRefreshMegaSnapshot(), true, 'reload retries failed persistence');
     assert.equal((await tasks.mega.acquire(false)).state, 'ready',
       'a verified durable empty snapshot can satisfy initial readiness');
-    assert.deepEqual(JSON.parse(W.localStorage.getItem(A.MEGA_SNAP_KEY)).rows, []);
+    assert.deepEqual(readPersistedFixture(W, A.MEGA_SNAP_KEY).rows, []);
     assert.match(W.__dbg.buf.map(row => row.msg).join('\n'),
       /mega snapshot refreshed · parsed 1 source rows · regional 0 rows · persistence verified/);
     proto.setItem = function (key, value) {
       if (key !== A.MEGA_SNAP_KEY) return set.call(this, key, value);
     };
-    assert.equal(A.saveMegaSnapshot([{ speciesCode: 'mallar3' }], true), false,
+    assert.equal(await A.saveMegaSnapshot([{ speciesCode: 'mallar3' }], true), false,
       'silent write loss must fail read-back');
   } finally { proto.setItem = set; W.close(); }
 });
@@ -11483,7 +12402,8 @@ test('F940 retained writes compact legacy directories under quota without deleti
   const W = app.window, A = W.__app, proto = W.Storage.prototype, set = proto.setItem;
   try {
     const evidence = ppteFixture();
-    const hotspot = { locId: 'L333', locName: 'Sample Street SE', lat: 47, lng: -122 };
+    const hotspot = { locId: 'L333', locName: 'Sample Street SE', lat: 47, lng: -122,
+      subnational1Code: 'US-WA' };
     const hotspots = [hotspot, ...Array.from({ length: 1200 }, (_, i) => ({
       locId: 'L-UNRELATED-' + i, locName: 'Unrelated public site ' + i, lat: 46, lng: -123,
     }))];
@@ -11513,6 +12433,10 @@ test('F940 retained writes compact legacy directories under quota without deleti
     const after = W.localStorage.getItem(key).length;
     const saved = await A.unpackJson(W.localStorage.getItem(key));
     assert.equal(saved.parts.ppte.value.hotspots.length, 1);
+    assert.equal(saved.parts.ppte.value.hotspots[0].subnational1Code, 'US-WA',
+      'compaction must preserve the supplied public administrative evidence');
+    assert.ok(A.loadSurgeRetained().ppte.rows[0].publicHotspot,
+      'retained replay must preserve the proven public reporting hotspot');
     assert.equal(A.loadSurgeRetained().ppte.rows[0].publicHotspot.locId, 'L333');
     assert.ok(after < 24000 && before > 24000);
     for (const [protectedKey, value] of Object.entries(protectedValues)) {
@@ -11541,6 +12465,7 @@ test('F940 F950 history diagnostics use active ownership and distinguish failed 
     assert.match(A.dbgContext(), /board snapshots: 0/);
     A.boardHistRecord(owner, [{ name: 'Synthetic', rank: 4 }]);
     A.rankHistRecord(owner, { rank: 4, species: 100 });
+    await A.drainRankingHistoryWrites();
     assert.match(A.dbgContext(), /board snapshots: 1/);
     assert.match(A.dbgContext(), /personal rank verified; Top 100 verified/);
     const rankKey = 'ebird_rankhist:' + owner, boardKey = 'bc_board_v1:' + owner;
@@ -11553,6 +12478,7 @@ test('F940 F950 history diagnostics use active ownership and distinguish failed 
     };
     assert.equal(A.rankHistRecord(owner, { rank: 3, species: 101 }).at(-1).rank, 3);
     A.boardHistRecord(owner, [{ name: 'Synthetic', rank: 3 }]);
+    await A.drainRankingHistoryWrites();
     assert.deepEqual([W.localStorage.getItem(rankKey), W.localStorage.getItem(boardKey)], saved);
     assert.match(A.dbgContext(), /personal rank failed; Top 100 failed/);
     const log = W.__dbg.buf.map(row => row.msg).join('\n');
@@ -11562,6 +12488,7 @@ test('F940 F950 history diagnostics use active ownership and distinguish failed 
     proto.setItem = set;
     A.rankHistRecord(owner, { rank: 3, species: 101 });
     A.boardHistRecord(owner, [{ name: 'Synthetic', rank: 3 }]);
+    await A.drainRankingHistoryWrites();
     assert.match(A.dbgContext(), /personal rank verified; Top 100 verified/);
     assert.equal(W.localStorage.getItem('bc_board_v1:US-WA'), JSON.stringify(old));
   } finally { proto.setItem = set; W.close(); }
@@ -11580,6 +12507,7 @@ test('F986 growing board history reclaims disposable storage while a smaller per
     W.localStorage.setItem(protectedKey, '{"saved":true}');
     A.boardHistRecord(owner, [{ name: 'Synthetic', rank: 4 }]);
     A.rankHistRecord(owner, { rank: 4, species: 100 });
+    await A.drainRankingHistoryWrites();
     W.localStorage.setItem(spareKey, 'x'.repeat(40000));
     function used() {
       return Object.keys(W.localStorage).reduce((sum, key) =>
@@ -11599,14 +12527,16 @@ test('F986 growing board history reclaims disposable storage while a smaller per
       return set.call(this, key, value);
     };
     A.rankHistRecord(owner, { rank: 3, species: 101 });
+    await A.drainRankingHistoryWrites();
     assert.equal(attempts[rankKey], 1, 'the small neighboring write fits without reclamation');
     assert.equal(removed.length, 0);
     assert.equal(W.localStorage.getItem(spareKey).length, 40000);
     const rows = Array.from({ length: 100 }, (_, i) => ({ name: 'Synthetic birder ' + i, rank: i + 1 }));
     A.boardHistRecord(owner, rows);
+    await A.drainRankingHistoryWrites();
     assert.equal(attempts[boardKey], 2, 'growing board history must retry after quota-only reclamation');
-    assert.equal(Object.keys(JSON.parse(W.localStorage.getItem(boardKey)).at(-1).r).length, 100);
-    assert.equal(JSON.parse(W.localStorage.getItem(rankKey)).at(-1).rank, 3);
+    assert.equal(Object.keys(readPersistedFixture(W, boardKey).at(-1).r).length, 100);
+    assert.equal(readPersistedFixture(W, rankKey).at(-1).rank, 3);
     assert.equal(W.localStorage.getItem(protectedKey), '{"saved":true}');
     assert.ok(removed.length > 0, 'quota recovery must reclaim disposable storage');
     assert.ok(!removed.includes(protectedKey));
@@ -11622,6 +12552,7 @@ test('F986 history keeps last-good data and reports non-quota and exhausted-retr
       const owner = 'F986-failure', key = 'bc_board_v1:' + owner;
       const spareKey = 'ebird_locsp_v1:F986-disposable';
       A.boardHistRecord(owner, [{ name: 'Synthetic', rank: 4 }]);
+      await A.drainRankingHistoryWrites();
       const previous = W.localStorage.getItem(key);
       W.localStorage.setItem(spareKey, 'x'.repeat(40000));
       let attempts = 0, removals = 0;
@@ -11637,6 +12568,7 @@ test('F986 history keeps last-good data and reports non-quota and exhausted-retr
         return set.call(this, target, value);
       };
       A.boardHistRecord(owner, [{ name: 'Synthetic', rank: 3 }]);
+      await A.drainRankingHistoryWrites();
       assert.equal(attempts, name === 'SecurityError' ? 1 : 2);
       assert.equal(W.localStorage.getItem(key), previous, 'failed writes preserve last-good history');
       assert.equal(removals > 0, name === 'QuotaExceededError',
@@ -11660,6 +12592,7 @@ test('F986 history reports no-reclaimable-space and read-back failures without f
         A.personalBoardPeriod(), 'spp', A.getDisplayName());
       const key = 'bc_board_v1:' + owner;
       A.boardHistRecord(owner, [{ name: 'Synthetic', rank: 4 }]);
+      await A.drainRankingHistoryWrites();
       const previous = W.localStorage.getItem(key);
       let attempts = 0;
       proto.setItem = function (target, value) {
@@ -11674,6 +12607,7 @@ test('F986 history reports no-reclaimable-space and read-back failures without f
         return get.call(this, target);
       };
       A.boardHistRecord(owner, [{ name: 'Synthetic', rank: 3 }]);
+      await A.drainRankingHistoryWrites();
       assert.equal(attempts, 1);
       if (mode === 'no-space') assert.equal(get.call(W.localStorage, key), previous);
       assert.match(A.dbgContext(), /Top 100 failed/);
@@ -11833,7 +12767,7 @@ test('F921 failed checklist replacements expose measured growth without inventin
   const W = app.window, A = W.__app, proto = W.Storage.prototype, set = proto.setItem;
   try {
     const sub = 'F921-replacement', key = A.CKL_NS + sub;
-    A.cklWrite(sub, { obsDt: recentObsStamp() }, false, [{ comments: 'Private payload sentinel' }]);
+    await A.cklWrite(sub, { obsDt: recentObsStamp() }, false, [{ comments: 'Private payload sentinel' }]);
     const previous = W.localStorage.getItem(key);
     W.localStorage.setItem('ebird_photos_neg_v1:F921-spare', 'x'.repeat(40000));
     const attempts = [];
@@ -11844,7 +12778,7 @@ test('F921 failed checklist replacements expose measured growth without inventin
       }
       return set.call(this, target, value);
     };
-    assert.throws(() => A.cklWrite(sub, { obsDt: recentObsStamp() }, false,
+    await assert.rejects(A.cklWrite(sub, { obsDt: recentObsStamp() }, false,
       [{ comments: 'Private payload sentinel'.repeat(10) }]), { name: 'QuotaExceededError' });
     assert.equal(attempts.length, 2);
     assert.equal(W.localStorage.getItem(key), previous);
@@ -11962,7 +12896,7 @@ async function seedSeen(app, codes, names, taxa = []) {
   const catalogs = Object.keys(app.window.localStorage)
     .filter(key => key.startsWith('ebird_species_v2:'))
     .map(key => ({region:key.slice('ebird_species_v2:'.length),
-      value:app.window.localStorage.getItem(key)}));
+      value:JSON.stringify(readPersistedFixture(app.window,key))}));
   catalogs.forEach(catalog => {
     const parsed = JSON.parse(catalog.value);
     (parsed.rows || []).forEach(row => {
@@ -12061,7 +12995,7 @@ function seedCompleteNotableChase(app, rowsByFile, at = Date.now()) {
 async function seedRarityChase(app, rows, at = Date.now()) {
   const A = app.window.__app;
   if (A.personalListEvidence().complete) {
-    const source = JSON.parse(app.window.localStorage.getItem(A.bcReal(A.personalListKey(A.personalListOwner()))));
+    const source = readPersistedFixture(app.window, A.bcReal(A.personalListKey(A.personalListOwner())));
     await seedSeen(app,source.codes,null,rows);
   }
   const profile = A.chaseProfile();
@@ -12159,6 +13093,12 @@ function boot(opts = {}) {
     virtualConsole,
     beforeParse(window) {
       if (opts.Date) window.Date = opts.Date;
+      if (opts.IntersectionObserver) window.IntersectionObserver = opts.IntersectionObserver;
+      if (opts.nativeCompression) {
+        window.CompressionStream = CompressionStream;
+        window.DecompressionStream = DecompressionStream;
+        window.Response = opts.Response || Response;
+      }
       if (!window.crypto.subtle) Object.defineProperty(window.crypto, 'subtle', { value: crypto.webcrypto.subtle });
       if (!window.TextEncoder) window.TextEncoder = TextEncoder;
       if (Object.hasOwn(opts, 'online')) Object.defineProperty(window.navigator, 'onLine', {
@@ -12247,6 +13187,9 @@ function boot(opts = {}) {
           if (opts.boundaryFetch && /^region-boundaries-[^/]+\.json$/.test(rel)) {
             return abortable(opts.boundaryFetch(String(url), init));
           }
+          if (opts.jargonFetch && rel === 'birder-jargon.json') {
+            return abortable(opts.jargonFetch(String(url), init));
+          }
           const file = path.join(WWW, rel);
           if (rel && file.startsWith(WWW) && fs.existsSync(file) && fs.statSync(file).isFile()) {
             const body = fs.readFileSync(file, 'utf8');
@@ -12300,14 +13243,18 @@ function boot(opts = {}) {
           if (body && typeof body.then === 'function') return abortable(body.then(response));
           if (body != null) return Promise.resolve(response(body));
         }
+        if (/^https:\/\/(?:geo\.statcan\.gc\.ca\/geo_wa\/rest\/services\/2021\/Digital_boundary_files|tigerweb\.geo\.census\.gov\/arcgis\/rest\/services\/TIGERweb\/State_County)\//.test(String(url))) {
+          return Promise.resolve({ ok: false, status: 503, json: async () => ({}) });
+        }
         return abortable(new Promise(() => {}));
       };
       window.onerror = (msg) => { state.errors.push(String(msg)); };
     },
   });
   return new Promise((resolve) => {
-    dom.window.addEventListener('load', () => setTimeout(() => {
+    dom.window.addEventListener('load', () => setTimeout(async () => {
       const window = dom.window;
+      await window.__appReady;
       if (!window.__app && state.errors.length) {
         throw new Error('app boot failed: ' + state.errors.join(' | '));
       }
@@ -12423,7 +13370,7 @@ test('F815 annual-first acquisition verifies returned region, year and selected 
       await assert.rejects(A.firstYearFetch('US-WA'), /does not prove.*First Observed/);
       assert.equal(A.firstYearRead('US-WA', year), null, 'rejected source must not create a cache');
     }
-    const saved = A.firstYearWrite('US-WA', year, good);
+    const saved = await A.firstYearWrite('US-WA', year, good);
     assert.equal(A.firstYearSourceMatches(saved, 'US-WA', year), true,
       'cache retains returned source ownership, not just requested ownership');
     assert.ok(saved.readAt);
@@ -12930,7 +13877,7 @@ test('F1400 FOY migrates only existing discoveries and validates retained eviden
     body = foySourceFixture(1, true);
     await A.ensureFoy(true);
     const key = A.bcReal(A.foyKey(A.foyContext()));
-    const legacy = JSON.parse(app.window.localStorage.getItem(key));
+    const legacy = await A.unpackJson(app.window.localStorage.getItem(key));
     delete legacy.discoveryRows;
     app.window.localStorage.setItem(key, JSON.stringify(legacy));
     assert.deepEqual(arr(A.foyHistoryRead().discoveryRows, row => row.code), ['newbird'],
@@ -12945,9 +13892,9 @@ test('F1400 FOY migrates only existing discoveries and validates retained eviden
     assert.deepEqual(arr(A.foyHistoryRead().discoveryRows, row => row.code), ['newbird']);
     app.window.Storage.prototype.setItem = nativeSet;
     await A.loadFoy();
-    const acknowledged = JSON.parse(app.window.localStorage.getItem(key));
-    assert.deepEqual(acknowledged.pendingRows, []);
-    assert.deepEqual(acknowledged.discoveryRows.map(row => row.code), ['newbird'],
+    const acknowledged = await A.unpackJson(app.window.localStorage.getItem(key));
+    assert.deepEqual(arr(acknowledged.pendingRows), []);
+    assert.deepEqual(arr(acknowledged.discoveryRows, row => row.code), ['newbird'],
       'acknowledgement must persist the migrated discovery separately');
     await A.ensureFoy(true);
     assert.deepEqual(arr(A.foyHistoryRead().discoveryRows, row => row.code), ['newbird']);
@@ -13309,7 +14256,7 @@ test('F1246 pending regional totals coalesce rerenders and isolate region/day co
       board.region=region;pair.boards.cl.region=region;
       A.renderRankPair(pair,region,period,'Owner');
     };
-    const cache=()=>JSON.parse(app.window.localStorage.getItem('ebird_ebirders_count_v1') || '{}');
+    const cache=()=>readPersistedFixture(app.window,'ebird_ebirders_count_v1') || {};
     const clear=region=>{
       const values=cache();delete values[region];
       app.window.localStorage.setItem('ebird_ebirders_count_v1',JSON.stringify(values));
@@ -13686,7 +14633,7 @@ test('F1405 wider cache is reused and hung initial aggregate reads settle withou
     const wide={region:'lower48',period,metric:'spp',profile:A.bcProfile(),ownerRevision:A.identityRevision(),
       url:'https://ebird.org/top100?region=USA+Lower+48&year='+period+'&rankedBy=spp&maxResults=5000',
       rows:Array.from({length:501},(_,i)=>({rank:i+1,name:'Wide '+i,species:6000-i}))};
-    A.rankCachePut(A.rankCacheOwnerKey(rr,period,''),wide);
+    await A.rankCachePut(A.rankCacheOwnerKey(rr,period,''),wide);
     const before=app.state.fetches.length;
     const pair=await A.fetchRankPair({region:'lower48',max:500,rowLimit:500},period,'',false,null,['spp']);
     assert.equal(pair.boards.spp.rows.length,501);
@@ -13721,6 +14668,7 @@ for (const retained of [false,true]) test('F1531 same-scope personal refresh can
           +A.personalBoardPeriod()+'&rankedBy=spp&maxResults=500'};
       const key = A.rankCacheOwnerKey(request,old.period,A.getDisplayName());
       app.window.localStorage.setItem(A.RANK_CACHE_KEY,JSON.stringify({[key]:{date:'2026-01-01',data:old}}));
+      await A.loadRankCache(true);
       A.renderRankPair({boards:{spp:old},failures:{},stale:{spp:old.readAt},coverage:'Retained old source'},
         'lower48',old.period,A.getDisplayName());
     }
@@ -13782,6 +14730,98 @@ test('F1531 view liveness stays per consumer while account, period, region and m
       assert.doesNotMatch(app.window.localStorage.getItem(A.RANK_CACHE_KEY)||'',/Obsolete Late Metric/);
     } finally {held.forEach(row=>row.resolve([]));app.window.close();}
   }
+});
+
+test('F1540 known Top 100 names and photos open the same actual Stakeout bird', async () => {
+  const names = ['Ruff', 'Brant', 'Chukar'], codes = ['ruff', 'brant', 'chukar'];
+  const date = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  const app = await boot({ sample: false, fetch: () => [] });
+  try {
+    const A = app.window.__app;
+    app.window.localStorage.setItem(A.speciesCacheKey('US-WA'), JSON.stringify({
+      at: Date.now(), rows: [{ name: 'Ruff', code: 'ruff' }],
+    }));
+    const paint = () => {
+      A.showSection('sec-rankBtn', { load: false });
+      A.renderRankings({ rows: names.map((name, i) => ({
+        rank: i + 1, name: 'Bird link control ' + i, profileId: 'F1540bird' + i,
+        species: 100, checklists: 200, recent: name + ' (' + date + ')',
+      })) }, 'US-WA', 'https://ebird.org/top100', '');
+    };
+    paint();
+    assert.equal(app.document.querySelectorAll('.rankbirdline')[1].querySelector('.splink'), null);
+    A.setSpuhModel(app.window.Spuh.createFromTaxonomy([
+      { speciesCode: 'brant', comName: 'Brant', sciName: 'Branta bernicla', category: 'species' },
+      { speciesCode: 'chukar', comName: 'Chukar', sciName: 'Alectoris chukar', category: 'species' },
+    ]));
+    for (const [i, name] of names.entries()) {
+      for (const selector of ['.ntext > a.splink', '.rankbirdicon .thumb']) {
+        paint();
+        const action = app.document.querySelectorAll('.rankbirdline')[i].querySelector(selector);
+        assert.ok(action, name + ': missing ' + selector);
+        app.click(action);
+        assert.equal(app.$('spLookupBtn').closest('section').hidden, false);
+        assert.equal(app.$('spLookup').value, name);
+        await waitFor(() => app.state.fetches.some(url => url.includes('/US-WA/recent/' + codes[i] + '?')),
+          name + ': exact species request');
+      }
+    }
+    paint();
+    await waitFor(() => app.document.querySelectorAll('.rankbirdicon img').length === 3);
+    for (const [i, name] of names.entries()) {
+      const image = app.document.querySelectorAll('.rankbirdline')[i].querySelector('img');
+      assert.match(new URL(image.src).pathname, new RegExp('/assets/birds/' + codes[i] + '\\.'));
+      assert.equal(image.classList.contains('isfallback'), false, name + ': not a generic icon');
+    }
+    const photo = app.document.querySelectorAll('.rankbirdline')[1].querySelector('.rankbirdicon .splink');
+    photo.focus();
+    assert.equal(app.document.activeElement, photo);
+    photo.dispatchEvent(new app.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    assert.equal(app.$('spLookupBtn').closest('section').hidden, false);
+    assert.equal(app.$('spLookup').value, 'Brant');
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
+test('F1540 loaded taxonomy refreshes Top 100 identities without guessing ambiguous names', async () => {
+  const date = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  const rows = [
+    { speciesCode: 'brant', comName: 'Brant', sciName: 'Branta bernicla', category: 'species' },
+    { speciesCode: 'chukar', comName: 'Chukar', sciName: 'Alectoris chukar', category: 'species' },
+    { speciesCode: 'exactform', comName: 'Brant (Exact form)', sciName: 'Branta bernicla exact',
+      category: 'issf', reportAs: 'brant' },
+    { speciesCode: 'ambiguous1', comName: 'Ambiguous bird', sciName: 'Ambiguus primus', category: 'species' },
+    { speciesCode: 'ambiguous2', comName: 'Ambiguous bird', sciName: 'Ambiguus secundus', category: 'species' },
+  ].concat(monthlyTaxonomyRows());
+  const app = await boot({ sample: false, indexedDB: new IDBFactory(), fetch: url => {
+    if (/ref\/taxonomy\/versions/.test(url)) return [{ authorityVer: 2026, latest: true }];
+    if (/ref\/taxonomy\/ebird/.test(url)) return rows;
+    return [];
+  } });
+  try {
+    const A = app.window.__app, names = ['Brant', 'Chukar', 'Brant (Exact form)', 'Ambiguous bird', 'Unknown bird'];
+    const paint = () => A.renderRankings({ rows: names.map((name, i) => ({
+      rank: i + 1, name: 'Taxonomy control ' + i, profileId: 'F1540taxonomy' + i,
+      species: 100, checklists: 200, recent: name + ' (' + date + ')',
+    })) }, 'US-WA', 'https://ebird.org/top100', '');
+    app.window.localStorage.setItem(A.speciesCacheKey('US-WA'), JSON.stringify({
+      at: Date.now(), rows: [{ name: 'Ruff', code: 'ruff' },
+        { name: 'Ambiguous bird', code: 'ambiguous1' }],
+    }));
+    paint();
+    assert.equal(await A.checkTaxonomyEdition(true), true);
+    const before = app.state.fetches.length;
+    paint();
+    assert.equal(app.state.fetches.length, before, 'identity decoration makes no provider requests');
+    const birds = app.document.querySelectorAll('.rankbirdline');
+    for (const [i, code] of ['brant', 'chukar', 'exactform'].entries()) {
+      assert.equal(birds[i].querySelector('.ntext > a.splink')?.dataset.sp, code);
+      assert.equal(birds[i].querySelector('.rankbirdicon .splink')?.dataset.sp, code);
+    }
+    for (const i of [3, 4]) assert.equal(birds[i].querySelector('.splink'), null,
+      'ambiguous or unknown names must not acquire an invented identity');
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
 });
 
 test('F1528 successive owned reads retain only observed birds with photos, five inline and append-only Show more', async () => {
@@ -13958,7 +14998,7 @@ test('F1528 compact captures persist independently of failed full boards and rep
     const data = await A.fetchRank(rr, period, '', true);
     const history = W.localStorage.getItem('bc_rankbirds_v1:' + owner);
     assert.ok(history, 'compact history must persist despite full-board write failure');
-    assert.equal(JSON.parse(history).people.Quota1528.length, 2);
+    assert.equal(readPersistedFixture(W, 'bc_rankbirds_v1:' + owner).people.Quota1528.length, 2);
     assert.match(W.__dbg.buf.map(row => row.msg).join('\n'), /Leaderboard cache is session-only/);
     failHistory = true; bird = 'Great Egret';
     const unsaved = await A.fetchRank(rr, period, '', true);
@@ -14605,7 +15645,7 @@ test('F1444 FOY prefers recent local public sightings, then newest outside, with
   } finally {app.window.close();}
 });
 
-test('F1442 F1526 bird icon shows unchanged leaderboard count then checkmark in full, Recent and fallback views', async () => {
+test('F1442 F1526 F1539 bird icon shows unchanged leaderboard count then checkmark in full, Recent and fallback views', async () => {
   const app = await boot({sample:false});
   try {
     const A = app.window.__app;
@@ -14626,6 +15666,11 @@ test('F1442 F1526 bird icon shows unchanged leaderboard count then checkmark in 
       assert.equal(badge?.textContent,label,
         'bird icon must show the actual leaderboard tick count, not the four displayed names or sighting count');
       assert.equal(badge.getAttribute('aria-label'),count+' leaderboard tick'+(count===1?'':'s'));
+      const check = badge.querySelector('svg.surgetickcheck path');
+      assert.ok(check,'the checkmark uses an explicit shape, not a platform-coloured emoji');
+      assert.equal(check.getAttribute('fill'),'#fff');
+      assert.equal(check.getAttribute('stroke'),'#000');
+      assert.ok(+check.getAttribute('stroke-width') >= 4);
       assert.equal(row.querySelector('.surgekindtile').textContent,'🏆','leave the category icon unchanged');
       assert.ok(row.querySelector('.thumb[data-bird] > img.birdpic'),
         'actual bundled-photo hydration must leave the count intact');
@@ -14697,7 +15742,7 @@ test('F1403 aggregate Bird Gen uses verified local evidence and owned TWITCH bas
       let box=app.$('surgeResults');
       assert.match(box.querySelector('[data-birdgen-local-coverage]').textContent,/not area-wide coverage/);
       const journalKey=Object.keys(app.window.localStorage).find(key=>key.startsWith('bc_twitch_v1:'));
-      assert.deepEqual(JSON.parse(app.window.localStorage.getItem(journalKey)).known.sort(),
+      assert.deepEqual(readPersistedFixture(app.window, journalKey).known.sort(),
         slug==='aba'?['amecro','pacloo']:['pacloo'],'only proven aggregate members enter the baseline');
       assert.equal(box.querySelectorAll('[data-alert-kind="twitch"]').length,0,'first read silently establishes a baseline');
       for (const key of ['Mega','Leaderboard','Hotspots','Mass','Ppte','Birdcast','Foy'])
@@ -14889,12 +15934,14 @@ test('F1404/F1415 Quick Settings groups recent choices, selection semantics and 
     app.click(choices()[0]);
     assert.equal(A.getReportSlug(),'lower48');
     assert.equal(JSON.stringify(A.getHome()),home,'recent-region shortcuts preserve the one shared Home');
+    await app.$('menuScopeHost')._recentRegionSave;
     A.renderMenuIdentity();
     assert.deepEqual(choices().map(button => button.dataset.regionChoice), ['wa','hi']);
     assert.match(app.$('menuCurrentRegion').textContent,/Lower 48/);
     app.click(choices()[0]);
     assert.equal(A.getReportSlug(),'wa');
     assert.equal(JSON.stringify(A.getHome()),home);
+    await app.$('menuScopeHost')._recentRegionSave;
     A.renderMenuIdentity();
     assert.equal(choices().filter(button => button.dataset.regionChoice==='wa').length,0);
   } finally { app.window.close(); }
@@ -14918,12 +15965,14 @@ test('F859 cached regions recover locally with owner, timestamp and alias contro
       malformed:entry('US-ID',100,{rows:[{}]}),
       duplicate:entry('US-HI',4000)
     }));
+    await A.loadRankCache(true);
     app.window.localStorage.setItem('bcp:other:ebird_chase_v1:region:US-NM:2026-10-09',
       await A.packJson({v:2,t:now-10,rows:{observations:[{speciesCode:'other',obsDt:recentObsStamp(1)}]},
         fetchBaseKey:'https://api.ebird.org/v2/data/obs/US-NM/recent'}));
     app.window.localStorage.setItem('ebird_chase_v1:region:US-CO:2026-10-09',
       await A.packJson({v:2,t:now-5000,rows:{observations:[{speciesCode:'regional',obsDt:recentObsStamp(1)}]},
         fetchBaseKey:'https://api.ebird.org/v2/data/obs/US-CO/recent'}));
+    A.cancelStalledWork();
     const before = app.state.fetches.length;
     const recovered = arr(await A.recoverCachedRecentRegions());
     assert.deepEqual(recovered,['hi','ca','az','region:US-CO']);
@@ -15090,14 +16139,14 @@ test('F971 Ticks emphasizes latest board age in Date mode and distinct recent co
       {code:'popular',obs:[{obsDt:today}]},'US-WA','popular');
     assert.equal(metric(cards()[1]).querySelector('time').dateTime,older,
       'late checklist enrichment must not change the board-age metric');
-    doc.querySelector('#lastNewSort [data-ticksort="count"]').click();
+    await clickLastNewControl(app, doc.querySelector('#lastNewSort [data-ticksort="count"]'));
     assert.deepEqual(cards().map(card=>card.dataset.sp),['Popular bird','Newest bird']);
     assert.deepEqual(cards().map(card=>metric(card).dataset.tickMetric),['count','count']);
     assert.deepEqual(cards().map(card=>metric(card).querySelector('strong').textContent),['3','1']);
     assert.ok(metric(cards()[0]).children[1]?.classList.contains('spmetric-age'),
       'Count mode must retain age as the second Twitches-style value');
     assert.equal(metric(cards()[0]).children[1].getAttribute('datetime'),older);
-    doc.querySelector('#lastNewSort [data-ticksort="date"]').click();
+    await clickLastNewControl(app, doc.querySelector('#lastNewSort [data-ticksort="date"]'));
     assert.deepEqual(cards().map(card=>card.dataset.sp),['Newest bird','Popular bird']);
     assert.equal(metric(cards()[0]).querySelector('strong').textContent,'Today');
     for (const latest of ['', 'invalid', '2026-02-30', recentObsStamp(-2).slice(0,10)]) {
@@ -15188,10 +16237,10 @@ test('F974 contributor ordering follows Date or Count and retains source ages an
       assert.equal(row.querySelector('time,.newflag'),null);
     }
     roster().querySelector('summary').click();
-    app.document.querySelector('#lastNewSort [data-ticksort="count"]').click();
+    await clickLastNewControl(app, app.document.querySelector('#lastNewSort [data-ticksort="count"]'));
     assert.equal(roster().open,true,'changing sort must keep the list readable');
     assert.deepEqual(ranks(),['1','2','3','4','40']);
-    app.document.querySelector('#lastNewSort [data-ticksort="date"]').click();
+    await clickLastNewControl(app, app.document.querySelector('#lastNewSort [data-ticksort="date"]'));
     assert.equal(roster().open,true);
     assert.deepEqual(ranks(),['40','1','2','3','4']);
     assert.equal(JSON.stringify(birders),original);
@@ -15241,7 +16290,7 @@ test('F872 migration arrival carries source observation timestamp through cached
     const date = A.todayStr(), now = new Date(date + 'T18:00:00');
     page.rows = [{code:'comnig',name:'Common Nighthawk',date,
       observedAt:date+'T13:47:00-07:00',locName:'Regional source',sensitive:false}];
-    A.firstYearWrite(ctx.region,ctx.year,page);
+    await A.firstYearWrite(ctx.region,ctx.year,page);
     const saved = A.firstYearRead(ctx.region,ctx.year);
     assert.equal(saved.rows[0].observedAt,page.rows[0].observedAt);
     let row = A.migrationSignificantRows(now,{}).find(r=>r.notificationKey.startsWith('migration-now:'));
@@ -15256,7 +16305,7 @@ test('F872 migration arrival carries source observation timestamp through cached
     assert.equal(time.getAttribute('datetime'),page.rows[0].observedAt);
     assert.match(surgeEvidence(host).querySelector('.surgeabsolute').textContent,/local time/);
     page.rows[0].observedAt=date;
-    A.firstYearWrite(ctx.region,ctx.year,page);
+    await A.firstYearWrite(ctx.region,ctx.year,page);
     row = A.migrationSignificantRows(now,{}).find(r=>r.notificationKey.startsWith('migration-now:'));
     assert.ok(row);
     assert.equal(row.omitWhen,true);
@@ -15721,7 +16770,7 @@ for (const regional of [false, true]) {
       const view = A.megaViewState();
       assert.equal(view.key, cachedKey, 'exercise replacement within the reused production view');
       assert.equal(view.view.rawRows.length, regional ? 1 : 0);
-      const saved = JSON.parse(app.window.localStorage.getItem(A.MEGA_SNAP_KEY));
+      const saved = readPersistedFixture(app.window, A.MEGA_SNAP_KEY);
       assert.equal(saved.rows.length, regional ? 1 : 0);
       assert.match(app.window.__dbg.buf.map(row => row.msg).join('\n'),
         new RegExp('alert parser verification · classification OPEN · observation elements '
@@ -15830,7 +16879,7 @@ test('F1008 failed Mega acquisition retains the cached answer with an explicit e
     await load;
     assert.match(app.$('abaResults').textContent, /Little Stint/);
     assert.match(app.$('abaStatus').textContent, /Cached alert remains visible.*failed/i);
-    assert.equal(JSON.parse(app.window.localStorage.getItem(A.MEGA_SNAP_KEY)).rows.length, 1);
+    assert.equal(readPersistedFixture(app.window, A.MEGA_SNAP_KEY).rows.length, 1);
     app.document.querySelector('#abaViewPick [data-megaview="grouped"]').click();
     assert.match(app.$('abaResults').textContent, /Little Stint/);
     assert.match(app.$('abaStatus').textContent, /failed/i);
@@ -15876,7 +16925,7 @@ for (const retained of ['none', 'archive', 'snapshot', 'both']) {
     const app = await boot({ sample: false, storage, fetch: f1012StakeoutFetch(row) });
     try {
       const A = app.window.__app;
-      if (retained === 'archive' || retained === 'both') A.abaArchiveAdd('US-WA', [row]);
+      if (retained === 'archive' || retained === 'both') await A.abaArchiveAdd('US-WA', [row]);
       await A.lookupSpecies(row.speciesCode, row.comName);
       await waitFor(() => app.$('spLookupRecent').querySelector('[data-ev-rare="1"]'),
         'actual RBA/notable evidence arrives');
@@ -15895,8 +16944,8 @@ for (const retained of ['none', 'archive', 'snapshot', 'both']) {
       assert.equal(A.abaArchiveFor('US-WA', row.speciesCode).length,
         retained === 'archive' || retained === 'both' ? 1 : 0);
       if (storage.ebird_mega_snapshot_v1) {
-        assert.equal(app.window.localStorage.getItem('ebird_mega_snapshot_v1'),
-          storage.ebird_mega_snapshot_v1, 'legacy evidence is not cleared or rewritten');
+        assert.deepEqual(readPersistedFixture(app.window, 'ebird_mega_snapshot_v1'),
+          JSON.parse(storage.ebird_mega_snapshot_v1), 'migration retains evidence without renewing membership');
       }
       assert.deepEqual(app.state.errors, []);
     } finally { app.window.close(); }
@@ -15975,7 +17024,7 @@ for (const scope of ['current', 'different account', 'different region']) {
       if (scope === 'different account') {
         app.window.localStorage.setItem('ebird_aba_sid', 'SN1012999');
       } else if (scope === 'different region') {
-        const saved = JSON.parse(app.window.localStorage.getItem(A.MEGA_SNAP_KEY));
+        const saved = readPersistedFixture(app.window, A.MEGA_SNAP_KEY);
         saved.region = 'US-OR';
         app.window.localStorage.setItem(A.MEGA_SNAP_KEY, JSON.stringify(saved));
       }
@@ -15999,7 +17048,7 @@ test('F1461 verified legacy state snapshots recover their original state but nev
   let saved;
   try {
     assert.equal(await app.window.__app.lazyRefreshMegaSnapshot(), true);
-    saved = JSON.parse(app.window.localStorage.getItem('ebird_mega_snapshot_v1'));
+    saved = readPersistedFixture(app.window, 'ebird_mega_snapshot_v1');
     for (const report of saved.rows) {
       for (const key of ['co', 'sub2', 'county', 'subnational2', 'subnational2Code',
         'state', 'subnational1', 'subnational1Code', 'country', 'countryCode']) delete report[key];
@@ -16049,7 +17098,7 @@ test('F1012 Stakeout failed legacy-cache acquisition retains reports without inv
     assert.equal(app.$('spLookupEvidenceDetails').querySelector('.stakeoutrarity[data-kind="mega"]'), null);
     assert.ok(app.$('spLookupEvidenceDetails').querySelector('.stakeoutrarity[data-kind="rare"]'));
     assert.ok(app.$('spLookupRecent').querySelector(`[data-ev-sub="${row.subId}"]`));
-    assert.equal(app.window.localStorage.getItem(A.MEGA_SNAP_KEY), saved,
+    assert.deepEqual(readPersistedFixture(app.window, A.MEGA_SNAP_KEY), JSON.parse(saved),
       'a failed acquisition must not rewrite an old cache as verified membership');
     assert.deepEqual(app.state.errors, []);
   } finally {
@@ -16117,7 +17166,7 @@ test('F1012 Stakeout ordinary retained reports do not invent either rarity label
     : /alert\/rba\//.test(url) ? otherStateMegaAlertHtml() : [] });
   try {
     const A = app.window.__app;
-    A.abaArchiveAdd('US-WA', [older]);
+    await A.abaArchiveAdd('US-WA', [older]);
     await A.lookupSpecies(row.speciesCode, row.comName);
     await Promise.all([A.getChaseRarity(false), A.stateRbaRecords(false)]);
     A.renderSpeciesLookup();
@@ -16173,7 +17222,7 @@ test('F1012 Stakeout complete selected view outranks its same-acquisition lossy 
     const A = app.window.__app;
     await A.loadAbaAlert();
     assert.equal(A.megaViewState().view.rawRows.length, 201);
-    const saved = JSON.parse(app.window.localStorage.getItem(A.MEGA_SNAP_KEY));
+    const saved = readPersistedFixture(app.window, A.MEGA_SNAP_KEY);
     assert.equal(saved.rows.length, 200, 'preserve the existing persistence bound');
     assert.ok(!saved.rows.some(r => r.speciesCode === row.speciesCode));
     A.renderSurge([], [], [], [], []);
@@ -16305,7 +17354,9 @@ test('F568 Mega paints its matching snapshot before the live alert settles', asy
     }],
   }));
   let rejectFetch;
-  app.window.fetch = () => new Promise((resolve, reject) => { rejectFetch = reject; });
+  const originalFetch = app.window.fetch;
+  app.window.fetch = (url, options) => /alert\/summary/.test(String(url))
+    ? new Promise((resolve, reject) => { rejectFetch = reject; }) : originalFetch(url, options);
 
   const load = A.loadAbaAlert();
   assert.match(app.$('abaResults').textContent, /Cached Sharp-tailed Sandpiper/,
@@ -16314,6 +17365,7 @@ test('F568 Mega paints its matching snapshot before the live alert settles', asy
     'the cached paint does not identify its age and live refresh');
   assert.ok(app.$('abaControls').querySelector('#abaViewPick'),
     'the cached List/Group bar survives the live-refresh loading status');
+  await waitFor(() => rejectFetch, 'cached controller begins its owned alert request');
   rejectFetch(new Error('offline fixture'));
   await load;
   assert.match(app.$('abaResults').textContent, /Cached Sharp-tailed Sandpiper/,
@@ -16334,7 +17386,9 @@ test('F1226 verified empty Mega cache keeps its view and original age under owne
       at, region: 'US-WA', sid: 'SN10489', membershipVersion: 2,
       scoped: true, sourceCount: 1, rows: []
     }));
-    app.window.fetch = () => new Promise((resolve, reject) => { rejectFetch = reject; });
+    const originalFetch = app.window.fetch;
+    app.window.fetch = (url, options) => /alert\/summary/.test(String(url))
+      ? new Promise((resolve, reject) => { rejectFetch = reject; }) : originalFetch(url, options);
     const load = A.loadAbaAlert();
     await waitFor(() => rejectFetch, 'held Mega refresh');
     const view = app.$('abaControls').querySelector('#abaViewPick');
@@ -16348,7 +17402,7 @@ test('F1226 verified empty Mega cache keeps its view and original age under owne
     assert.equal(app.$('abaControls').querySelector('#abaViewPick'), view,
       'a failed refresh must not replace the usable empty cached view');
     assert.match(app.$('abaStatus').textContent, /Cached alert remains visible.*live refresh failed/s);
-    assert.equal(JSON.parse(app.window.localStorage.getItem(A.MEGA_SNAP_KEY)).at, at,
+    assert.equal(readPersistedFixture(app.window, A.MEGA_SNAP_KEY).at, at,
       'retaining the cache cannot claim a fresh acquisition timestamp');
     assert.equal(app.$('loadBar').hidden, true, 'the owned top hold must settle after failure');
   } finally { if (rejectFetch) rejectFetch(new Error('fixture cleanup')); app.window.close(); }
@@ -16371,7 +17425,9 @@ test('F798 cached Mega controls repaint while live refresh is pending or failed'
       ],
     }));
     let rejectFetch;
-    app.window.fetch = () => new Promise((resolve, reject) => { rejectFetch = reject; });
+    const originalFetch = app.window.fetch;
+    app.window.fetch = (url, options) => /alert\/summary/.test(String(url))
+      ? new Promise((resolve, reject) => { rejectFetch = reject; }) : originalFetch(url, options);
     const load = A.loadAbaAlert();
     app.document.querySelector('#abaViewPick [data-megaview="grouped"]').click();
     assert.equal(app.document.querySelector(
@@ -16390,6 +17446,7 @@ test('F798 cached Mega controls repaint while live refresh is pending or failed'
       '#abaReportResults > li').getAttribute('data-mega-code'), 'shtsan');
     assert.equal(app.document.querySelector('#abaScopePick'), null);
     assert.doesNotMatch(app.$('abaStatus').textContent, /ABA-wide.*pending/i);
+    await waitFor(() => rejectFetch, 'cached controls retain their owned alert request');
     rejectFetch(new Error('offline fixture'));
     await load;
     app.document.querySelector('#abaViewPick [data-megaview="grouped"]').click();
@@ -16498,10 +17555,12 @@ test('F798 Mega header refresh restarts a pending cached read and ignores its ol
       });
     };
     const original = A.loadAbaAlert();
+    await waitFor(() => requests.length === 1, 'first cached alert transport');
     assert.equal(app.$('abaBtn').disabled, false,
       'cached refresh must allow restarting a stalled request');
     const section = app.$('abaBtn').closest('section');
     section.querySelector('.refreshbtn').click();
+    await waitFor(() => requests.length === 2, 'restarted cached alert transport');
     assert.equal(requests.length, 2, 'the actual header refresh must start a new read');
     assert.equal(requests[0].signal.aborted, true,
       'restart must abort the old transport instead of accumulating live requests');
@@ -16518,6 +17577,7 @@ test('F798 Mega header refresh restarts a pending cached read and ignores its ol
     app.window.fetch('https://api.ebird.org/v2/ref/region/info/US-WA', {}).catch(() => {});
     assert.equal(requests.length, 2, 'independent traffic cannot be counted as a Mega restart');
     section.querySelector('.refreshbtn').click();
+    await waitFor(() => requests.length === 3, 'retry cached alert transport');
     assert.equal(requests.length, 3, 'refresh must remain usable after failure');
     requests[2].reject(new Error('retry failed'));
     await waitFor(() => /retry failed/.test(app.$('abaStatus').textContent),
@@ -16593,7 +17653,7 @@ test('F317 returns identity beside first-year rows without storing it in the pag
   assert.equal(page.identity.displayName, 'Sample Observer');
   assert.equal(Object.hasOwn(page.identity, 'username'), false);
 
-  const cached = A.firstYearWrite('US-WA', 2026, page);
+  const cached = await A.firstYearWrite('US-WA', 2026, page);
   assert.equal(Object.hasOwn(cached, 'identity'), false,
     'personal identity never rides in the durable regional bird-list cache');
   assert.doesNotMatch(JSON.stringify(cached), /Sample Observer|sample_login/);
@@ -20616,22 +21676,24 @@ test('F1521 automatic personal acquisition reports failure, supports explicit re
     A.setCountyView('US-WA-061');
     await new Promise(resolve=>setTimeout(resolve,60));
     assert.equal(reads,2,'a deliberate exact-scope Skip remains respected');
-    W.localStorage.removeItem('ebird_display_name');
+    A.setDisplayNameValue('', 'ebird-sign-out');
+    assert.equal(await A.identityPersistenceReceipt(), true);
+    assert.equal(A.getDisplayName(), '');
     A.setActiveReport('hi');
     await new Promise(resolve=>setTimeout(resolve,60));
     assert.equal(reads,2,'an unconnected account cannot trigger automatic personal acquisition');
   } finally {W.close();}
 });
 
-async function setupFavoriteApp() {
-  const app = await setupOwnedSeenApp(['stable']);
+async function setupFavoriteApp(options = {}) {
+  const app = await setupOwnedSeenApp(['stable'], options);
   const A = app.window.__app, store = app.window.localStorage;
   const region = A.getReport().stateCode;
   const saved = [
     { id: '47.5,-122.2', locId: '', locName: 'Synthetic coordinates', lat: 47.5, lng: -122.2, region },
     { id: 'L128003', locId: 'L128003', locName: 'Synthetic other-region patch', lat: 43.1, lng: -75.2, region: 'US-NY' }
   ];
-  A.setFavs(saved);
+  await A.setFavs(saved);
   store.setItem('ebird_hotspots_v2:' + region, JSON.stringify({ at: Date.now(), rows: [
     { locId: 'L128001', locName: 'Synthetic first patch', lat: 47.6, lng: -122.3, n: 20 },
     { locId: 'L128002', locName: 'Synthetic second patch', lat: 47.7, lng: -122.4, n: 10 },
@@ -20736,6 +21798,8 @@ test('F1280 Skip preserves saved Favorites and removing a saved choice is an exp
     assert.equal(app.$('setupFavoriteCount').textContent, '2 selected');
     app.$('setupFavoriteOptions').querySelector('[data-setup-favorite="L128003"]').click();
     app.click(app.$('setupFavoriteContinue'));
+    await waitFor(() => app.$('setupSheetBody').dataset.setupStep === 'summary',
+      'verified Favorite removal before advancing');
     assert.deepEqual(JSON.parse(JSON.stringify(A.getFavs())), [saved[0]]);
     assert.deepEqual(app.state.errors, []);
   } finally { app.window.close(); }
@@ -20776,12 +21840,15 @@ test('F1280 silent Favorite save failure stays on review without starting initia
       return set.call(this, key, value);
     };
     app.click(app.$('setupFavoriteContinue'));
+    await waitFor(() => /could not be saved and verified/.test(app.$('setupActionStatus').textContent),
+      'the failed Favorite receipt');
     assert.match(app.$('setupActionStatus').textContent, /could not be saved and verified/);
     assert.equal(app.$('setupSheetBody').dataset.setupStep, 'favorites');
     assert.equal(acquisitions, 0);
     assert.deepEqual(JSON.parse(JSON.stringify(A.getFavs())), saved);
     prototype.setItem = set;
     app.click(app.$('setupFavoriteContinue'));
+    await waitFor(() => app.$('setupSheetBody').dataset.setupStep === 'summary', 'the retried Favorite receipt');
     assert.equal(A.getFavs().length, 3);
     assert.deepEqual(app.state.errors, []);
   } finally { prototype.setItem = set; app.window.close(); }
@@ -20810,7 +21877,7 @@ test('F1280 profile change rejects late hotspot lookup and detached Favorite app
     app.click(continueButton);
     assert.equal(A.getFavs().length, 0);
     assert.doesNotMatch(app.$('setupSheetBody').textContent, /Synthetic old-profile patch/);
-    assert.deepEqual(JSON.parse(store.getItem('ebird_favs')), saved);
+    assert.deepEqual(readPersistedFixture(app.window, 'ebird_favs'), saved);
     assert.deepEqual(app.state.errors, []);
   } finally { app.window.close(); }
 });
@@ -20826,13 +21893,20 @@ test('F1280 partial modern-record save is rolled back with WATCH intact and unre
     A.renderSetupSheet();
     await searchSetupFavoriteFixture(app);
     app.$('setupFavoriteOptions').querySelector('[data-setup-favorite="L128001"]').click();
+    let corrupted = false;
     prototype.setItem = function (name, value) {
-      if (String(name).endsWith(key) && value !== original)
+      if (String(name).endsWith(key) && value !== original && !corrupted) {
+        corrupted = true;
         return set.call(this, name, JSON.stringify({ version: 1, watch: [], favorites: [] }));
+      }
       return set.call(this, name, value);
     };
     app.click(app.$('setupFavoriteContinue'));
-    assert.equal(store.getItem(key), original, 'failed read-back restores the whole owned record');
+    await waitFor(() => /could not be saved and verified/.test(app.$('setupActionStatus').textContent),
+      'the partial-write rollback receipt');
+    assert.equal(corrupted, true, 'the actual candidate write must reach the corrupting backend');
+    assert.deepEqual(readPersistedFixture(app.window, key), JSON.parse(original),
+      'failed read-back restores the whole owned record');
     assert.equal(app.$('setupSheetBody').dataset.setupStep, 'favorites');
     prototype.setItem = set;
     store.setItem(key, '{"version":1,"favorites":"unreadable"}');
@@ -21528,6 +22602,16 @@ test('F793 chooser resets to its top without Search focus and returns keyboard f
   visible[0].dispatchEvent(new app.window.KeyboardEvent('keydown',
     { key: 'Tab', bubbles: true, cancelable: true }));
   assert.equal(doc.activeElement, close);
+  app.click(app.$('regionChooserClear'));
+  close.focus();
+  close.dispatchEvent(new app.window.KeyboardEvent('keydown',
+    { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true }));
+  assert.notEqual(doc.activeElement,close);
+  assert.equal(doc.activeElement.closest('[hidden], details:not([open])'),null,
+    'keyboard wrap cannot enter the collapsed catalog after clearing search');
+  doc.activeElement.dispatchEvent(new app.window.KeyboardEvent('keydown',
+    { key: 'Tab', bubbles: true, cancelable: true }));
+  assert.equal(doc.activeElement,close);
   close.dispatchEvent(new app.window.KeyboardEvent('keydown',
     { key: 'Escape', bubbles: true }));
   assert.equal(chooser.hidden, true);
@@ -21561,10 +22645,11 @@ test('F1445 shared chooser restores searchable King and Snohomish county scopes 
     assert.equal(A.getCountyView(),'US-WA-061','county selection must activate its exact code');
     assert.equal(A.activeScope().effectiveRegion,'US-WA-061');
     assert.equal(A.scopeGeneration(),generation+1,'one county selection must transition exactly once');
-    assert.equal(app.$('hdrScope').textContent,'US-WA-061','the header must follow the county scope');
+    assert.match(app.$('hdrScope').textContent,/ US-WA-061$/,'the header must follow the county scope');
     assert.match(app.$('menuCurrentRegion').textContent,/Snohomish.*US-WA-061/,
       'the main-menu summary must follow the county scope');
     assert.equal(app.$('regionChooser').hidden,true);
+    await app.$('menuScopeHost')._recentRegionSave;
     A.openRegionChooser();
     assert.match(app.$('regionChooserCurrent').textContent,/Snohomish.*US-WA-061/,
       'Current must identify the effective county');
@@ -21574,6 +22659,7 @@ test('F1445 shared chooser restores searchable King and Snohomish county scopes 
     app.click(find('King County','county:wa:US-WA-033'));
     assert.equal(A.getCountyView(),'US-WA-033');
     assert.equal(A.scopeGeneration(),generation+1);
+    await app.$('menuScopeHost')._recentRegionSave;
     A.openRegionChooser();
     const recent = app.$('regionChooserRecent').querySelector('[data-region-choice="county:wa:US-WA-061"]');
     assert.ok(recent && !recent.hidden,'the previous county must remain directly visible in Recent');
@@ -21581,12 +22667,14 @@ test('F1445 shared chooser restores searchable King and Snohomish county scopes 
     assert.equal(A.getCountyView(),'US-WA-061');
     assert.equal(JSON.stringify(A.getHome()),home);
     assert.equal(A.personalPeriod(),period);
+    await app.$('menuScopeHost')._recentRegionSave;
     await A.selectRegionChoice('region:US-MI');
     A.openRegionChooser();
     app.click(find('US-WA-033','county:wa:US-WA-033'));
     assert.equal(A.getReportSlug(),'wa','a known county choice must restore its own parent');
     assert.equal(A.activeScope().effectiveRegion,'US-WA-033');
     assert.equal(JSON.stringify(A.getHome()),home,'county navigation must not borrow another region Home');
+    await app.$('menuScopeHost')._recentRegionSave;
     A.openRegionChooser();
     const all = find('All counties','county:wa:');
     app.click(all);
@@ -21594,6 +22682,7 @@ test('F1445 shared chooser restores searchable King and Snohomish county scopes 
     assert.equal(A.activeScope().effectiveRegion,'US-WA');
     assert.match(app.$('menuCurrentRegion').textContent,/Washington\s+US-WA$/);
     assert.equal(A.personalPeriod(),period);
+    await app.$('menuScopeHost')._recentRegionSave;
     generation = A.scopeGeneration();
     assert.equal(await A.selectRegionChoice('county:wa:US-WA-999'),false,
       'unavailable county choices must be rejected');
@@ -21617,6 +22706,8 @@ test('F1445 cached county visits and loaded county references stay searchable wi
     app.window.localStorage.setItem(A.RANK_CACHE_KEY,JSON.stringify({
       king:entry('US-WA-033'),otherOwner:entry('US-WA-061',A.identityRevision()+1)
     }));
+    await A.loadRankCache(true);
+    A.cancelStalledWork();
     const before = app.state.fetches.length;
     assert.deepEqual(arr(await A.recoverCachedRecentRegions()),['county:wa:US-WA-033'],
       'eligible county-board cache must recover as an exact county choice');
@@ -21709,8 +22800,7 @@ test('F362 catalog clocks do not overwrite a geolocated region estimate', async 
   assert.equal(app.state.locations.length, 0, 'location discovery requires an explicit action');
   app.click(app.$('regionLocateBtn'));
   await waitFor(() => {
-    const value = JSON.parse(
-      app.window.localStorage.getItem('bc_profile_region_recommendation_v1') || 'null');
+    const value = readPersistedFixture(app.window, 'bc_profile_region_recommendation_v1');
     return value && value.code === 'US-TX';
   }, 'recommended Texas');
   assert.equal(app.window.__app.getReportSlug(), '',
@@ -21923,7 +23013,7 @@ test('F318: denied or malformed location leaves one usable chooser and stores no
     app.click(app.$('regionLocateBtn'));
     await waitFor(() => {
       const saved = app.window.localStorage.getItem('ebird_region_setup_v1');
-      return saved && JSON.parse(saved).status !== 'recommended';
+      return saved && readPersistedFixture(app.window, 'ebird_region_setup_v1').status !== 'recommended';
     }, specimen.name + ' location attempt to finish explicitly');
     assert.equal(app.state.locations.length, 1);
     assert.equal(app.window.localStorage.getItem('ebird_report'), null,
@@ -21969,10 +23059,12 @@ test('F318: Find a region uses the same runtime-region path and survives restart
   assert.equal(app.window.__app.getReport().stateCode, 'US-OR');
   assert.equal(app.window.__app.getCustomRegions().length, 1,
     'Find creates one runtime region rather than a parallel region type');
-  const source = HTML.slice(HTML.indexOf('function beginRegionDetection('),
-    HTML.indexOf('function renderRegionOnboarding('));
-  assert.equal((source.match(/\.then\(finishRegionSelection\)/g) || []).length, 1,
+  const finder = app.window.__app.findOnboardingRegion.toString();
+  const automatic = app.window.__app.beginRegionDetection.toString();
+  assert.equal((finder.match(/\bfinishRegionSelection\(/g) || []).length, 1,
     'an explicit Find choice must select, while automatic location only recommends');
+  assert.doesNotMatch(automatic, /\bfinishRegionSelection\(/,
+    'automatic location cannot select its recommendation without approval');
 
   const restarted = await boot({
     report: null,
@@ -22289,7 +23381,8 @@ test('F676 F1382 aggregate menus retain destinations with honest per-tool capabi
     assert.match(aggregate.document.querySelector('[data-at="destBtn"] .tilesub').textContent,/Nearby.*not area-wide/);
     assert.equal(aggregate.window.__app.scopeCode(),slug,'machine scope stays separate from display');
     const label=slug==='aba'?'ABA Area':'Lower 48';
-    assert.equal(aggregate.$('hdrScope').textContent,label);
+    assert.equal(aggregate.$('hdrScope').textContent,
+      String(new Date().getFullYear())+' '+slug.toUpperCase());
     assert.ok(aggregate.document.querySelector('.scopewhere').textContent.includes(label));
     const before=aggregate.state.fetches.length;
     aggregate.open(/Busy Patches/);
@@ -23556,15 +24649,17 @@ test('F805/F812 selected period owns header metrics, personal screen and navigat
   assert.equal(app.$('hdrChecklistJump').textContent,'1,200cl.');
   assert.equal(A.isSpeciesSeen('rename','New name'),true);
   const originalRankCache = app.window.localStorage.getItem(A.RANK_CACHE_KEY);
-  const wrongOwner = JSON.parse(originalRankCache);
+  const wrongOwner = await A.unpackJson(originalRankCache);
   Object.values(wrongOwner).forEach(entry => { entry.data.ownerRevision++; });
   app.window.localStorage.setItem(A.RANK_CACHE_KEY,JSON.stringify(wrongOwner));
+  await A.loadRankCache(true);
   A.headerIdentityRefresh();
   assert.equal(app.$('hdrRankJump'),null,'another identity revision cannot supply standing');
   assert.equal(app.$('hdrChecklistJump').textContent,'—cl.');
   assert.match(app.$('hdrChecklistJump').getAttribute('aria-label'),/Checklist total unavailable/);
   assert.equal(app.$('hdrSpeciesJump').textContent,'2sp.','personal total survives independently unavailable boards');
   app.window.localStorage.setItem(A.RANK_CACHE_KEY,originalRankCache);
+  await A.loadRankCache(true);
   A.headerIdentityRefresh();
   assert.match(app.$('hdrRankJump').getAttribute('aria-label'),/Life List/);
   assert.equal(app.$('menuScopeHost').querySelector('[data-personal-period="all"]').getAttribute('aria-pressed'),'true');
@@ -23754,7 +24849,7 @@ test('F805 fresh exact personal lists resolve current-edition forms without publ
   latest = '2025.0';
   await A.checkTaxonomyEdition(true);
   assert.equal(A.isSpeciesSeen('form',null,null,true),null,'the old edition cannot lend membership');
-  A.firstYearWrite('US-WA',new Date().getFullYear(),{
+  await A.firstYearWrite('US-WA',new Date().getFullYear(),{
     declared:1,evidenceComplete:true,rows:[{code:'form',name:'Synthetic form'}],
   });
   assert.equal(A.isSpeciesSeen('form',null,null,true),null,'a public annual table cannot heal a personal owner');
@@ -23820,7 +24915,7 @@ test('F805 Stakeout and cached target badges use current owned membership and re
   await new Promise(resolve => setTimeout(resolve,30));
   const annual = A.menuChaseBadge('sec-allUnseenBtn');
   assert.deepEqual(arr(annual.ids),['rename'],'badge recomputes targets from raw cached evidence');
-  const annualSnapshot = JSON.parse(storage.getItem(A.personalListKey(A.personalListOwner())));
+  const annualSnapshot = readPersistedFixture(app.window, A.personalListKey(A.personalListOwner()));
   const reads = app.state.fetches.length;
   A.menuChaseBadge('sec-allUnseenBtn');
   assert.equal(app.state.fetches.length,reads);
@@ -23862,7 +24957,7 @@ test('F805 mixed hotspot and checklist lists retain unknown birds without claimi
     hotspots:[],lat:47.7,lng:-122.2,label:'Sample place',at:Date.now()};
   const newsRows = Array.from({length:4},(_,index) => ({
     code:'stable',name:'Stable bird',kind:'Rarity',distMi:3,location_private:false,
-    locId:'L1',loc:'Sample marsh',lat:47.7,lon:-122.2,
+    locId:'L1',loc:'Sample marsh',lat:47.7,lon:-122.2,subnational1Code:'US-WA',
     dateStr:recentObsStamp(0,new Date().getHours() - index * 3 - 1,new Date().getMinutes()),
     subId:'SF805-' + index,observer:'Observer ' + index
   }));
@@ -23887,6 +24982,11 @@ test('F805 mixed hotspot and checklist lists retain unknown birds without claimi
   assert.equal(app.$('scoutResults').querySelector('.needflag'),null);
   assert.equal(app.$('scoutResults').querySelectorAll('.sppl > li').length,2,
     'scouting retains public birds even when personal targets are unknown');
+  for (const region of [undefined, 'US-OR']) {
+    const unqualified = {cv:{merged:newsRows.map(row => ({...row,subnational1Code:region})),destinations:[]}};
+    assert.equal(A.surgeObservedResult(unqualified,Date.now()).needs.length,0,
+      'unknown or foreign source provenance cannot become regional public news');
+  }
   assert.equal(A.surgeObservedResult(news,Date.now()).needs.length,1,
     'independent notable news survives unavailable personal history');
   await A.preparePersonalList(A.activeScope(),true);
@@ -23913,6 +25013,7 @@ test('F805 mixed hotspot and checklist lists retain unknown birds without claimi
     'independent notable news also survives confirmed personal membership');
   assert.match(BL.convoyTitle('Oct 7',2,3,2,null),/personal needs unknown/);
   assert.doesNotMatch(BL.convoyTitle('Oct 7',2,3,2,null),/all seen/);
+  app.window.close();
 });
 
 test('F805 rarity controls disable unknown absence, restore exact list filters and keep Mega need counts honest', async () => {
@@ -23987,6 +25088,7 @@ test('F805 rarity controls disable unknown absence, restore exact list filters a
   assert.ok(recordedNews && recordedNews.events.some(event => event.kind === 'arrivals'),
     'independent migration arrivals must not exclude a confirmed personal bird');
   button.click();
+  await waitFor(() => reloads === 1, 'complete rarity filter persistence and repaint');
   assert.equal(reloads,1,'complete evidence restores local filtering');
   assert.equal(A.rarityFilters().year,'all');
   A.setPersonalPeriod('all');
@@ -23994,7 +25096,7 @@ test('F805 rarity controls disable unknown absence, restore exact list filters a
   await A.preparePersonalList(A.activeScope(),true);
   button = paint();
   assert.match(button.getAttribute('aria-label'),/Life List/);
-  A.setRarityFilter('year','unseen');
+  await A.setRarityFilter('year','unseen');
   assert.equal(A.rarityFilterRecords(rows,null).length,0,'lifetime membership owns the filter');
   app.window.close();
 });
@@ -24208,7 +25310,7 @@ test('F880 board-only load and shared controls cost zero species/checklist enric
     const details=()=>app.state.fetches.slice(before).filter(url=>/data\/obs\/.*\/recent\/|checklist\/view|product\/checklist/.test(url));
     assert.equal(details().length,0);
     app.click(app.document.querySelector('[data-ticksort="count"]'));
-    app.click(app.$('lastNewSeen'));
+    await clickLastNewControl(app, app.$('lastNewSeen'));
     app.click(app.$('lastNewRecent'));
     await A.loadLastNew();
     assert.equal(details().length,0);
@@ -24260,10 +25362,10 @@ test('F880 shared Recent and complete-history Unseen filter the actual board car
     assert.deepEqual(cards(),['Stable bird']);
     assert.equal(app.$('lastNewRecent').getAttribute('aria-pressed'),'true');
     app.click(app.$('lastNewRecent'));
-    app.click(app.$('lastNewSeen'));
+    await clickLastNewControl(app, app.$('lastNewSeen'));
     assert.deepEqual(cards(),['New name']);
     assert.equal(app.$('lastNewSeen').getAttribute('aria-pressed'),'true');
-    app.click(app.$('lastNewSeen'));
+    await clickLastNewControl(app, app.$('lastNewSeen'));
     assert.deepEqual(cards(),['Stable bird','New name']);
   } finally {app.window.close();}
 });
@@ -25320,8 +26422,8 @@ test('F1513 actual and retained Celebrity cards keep both sites and their public
     app.window.localStorage.setItem(A.chaseMiKey(),'80');
     await seedSeen(app,['trokin'],['Tropical Kingbird'],[{code:'trokin',name:'Tropical Kingbird'}]);
     const merged = [
-      {locId:'LWEST1513',loc:'West Seattle shore',lat:47.57,lon:-122.40,distMi:15},
-      {locId:'LSTAN1513',loc:'Stanwood marsh',lat:48.24,lon:-122.37,distMi:30},
+      {locId:'LWEST1513',loc:'West Seattle shore',lat:47.57,lon:-122.40,distMi:15,subnational1Code:'US-WA'},
+      {locId:'LSTAN1513',loc:'Stanwood marsh',lat:48.24,lon:-122.37,distMi:30,subnational1Code:'US-WA'},
     ].flatMap((site,index) => Array.from({length:4},(_,i) => ({
       ...site,code:'trokin',name:'Tropical Kingbird',kind:'Rarity',valid:true,
       dateStr:formatObsStamp(new Date(Date.now()-(120-i*15)*60000)),
@@ -25349,13 +26451,23 @@ test('F1513 actual and retained Celebrity cards keep both sites and their public
       'retained replay must recompute from evidence, not trust obsolete derived cards');
     storage = Object.fromEntries(Object.keys(app.window.localStorage)
       .map(key => [key,app.window.localStorage.getItem(key)]));
-  } finally {app.window.close();}
+  } finally {
+    app.window.dispatchEvent(new app.window.Event('unload'));
+    app.window.__app.fgCancelAll('Retained fixture closed');
+    await new Promise(setImmediate);
+    app.window.close();
+  }
   const restored = await boot({sample:false,indexedDB:database,storage});
   try {
     await waitFor(() => restored.$('surgeFeed')?.querySelectorAll('[data-alert-kind="need"]').length === 2,
       'cold retained Celebrity replay');
     verify(restored);
-  } finally {restored.window.close();}
+  } finally {
+    restored.window.dispatchEvent(new restored.window.Event('unload'));
+    restored.window.__app.fgCancelAll('Retained fixture closed');
+    await new Promise(setImmediate);
+    restored.window.close();
+  }
 });
 
 test('F913 Bird Gen excludes hybrids across species lanes while retaining species and forms', async () => {
@@ -25587,10 +26699,10 @@ test('F881/F918 opt-in fragments exclude source data even when metadata timestam
       + '<h5 id="PRIVATE" class="u-margin-none">PRIVATE</h5>'
       + '<a href="https://ebird.org/profile/SECRET?token=TOKEN">PRIVATE</a>'
       + '<input value="PASSWORD"><script>TOKEN</script><span data-secret="TOKEN">SECRET</span></div>';
-    A.rankSnapshotSave(html,'http-response','spp');
+    await A.rankSnapshotSave(html,'http-response','spp');
     assert.equal(ls.getItem('bc_rank_snapshots_v1'),null);
     ls.setItem('bc_rank_snapshot_enabled','true');
-    for(let i=0;i<9;i++) A.rankSnapshotSave(html,'http-response','spp');
+    for(let i=0;i<9;i++) await A.rankSnapshotSave(html,'http-response','spp');
     const saved=A.rankSnapshotRead();
     assert.equal(saved.length,6);
     assert.equal(saved[0].transport,'http-response');
@@ -25611,7 +26723,7 @@ test('F881/F918 opt-in fragments exclude source data even when metadata timestam
     assert.equal(repaired.length,1,'the malformed fragment must be sanitized, not silently skipped');
     assertSanitized(repaired);
     ls.setItem('bc_rank_snapshots_v1',JSON.stringify(saved));
-    A.rankSnapshotSave('x'.repeat(2000001),'http-response','cl');
+    await A.rankSnapshotSave('x'.repeat(2000001),'http-response','cl');
     assert.equal(A.rankSnapshotRead().length,6);
     ls.setItem('bc_rank_snapshots_v1',JSON.stringify([
       {...saved[0],time:app.window.Date.now()-86400001},
@@ -25621,6 +26733,9 @@ test('F881/F918 opt-in fragments exclude source data even when metadata timestam
       {time:app.window.Date.now(),fragment:'unexpected'}
     ]));
     assert.equal(A.rankSnapshotRead().length,0);
+    ls.setItem('bc_rank_snapshots_v1','{broken');
+    await A.rankSnapshotSave(html,'http-response','spp');
+    assert.equal(A.rankSnapshotRead().length,1,'an explicit capture repairs an unchanged corrupt legacy slot');
     app.click(app.$('dbgClear'));
     assert.equal(ls.getItem('bc_rank_snapshots_v1'),null);
   } finally {app.window.close();}
@@ -25871,7 +26986,7 @@ test('F860 ticks acquire only Species 500, reuse cache and report a returned Top
     } });
     try {
       const A = app.window.__app;
-      A.rankCachePut(A.rankCacheOwnerKey({region,metric:'spp',max:500},year,A.getDisplayName()), {
+      await A.rankCachePut(A.rankCacheOwnerKey({region,metric:'spp',max:500},year,A.getDisplayName()), {
         region,period:year,metric:'spp',profile:A.bcProfile(),ownerRevision:A.identityRevision(),
         rows:rows.slice(0,100),
       });
@@ -26264,7 +27379,7 @@ test('a cached board from the wrong region is treated as a miss', async () => {
   // URL alone made it undetectable. The entry must now prove what it holds.
   const app = await boot({ fetch: (u) => (/top100/.test(u) ? FIX('top100-wa.html') : null) });
   const A = app.window.__app;
-  A.rankCachePut('US-WA|2026|500|Birder Wyatt',
+  await A.rankCachePut('US-WA|2026|500|Birder Wyatt',
     { rows: [{ rank: 1, name: 'David McQuade' }], me: { rank: 1 }, region: 'lower48' });
   const d = await A.fetchRank({ key: 'wa', region: 'US-WA', max: 500 }, 2026, 'Birder Wyatt');
   assert.equal(d.region, 'US-WA', 'the stale Lower 48 entry was discarded');
@@ -26566,6 +27681,95 @@ test('convoys render one block per convoy: title, map, birds, checklists', () =>
 // ---------------------------------------------------------------------------
 // v1.0.15: seven "the app is not the report" follow-ups.
 // ---------------------------------------------------------------------------
+
+test('F247 tide station metadata migrates and survives compressed restart without NOAA', async () => {
+  const key = 'ebird_tide_auto:47.75,-122.16';
+  const legacy = { id: '9447130', name: 'F247 cached tide station '.repeat(60),
+    mi: 12.5, why: 'nearest to home, 12.5 mi' };
+  let storage = { [key]: JSON.stringify(legacy) };
+  for (let restart = 0; restart < 2; restart++) {
+    const app = await boot({ sample: false, nativeCompression: true, storage });
+    try {
+      const A = app.window.__app;
+      const directoryCalls = () => app.state.fetches.filter(url => /mdapi.*stations\.json/.test(url)).length;
+      const before = directoryCalls();
+      assert.equal(JSON.stringify(await A.resolveTideStation()), JSON.stringify(legacy));
+      assert.equal(directoryCalls(), before, 'a persisted station avoids the NOAA directory');
+      const saved = app.window.localStorage.getItem(A.bcReal(key));
+      assert.ok(saved.startsWith('z:'));
+      assert.equal(JSON.stringify(await A.unpackJson(saved)), JSON.stringify(legacy));
+      storage = { [key]: saved };
+    } finally { app.window.close(); }
+  }
+});
+
+test('F247 tide station saves await compression and reject erased or changed owners', async () => {
+  for (const action of ['save', 'erase', 'profile']) {
+    const station = { id: 'F247-nearest-tide', name: 'F247 held tide station '.repeat(60),
+      lat: 47.75, lng: -122.16 };
+    const app = await boot({ sample: false, nativeCompression: true, fetch: url =>
+      /mdapi.*stations\.json/.test(url) ? { stations: [station] } : null });
+    const W = app.window, A = W.__app, logical = A.tideAutoKey(A.activeSavedBase()), physical = A.bcReal(logical);
+    const packing = holdScoutCompression(W, json => json.includes('F247 held tide station'));
+    try {
+      if (action === 'erase') W.localStorage.removeItem(A.bcReal('ebird_identity_rev_v1'));
+      let finished = false;
+      const pending = A.resolveTideStation().then(value => { finished = true; return value; });
+      await waitFor(packing.ready, 'held actual tide station compression');
+      assert.equal(finished, false, 'station resolution awaits durable metadata storage');
+      assert.equal(W.localStorage.getItem(physical), null, 'no provisional raw JSON allocation');
+      if (action === 'erase') {
+        assert.equal(A.identityRevision(), 0, 'isolate the monotonic erasure barrier at revision zero');
+        A.scrubPersonalData();
+      } else if (action === 'profile') A.bcSetProfile('2');
+      packing.release();
+      const value = await pending;
+      if (action === 'save') {
+        assert.equal(value.id, station.id);
+        const saved = W.localStorage.getItem(physical);
+        assert.ok(saved.startsWith('z:'));
+        assert.equal((await A.unpackJson(saved)).id, station.id);
+      } else {
+        assert.equal(value, null, 'obsolete station resolution cannot paint for the new owner');
+        assert.equal(W.localStorage.getItem(physical), null);
+        assert.equal(W.localStorage.getItem(A.bcReal(logical)), null);
+      }
+    } finally { packing.release(); W.close(); }
+  }
+});
+
+test('F247 tide metadata preserves manual, inland and unavailable-directory fallbacks', async () => {
+  for (const scenario of ['manual', 'inland', 'offline', 'distant', 'small']) {
+    const app = await boot({ sample: false, nativeCompression: true,
+      report: scenario === 'inland' ? 'mo' : 'wa', fetch: url => {
+        if (!/mdapi.*stations\.json/.test(url)) return null;
+        if (scenario === 'offline') return { __status: 503 };
+        return { stations: [{ id: 'F247-small-tide', name: 'Nearby station',
+          lat: scenario === 'distant' ? 0 : 47.75, lng: scenario === 'distant' ? 0 : -122.16 }] };
+      } });
+    try {
+      const W = app.window, A = W.__app;
+      const directoryCalls = () => app.state.fetches.filter(url => /mdapi.*stations\.json/.test(url)).length;
+      const before = directoryCalls();
+      if (scenario === 'manual') W.localStorage.setItem(A.tideKey(), 'F247-manual-tide');
+      const value = await A.resolveTideStation();
+      if (scenario === 'inland') assert.equal(value, null);
+      else if (scenario === 'manual') assert.equal(value.id, 'F247-manual-tide');
+      else if (scenario === 'small') {
+        assert.equal(value.id, 'F247-small-tide');
+        assert.ok(W.localStorage.getItem(A.bcReal(A.tideAutoKey(A.activeSavedBase()))).startsWith('j:'),
+          'small station metadata must use the shared tagged small-value format');
+      } else {
+        assert.equal(value.id, A.getReport().tideStation, 'retain the curated station fallback');
+        assert.equal(W.localStorage.getItem(A.bcReal(A.tideAutoKey(A.activeSavedBase()))), null,
+          'directory failures or faraway stations must not poison the cache');
+      }
+      if (scenario === 'manual' || scenario === 'inland') {
+        assert.equal(directoryCalls(), before, 'priority decisions need no NOAA directory fetch');
+      }
+    } finally { app.window.close(); }
+  }
+});
 
 test('tides: one row per WINDOW, rising windows highlighted', async () => {
   // The old table had one row per turning point ("High 3:11 am · Falling to
@@ -26916,7 +28120,7 @@ test('a bird seen in daylight is not a dusk specialist, however late it also is'
     rows.push({ speciesCode: 'grhowl', comName: 'Great Horned Owl', subId: 'O' + d,
                 obsDt: `${day} 22:10`, firstDt: `${day} 21:40` });
   }
-  A.todAccumulate(rows);
+  await A.todAccumulate(rows);
   const sp = A.todSpecialists();
   const names = (sp.nightOnly || []).map((r) => r.name);
 
@@ -26948,7 +28152,7 @@ test('a single odd late record is not nocturnality', async () => {
   // ...and exactly ONE freak after-dark record.
   rows.push({ speciesCode: 'houspa', comName: 'House Sparrow', subId: 'HX',
               obsDt: '2026-08-26 22:00', firstDt: '2026-08-26 21:30' });
-  A.todAccumulate(rows);
+  await A.todAccumulate(rows);
   const names = (A.todSpecialists().nightOnly || []).map((r) => r.name);
   assert.ok(!names.includes('House Sparrow'),
     'one night-only day out of sixteen is a record, not a habit — and a lift '
@@ -27283,10 +28487,10 @@ test('F739 captured RBA inputs survive scoped Unseen ingestion, deduplication an
   A.seedEbirdCache('data/obs/US-WA/recent/notable?back=' + BL.CONST.FETCH_BACK
     + '&detail=full&maxResults=10000', king.concat(jefferson, king, control));
   A.setTwitchView('list');
-  A.setRarityFilter('distance', 'near');
+  await A.setRarityFilter('distance', 'near');
   app.window.localStorage.setItem(A.chaseMiKey(), '35');
   async function render(year) {
-    A.setRarityFilter('year', year);
+    await A.setRarityFilter('year', year);
     A.refresh();
     await waitFor(() => !app.$('refreshBtn').disabled
       && app.$('status').querySelector('.twitchhead b'), 'Twitches replay settles');
@@ -27327,6 +28531,7 @@ test('F739 profile, declared year and regional code evidence never borrow anothe
     ebird_year_names: JSON.stringify(['Snow Goose']),
   } });
   const A = app.window.__app, store = app.window.localStorage;
+  const retainedSeen = store.getItem('ebird_seen');
   A.setWatchlist([]);
   assert.equal(A.isSpeciesSeen('snogoo', 'Snow Goose'), null);
   assert.equal(A.seenDecisionContext().evidence, 'unavailable');
@@ -27337,7 +28542,7 @@ test('F739 profile, declared year and regional code evidence never borrow anothe
   assert.equal(A.isSpeciesSeen('snogoo', 'Snow Goose'), null,
     'matching import metadata is not an exact authenticated personal list');
   assert.equal(A.isSpeciesSeen('', 'Snow Goose'), null);
-  assert.equal(store.getItem('ebird_seen'), seen, 'scope rejection must not rewrite personal source evidence');
+  assert.equal(store.getItem('ebird_seen'), retainedSeen, 'scope rejection must not rewrite personal source evidence');
   store.setItem('ebird_own_seen:wa', JSON.stringify({
     bcnher: { d: `${year - 1}-10-01` }, amerob: { d: `${year}-10-01` },
     tuftpu: { d: `2 Oct ${year}` }, chispa: { d: `2 Oct ${year - 1}` },
@@ -27446,7 +28651,7 @@ test('F739 pending exact personal evidence cannot cache a response under a newer
   assert.equal(await loading, false);
   assert.equal(A.firstYearRead('US-WA-033', new Date().getFullYear()), null);
   assert.equal(A.countySeenEvidenceReady(), false);
-  A.firstYearWrite('US-WA-061', new Date().getFullYear(), {
+  await A.firstYearWrite('US-WA-061', new Date().getFullYear(), {
     declared: 1, rows: [{ code: 'snogoo', name: 'Snow Goose' }],
   });
   assert.equal(A.isSpeciesSeen('snogoo', 'Snow Goose'), null,
@@ -27788,7 +28993,7 @@ for (const [order, retainedMega] of [
         .forEach((feed) => A.seedEbirdCache(BL.requestUrl(feed), gates.twitches.promise));
       const falseRare = f.normalized(f.row('S-F890-NOT-RARE'), 'Need');
       A.seedChase('wa', { cv: { merged: [f.normalized(f.cached), falseRare] } });
-      if (retainedMega) A.abaArchiveAdd('US-WA', [f.cached]);
+      if (retainedMega) await A.abaArchiveAdd('US-WA', [f.cached]);
       for (const r of [...f.notable, f.cached, f.late, f.older, f.ordinary]) {
         A.seedEbirdCache(`product/checklist/view/${r.subId}`, {
           obsDt: r.obsDt, durationHrs: 1, numSpecies: 3, obs: [],
@@ -28455,7 +29660,7 @@ test('F899 F1104 Common birds uses the live radius for its scope and every displ
     const A=app.window.__app;
     installSpuhFixture(app);
     A.setTwitchView('list');
-    A.setRarityFilter('distance','near');
+    await A.setRarityFilter('distance','near');
     const anchor=A.anchorPoint();
     const spots=[15,30,40].map(mi=>({
       name:'Source '+mi, locId:'L899-'+mi, lat:anchor.lat+mi/69.1, lng:anchor.lng,
@@ -28471,7 +29676,7 @@ test('F899 F1104 Common birds uses the live radius for its scope and every displ
       assert.match(app.$('easyResults').textContent,new RegExp(radius+' straight-line miles'));
       assert.deepEqual(sources(),expected,'each displayed source obeys the chosen radius');
     }
-    A.setRarityFilter('distance','region');
+    await A.setRarityFilter('distance','region');
     A.renderEasyMisses(rows,30);
     assert.deepEqual(sources(),['S899-15'],'another report’s All preference cannot bypass this feed’s radius');
     app.click(app.$('chaseMiUp'));
@@ -29194,7 +30399,7 @@ test('F944/F959 Patagonia bird-name headlines retain focused Twitches without no
     await A.refresh({ fetchLatest: true });
     assert.equal(doc.querySelectorAll('#results .twitchcard').length, 5,
       'all five qualification-day reports remain available despite saved unseen/near filters');
-    assert.deepEqual(JSON.parse(app.window.localStorage.getItem('ebird_rarity_filters_v1')), prefs);
+    assert.deepEqual(readPersistedFixture(app.window, 'ebird_rarity_filters_v1'), prefs);
     assert.ok(!app.state.fetches.slice(before).some(url => /alert\/rba|data\/obs|product\/lists/.test(url)),
       'opening the event reuses retained RBA evidence, not another sightings/checklist fetch');
     app.$('status').querySelector('[data-ppte-clear]').click();
@@ -31054,8 +32259,9 @@ test('F1380 F1228 F1229 defaults put Stakeout Patches second and Twitches last w
     shortcutMenu(app, bird);
     assert.equal(app.$('menuShortcutAction').textContent, 'Pin to shortcuts');
     app.$('menuShortcutAction').click();
+    await app.$('menuShortcutAction')._shortcutSave;
     assert.deepEqual(shortcutIds(app), ['destBtn', 'stakeHsBtn', 'spLookupBtn', 'refreshBtn', 'surgeBtn']);
-    assert.deepEqual(JSON.parse(app.window.localStorage.getItem(SHORTCUT_KEY)), shortcutIds(app));
+    assert.deepEqual(readPersistedFixture(app.window, SHORTCUT_KEY), shortcutIds(app));
     originals.forEach((button, i) => {
       assert.equal(button.closest('li'), positions[i]);
       assert.equal(button.querySelector('.tileicon'), icons[i]);
@@ -31063,6 +32269,7 @@ test('F1380 F1228 F1229 defaults put Stakeout Patches second and Twitches last w
     shortcutMenu(app, list.querySelector('.menuShortcut .toclink[data-at="surgeBtn"]'), true);
     assert.equal(app.$('menuShortcutAction').textContent, 'Remove from shortcuts');
     app.$('menuShortcutAction').click();
+    await app.$('menuShortcutAction')._shortcutSave;
     assert.deepEqual(shortcutIds(app), ['destBtn', 'stakeHsBtn', 'spLookupBtn', 'refreshBtn']);
     assert.equal(app.document.activeElement.id, 'menuShortcutsTitle',
       'removing the focused shortcut retains a valid keyboard focus target');
@@ -31095,7 +32302,7 @@ test('F1031 saved shortcuts survive boots, preserve empty selections and sanitiz
     const app = await boot({ storage: { [SHORTCUT_KEY]: JSON.stringify(saved) } });
     try {
       assert.deepEqual(shortcutIds(app), expected);
-      assert.deepEqual(JSON.parse(app.window.localStorage.getItem(SHORTCUT_KEY)), saved,
+      assert.deepEqual(readPersistedFixture(app.window, SHORTCUT_KEY), saved,
         'new defaults must not overwrite an existing saved selection');
       app.window.__app.showMenu();
       assert.deepEqual(shortcutIds(app), expected);
@@ -31105,6 +32312,7 @@ test('F1031 saved shortcuts survive boots, preserve empty selections and sanitiz
         const bird = app.document.querySelector(ORIGINAL_MENU + '[data-at="surgeBtn"]');
         shortcutMenu(app, bird, true);
         app.$('menuShortcutAction').click();
+        await app.$('menuShortcutAction')._shortcutSave;
         assert.deepEqual(shortcutIds(app), ['surgeBtn'], 'an explicitly empty selection can be repopulated');
       }
       assert.deepEqual(app.state.errors, []);
@@ -31151,6 +32359,7 @@ test('F1039 removing the last shortcut hides the whole group and focuses its ori
     const original = app.document.querySelector(ORIGINAL_MENU + '[data-at="destBtn"]');
     shortcutMenu(app, app.document.querySelector('.menuShortcut .toclink'), true);
     app.$('menuShortcutAction').click();
+    await app.$('menuShortcutAction')._shortcutSave;
     assert.deepEqual(shortcutIds(app), []);
     assert.equal(app.$('menuShortcutsTitle').hidden, true, 'the last removal must hide the Shortcuts heading and hint');
     assert.equal(app.document.querySelector('.menuShortcutShelf').hidden, true, 'the last removal must hide the whole shortcut shelf');
@@ -31158,7 +32367,7 @@ test('F1039 removing the last shortcut hides the whole group and focuses its ori
     assert.equal(app.window.getComputedStyle(app.document.querySelector('.menuShortcutShelf')).display, 'none');
     assert.equal(app.document.activeElement, original, 'the last removal must restore focus to its visible original tool');
     saved = app.window.localStorage.getItem(SHORTCUT_KEY);
-    assert.deepEqual(JSON.parse(saved), []);
+    assert.deepEqual(readPersistedFixture(app.window, SHORTCUT_KEY), []);
   } finally { app.window.close(); }
   const restarted = await boot({ storage: { [SHORTCUT_KEY]: saved } });
   try {
@@ -31169,10 +32378,11 @@ test('F1039 removing the last shortcut hides the whole group and focuses its ori
     assert.match(menuToolDescription(restarted, original), /Long press/);
     shortcutMenu(restarted, original, true);
     restarted.$('menuShortcutAction').click();
+    await restarted.$('menuShortcutAction')._shortcutSave;
     assert.deepEqual(shortcutIds(restarted), ['refreshBtn']);
     assert.equal(restarted.$('menuShortcutsTitle').hidden, false, 'pinning an original must restore the Shortcuts group');
     assert.equal(restarted.document.querySelector('.menuShortcutShelf').hidden, false);
-    assert.deepEqual(JSON.parse(restarted.window.localStorage.getItem(SHORTCUT_KEY)), ['refreshBtn']);
+    assert.deepEqual(readPersistedFixture(restarted.window, SHORTCUT_KEY), ['refreshBtn']);
     assert.deepEqual(restarted.state.errors, []);
   } finally { restarted.window.close(); }
 });
@@ -31214,12 +32424,13 @@ test('F1039 unavailable pinned destinations remain saved without displaying an e
     assert.equal(app.$('menuShortcutsTitle').hidden, true, 'unavailable pins must not keep an empty heading visible');
     assert.equal(app.document.querySelector('.menuShortcutShelf').hidden, true);
     app.window.__app.showMenu();
-    assert.deepEqual(JSON.parse(app.window.localStorage.getItem(SHORTCUT_KEY)), ['activeBtn']);
+    assert.deepEqual(readPersistedFixture(app.window, SHORTCUT_KEY), ['activeBtn']);
     const original = app.document.querySelector(ORIGINAL_MENU + '[data-at="surgeBtn"]');
     shortcutMenu(app, original, true);
     app.$('menuShortcutAction').click();
+    await app.$('menuShortcutAction')._shortcutSave;
     assert.deepEqual(shortcutIds(app), ['surgeBtn']);
-    assert.deepEqual(JSON.parse(app.window.localStorage.getItem(SHORTCUT_KEY)), ['activeBtn', 'surgeBtn'],
+    assert.deepEqual(readPersistedFixture(app.window, SHORTCUT_KEY), ['activeBtn', 'surgeBtn'],
       'temporarily unavailable pins must remain saved preferences');
     assert.equal(app.$('menuShortcutsTitle').hidden, false);
     assert.deepEqual(app.state.errors, []);
@@ -31236,6 +32447,7 @@ test('F1031 a failed preference write is logged without pretending that the pin 
     };
     shortcutMenu(app, app.document.querySelector(ORIGINAL_MENU + '[data-at="surgeBtn"]'));
     app.$('menuShortcutAction').click();
+    await app.$('menuShortcutAction')._shortcutSave;
     assert.deepEqual(shortcutIds(app), ['destBtn', 'stakeHsBtn', 'spLookupBtn', 'refreshBtn']);
     assert.equal(app.window.localStorage.getItem(SHORTCUT_KEY), null);
     assert.ok(app.window.__dbg.buf.some(row => row.level === 'error'
@@ -31944,10 +33156,17 @@ test('a cold start reuses today\'s snapshot instead of refetching', async () => 
     obsDt: '2026-08-02 08:00', obsValid: true }] };
   // First app: store a snapshot the way the real code does.
   const a1 = await boot();
-  const feedStates = {};
-  a1.window.BirdLogic.planFeeds(a1.window.__app.getReport())
-    .forEach((feed) => { feedStates[feed.file] = 'ok'; });
-  await a1.window.__app.saveChaseSnapshot('wa', ['merlin'], rows, feedStates);
+  const A1 = a1.window.__app, profile = A1.chaseProfile();
+  const feedStates = {}, feedTimes = {}, acquiredAt = Date.now();
+  a1.window.BirdLogic.planFeeds(profile).forEach((feed) => {
+    rows[feed.file] = rows[feed.file] || [];
+    feedStates[feed.file] = 'ok';
+    feedTimes[feed.file] = acquiredAt;
+  });
+  await A1.saveChaseSnapshot('wa', ['merlin'], rows, feedStates, null, {
+    fetchBaseKey:A1.chaseFetchBaseKey(profile),
+    geoNotableKm:a1.window.BirdLogic.geoNotableDistKm(profile), acquiredAt, feedTimes
+  });
   const stored = a1.window.localStorage.getItem(a1.window.__app.chaseKey('wa'));
   assert.ok(stored, 'a snapshot was written');
   a1.window.close();
@@ -31959,6 +33178,7 @@ test('a cold start reuses today\'s snapshot instead of refetching', async () => 
   const after = a2.state.fetches.filter((u) => /api\.ebird\.org/.test(u)).length;
   assert.equal(after, before, 'a fresh snapshot costs ZERO eBird calls');
   assert.ok(res && res.cv, 'and still produces the computed views');
+  assert.equal(res.feedComplete, true, 'the actual supported plan remains complete after restart');
   a2.window.close();
 });
 
@@ -34191,14 +35411,14 @@ test('F781 deprecated custom-region Settings controls are absent without deletin
     assert.equal(settings.querySelector('#' + id), null);
   }
   assert.doesNotMatch(settings.textContent, /My regions|Add your own region|chase from its center/);
-  assert.equal(app.window.localStorage.getItem('ebird_custom_regions'), regions);
+  assert.deepEqual(readPersistedFixture(app.window, 'ebird_custom_regions'), JSON.parse(regions));
   app.window.__app.setActiveReport('u-michigan-test');
   assert.equal(app.window.__app.getReportSlug(), 'u-michigan-test');
   assert.equal(app.$('homePlace').value, 'Saved Home');
   app.click(app.$('clearHomeBtn'));
   assert.equal(app.window.localStorage.getItem('ebird_home_lat:u-michigan-test'), '42.31');
   assert.equal(app.window.__app.getHome().lat,42.31,'Clear only changes the draft, not the migrated saved Home');
-  assert.equal(app.window.localStorage.getItem('ebird_custom_regions'), regions);
+  assert.deepEqual(readPersistedFixture(app.window, 'ebird_custom_regions'), JSON.parse(regions));
   const help = JSON.parse(fs.readFileSync(path.join(WWW, 'section-docs.json'), 'utf8')).docs.settingsPanel;
   assert.match(help.how.join(' '), /deprecated.*preserved/);
   assert.doesNotMatch(help.how.join(' '), /You can add your own regions/);
@@ -36094,6 +37314,244 @@ test('F801 retained alerts participate in personal-data erasure', async () => {
   app.window.close();
 });
 
+test('F247 retained Bird Gen cannot overwrite a replaced source during actual native packing', async () => {
+  const app = await boot({ nativeCompression: true });
+  const A = app.window.__app, W = app.window;
+  let pending;
+  const packing = holdPersonalSnapshotEncoding(W, value =>
+    value.parts?.favorite?.value?.rows?.[0]?.name === 'Held247');
+  try {
+    await A.saveSurgeRetainedPart('favorite', { state: 'ok', rows: [] });
+    const key = Object.keys(W.localStorage).find(value => value.startsWith('ebird_surge_retained_v1:'));
+    assert.ok(key, 'the baseline retained source must exist');
+    pending = A.saveSurgeRetainedPart('favorite', { state: 'ok', rows: Array.from({ length: 40 }, (_, i) => ({
+      code: 'held247_' + i, name: 'Held247', time: Date.now(), padding: 'native retained source '.repeat(30)
+    })) });
+    await waitFor(packing.ready, 'actual retained source native encoding');
+    const foreign = 'j:' + JSON.stringify({
+      context: A.surgeRetainedContext(), parts: {
+        favorite: { at: Date.now(), value: { state: 'ok', rows: [], marker: 'External247' } }
+      }
+    });
+    W.localStorage.setItem(A.bcReal(key), foreign);
+    packing.release();
+    assert.equal(await pending, false, 'a changed retained source cannot be overwritten by older packing');
+    assert.equal(W.localStorage.getItem(A.bcReal(key)), foreign);
+  } finally {
+    packing.release();
+    await Promise.allSettled([pending].filter(Boolean));
+    packing.restore();
+    W.close();
+  }
+});
+
+function retainedNativeRows(name = 'Native247', count = 40) {
+  return Array.from({ length: count }, (_, i) => ({
+    code: 'margod', name, time: Date.now(), locId: 'LRETAINED247', checklistId: 'SRETAINED' + i,
+    subnational1Code: 'US-WA', lat: 47.75, lng: -122.16, padding: 'native retained evidence '.repeat(30)
+  }));
+}
+
+test('F247 retained native projections copy inputs and reject retired, erased, changed or silently failed owners', async () => {
+  for (const action of ['save', 'pre', 'profile', 'identity', 'erase', 'scope', 'noop', 'late']) {
+    const app = await boot({ nativeCompression: true });
+    const W = app.window, A = W.__app, proto = W.Storage.prototype, get = proto.getItem, set = proto.setItem;
+    let pending, done = false;
+    const packing = holdPersonalSnapshotEncoding(W, value =>
+      value.parts?.favorite?.value?.rows?.[0]?.name === 'Native247');
+    try {
+      await seedSeen(app, [], null, [{ code: 'margod', name: 'Native247' }]);
+      await A.saveSurgeRetainedPart('favorite', { state: 'ok', rows: [] });
+      const key = Object.keys(W.localStorage).find(value => value.startsWith('ebird_surge_retained_v1:'));
+      const before = W.localStorage.getItem(key), input = { state: 'ok', rows: retainedNativeRows() };
+      const foreign = 'j:' + JSON.stringify({ context: A.surgeRetainedContext(), parts: {
+        favorite: { at: Date.now(), value: { state: 'ok', rows: [], marker: 'Foreign247' } }
+      } });
+      pending = A.saveSurgeRetainedPart('favorite', input).finally(() => { done = true; });
+      input.rows[0].name = 'Caller mutation';
+      if (action === 'pre') W.localStorage.setItem(key, foreign);
+      await waitFor(() => packing.ready() || done, 'owned native retained projection');
+      if (action === 'pre') {
+        assert.equal(done, true, 'a replaced source must be rejected before native packing');
+        assert.equal(await pending, false);
+        assert.equal(W.localStorage.getItem(key), foreign);
+        continue;
+      }
+      assert.equal(packing.ready(), true); assert.equal(done, false);
+      assert.equal(W.localStorage.getItem(key), before, 'packing cannot claim native acknowledgment');
+      const projected = A.loadSurgeRetained();
+      assert.equal(projected.favorite.rows[0].name, 'Native247');
+      projected.favorite.rows[0].name = 'Getter mutation';
+      assert.equal(A.loadSurgeRetained().favorite.rows[0].name, 'Native247');
+      if (action === 'profile') {
+        W.localStorage.setItem(A.BC_PROFILE_PTR, '2');
+        W.localStorage.setItem('bcp:2:' + key, before);
+      } else if (action === 'identity') {
+        W.Capacitor = { Plugins: { CapgoInAppBrowser: { clearAllBrowsingData: () => Promise.resolve() } } };
+        A.bcSetProfile('2');
+        await waitFor(() => A.bcProfile() === '2', 'actual browser-cleared profile transition');
+        A.bcSetProfile('');
+        await waitFor(() => A.bcProfile() === '', 'actual browser-cleared profile return');
+      } else if (action === 'erase') {
+        const restored = Object.fromEntries(Object.keys(W.localStorage).map(key => [key, W.localStorage.getItem(key)]));
+        A.scrubPersonalData();
+        await A.drainProfileNameWrites();
+        for (const [key, raw] of Object.entries(restored)) W.localStorage.setItem(key, raw);
+      } else if (action === 'scope') {
+        A.setCountyView('US-WA-033'); A.setCountyView('');
+      } else if (action === 'noop') {
+        proto.setItem = function (target, raw) { if (target !== key) return set.call(this, target, raw); };
+      } else if (action === 'late') {
+        let armed = true;
+        proto.getItem = function (target) {
+          const raw = get.call(this, target);
+          if (target === key && armed) { armed = false; set.call(this, target, foreign); }
+          return raw;
+        };
+      }
+      packing.release();
+      assert.equal(await pending, action === 'save');
+      proto.getItem = get;
+      if (action === 'save') {
+        assert.equal(readPersistedFixture(W, key).parts.favorite.value.rows[0].name, 'Native247');
+        assert.match(W.localStorage.getItem(key), /^z:/);
+      } else {
+        assert.equal(W.localStorage.getItem(key), action === 'late' ? foreign : before);
+        if (action === 'profile') assert.equal(W.localStorage.getItem('bcp:2:' + key), before);
+        if (action !== 'noop') assert.equal(A.loadSurgeRetained()?.favorite?.rows.length || 0, 0,
+          'a retired source cannot expose its in-memory replacement');
+      }
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      proto.getItem = get; proto.setItem = set;
+      packing.release(); await Promise.allSettled([pending].filter(Boolean)); packing.restore(); W.close();
+    }
+  }
+});
+
+test('F247 retained native queues compose copied parts and rebase intents admitted during actual allocation', async () => {
+  for (const action of ['queued', 'allocation', 'foreign']) {
+    const app = await boot({ nativeCompression: true });
+    const W = app.window, A = W.__app, proto = W.Storage.prototype, set = proto.setItem;
+    let first, next;
+    const packing = holdPersonalSnapshotEncoding(W, value =>
+      value.parts?.favorite?.value?.rows?.[0]?.name === 'Native247');
+    try {
+      await A.saveSurgeRetainedPart('favorite', { state: 'ok', rows: [] });
+      const key = Object.keys(W.localStorage).find(value => value.startsWith('ebird_surge_retained_v1:'));
+      first = A.saveSurgeRetainedPart('favorite', { state: 'ok', rows: retainedNativeRows() });
+      await waitFor(packing.ready, 'first owned retained allocation');
+      const input = { state: 'ok', rows: retainedNativeRows('Mass247', 41) };
+      if (action === 'queued') {
+        next = A.saveSurgeRetainedPart('mass', input);
+        input.rows[0].name = 'Queued mutation';
+      } else {
+        let armed = true;
+        proto.setItem = function (target, raw) {
+          if (target === key && armed) {
+            armed = false;
+            if (action === 'foreign') {
+              set.call(this, target, raw);
+              set.call(this, target, 'j:' + JSON.stringify({ context: A.surgeRetainedContext(), parts: {} }));
+            }
+            next = A.saveSurgeRetainedPart('mass', input);
+            input.rows[0].name = 'Allocation mutation';
+          }
+          return set.call(this, target, raw);
+        };
+      }
+      packing.release();
+      assert.equal(await first, true);
+      assert.ok(next, 'the newer intent must be admitted through the actual writer');
+      assert.equal(await next, action !== 'foreign', 'only matching predecessor retention can rebase newer parts');
+      const decoded = readPersistedFixture(W, key);
+      assert.equal(decoded.parts.favorite.value.rows.length, 40);
+      if (action === 'foreign') assert.equal(decoded.parts.mass, undefined);
+      else {
+        assert.equal(decoded.parts.mass.value.rows.length, 41);
+        assert.equal(decoded.parts.mass.value.rows[0].name, 'Mass247');
+      }
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      proto.setItem = set; packing.release();
+      await Promise.allSettled([first, next].filter(Boolean)); packing.restore(); W.close();
+    }
+  }
+});
+
+test('F247 retained malformed sources remain unchanged and cannot establish a new snapshot', async () => {
+  const app = await boot({ nativeCompression: true });
+  const W = app.window, A = W.__app;
+  try {
+    await A.saveSurgeRetainedPart('favorite', { state: 'ok', rows: [] });
+    const key = Object.keys(W.localStorage).find(value => value.startsWith('ebird_surge_retained_v1:'));
+    const invalidState = JSON.stringify({ context: A.surgeRetainedContext(), parts: {
+      favorite: { at: Date.now(), value: { state: 42, rows: [] } }
+    } });
+    assert.equal(await A.saveSurgeRetainedPart('favorite', { state: 'ok', rows: null }), false);
+    for (const raw of ['', 'z:invalid', 'j:null', '[]', '{"context":"bad","parts":[]}', invalidState]) {
+      W.localStorage.setItem(key, raw);
+      assert.equal(A.loadSurgeRetained(), null);
+      assert.equal(await A.saveSurgeRetainedPart('favorite', { state: 'ok', rows: [] }), false);
+      assert.equal(W.localStorage.getItem(key), raw);
+    }
+  } finally { W.close(); }
+});
+
+test('F247 retained failed receipts cannot rebase queued intents over a foreign source', async () => {
+  const app = await boot({ nativeCompression: true });
+  const W = app.window, A = W.__app;
+  let first, next;
+  const packing = holdPersonalSnapshotEncoding(W, value =>
+    value.parts?.favorite?.value?.rows?.[0]?.name === 'Native247');
+  try {
+    await A.saveSurgeRetainedPart('favorite', { state: 'ok', rows: [] });
+    const key = Object.keys(W.localStorage).find(value => value.startsWith('ebird_surge_retained_v1:'));
+    first = A.saveSurgeRetainedPart('favorite', { state: 'ok', rows: retainedNativeRows() });
+    await waitFor(packing.ready, 'native retained receipt barrier');
+    next = A.saveSurgeRetainedPart('mass', { state: 'ok', rows: [] });
+    const foreign = 'j:' + JSON.stringify({ context: A.surgeRetainedContext(), parts: {} });
+    W.localStorage.setItem(key, foreign);
+    packing.release();
+    assert.equal(await first, false);
+    assert.equal(await next, false, 'unacknowledged writes cannot approve newer source versions');
+    assert.equal(W.localStorage.getItem(key), foreign);
+  } finally {
+    packing.release(); await Promise.allSettled([first, next].filter(Boolean)); packing.restore(); W.close();
+  }
+});
+
+test('F247 retired taxonomy callbacks do not inspect a closed document', async () => {
+  const app = await boot({ sample: false, key: null, nativeCompression: true, indexedDB: new IDBFactory() });
+  const A = app.window.__app;
+  try {
+    await A.maybeRefreshTaxonomy();
+    app.window.close();
+    let result;
+    assert.doesNotThrow(() => { result = A.maybeRefreshTaxonomy(); });
+    assert.equal(await result, false);
+  } finally { app.window.close(); }
+});
+
+test('F247 pending native taxonomy restoration cannot publish success or errors after document closure', async () => {
+  const app = await boot({ sample: false, key: null, nativeCompression: true, indexedDB: new IDBFactory() });
+  const A = app.window.__app;
+  let pending;
+  try {
+    await A.restoreTaxonomyNames();
+    app.window.localStorage.setItem('bc_taxonomy_v1', 'j:' + JSON.stringify({
+      edition: '2026.0', checkedAt: Date.now()
+    }));
+    pending = A.restoreTaxonomyNames();
+    app.window.close();
+    await assert.doesNotReject(pending);
+    assert.equal(await pending, false);
+  } finally {
+    await Promise.allSettled([pending].filter(Boolean));
+    app.window.close();
+  }
+});
+
 test('F807 retained results use compression and report source-safe write measurements', async () => {
   const app = await boot();
   const A = app.window.__app;
@@ -36483,13 +37941,13 @@ test('F1112 raw and normalized alert markup agree without weakening exact source
   try {
     const A = app.window.__app;
     assert.equal(await A.lazyRefreshMegaSnapshot(null,true),true);
-    const first = JSON.parse(app.window.localStorage.getItem(A.MEGA_SNAP_KEY));
+    const first = readPersistedFixture(app.window, A.MEGA_SNAP_KEY);
     assert.equal(first.rows[0].speciesCode,'rocwre');
     assert.equal(first.rows[0].userDisplayName,'Synthetic observer');
     assert.equal(first.rows[0].subId,item.subId);
     html = new app.window.DOMParser().parseFromString(html,'text/html').documentElement.outerHTML;
     assert.equal(await A.lazyRefreshMegaSnapshot(null,true),true);
-    assert.deepEqual(JSON.parse(app.window.localStorage.getItem(A.MEGA_SNAP_KEY)).rows,first.rows);
+    assert.deepEqual(readPersistedFixture(app.window, A.MEGA_SNAP_KEY).rows,first.rows);
     const previous = app.window.localStorage.getItem(A.MEGA_SNAP_KEY);
     html += '<div class="Observation" id="obs-OBS999999"></div>';
     assert.equal(await A.lazyRefreshMegaSnapshot(null,true),false,'partial parsing must still fail closed');
@@ -36540,7 +37998,7 @@ test('F1126 capped empty regional Mega snapshots are loaded without cap-only att
   try {
     const A = app.window.__app;
     assert.equal(await A.lazyRefreshMegaSnapshot(null,true),true);
-    const snapshot = JSON.parse(app.window.localStorage.getItem(A.MEGA_SNAP_KEY));
+    const snapshot = readPersistedFixture(app.window, A.MEGA_SNAP_KEY);
     assert.equal(snapshot.sourceCount,500);
     assert.equal(snapshot.capped,true);
     assert.equal(snapshot.rows.length,0);
@@ -36644,6 +38102,280 @@ function f1142Source(app, at, codes = []) {
     state:'ok',acquired:true,inventoryComplete:true,
     sensitiveRows:codes.map(code => ({code,name:names[code],region:A.activeScope().effectiveRegion}))};
 }
+
+test('F247 native Sensitive history hydrates before synchronous rows and notifications', async () => {
+  const app = await boot({ sample: false, nativeCompression: true });
+  const W = app.window, A = W.__app, clock = f1142Clock(app);
+  try {
+    const key = A.sensitiveJournalKey(), region = A.activeScope().effectiveRegion;
+    const value = { version: 1, region, month: '2026-10', blocked: false, lastAcquiredAt: clock.now,
+      entries: [{ code: 'loeowl', name: 'Long-eared Owl', region, acquiredAt: clock.now,
+        firstDetectedAt: clock.now, expiresAt: clock.now + 86400000 }] };
+    const raw = 'z:' + zlib.gzipSync(JSON.stringify(value)).toString('base64');
+    W.localStorage.setItem(key, raw);
+    assert.equal(A.birdGenSensitiveRows(clock.now).length, 0,
+      'unhydrated native history cannot be invented by synchronous rendering');
+    await A.loadSurgeRetainedAsync();
+    const rows = A.birdGenSensitiveRows(clock.now);
+    assert.equal(rows.length, 1, 'native history must preserve its confirmed Sensitive detection');
+    assert.equal(A.birdGenNotificationEvents(rows).length, 1);
+    A.renderSurge([], [], [], [], [], { mass: 'failed', suppressNotifications: true });
+    assert.doesNotMatch(app.$('surgeResults')._surgeDiagnostics || '', /history is unavailable/,
+      'a confirmed native hydration must recover its earlier unavailable projection');
+    assert.equal(W.localStorage.getItem(key), raw, 'synchronous rows must not rewrite native history');
+  } finally { W.close(); }
+});
+
+async function nativeSensitiveFixture(options = {}) {
+  const app = await boot({ sample: false, nativeCompression: true, ...options });
+  const W = app.window, A = W.__app, clock = f1142Clock(app);
+  const birds = Array.from({ length: 40 }, (_, i) => ({
+    code: 'sensitive247' + i, name: 'Native Sensitive247 bird ' + i,
+    region: A.activeScope().effectiveRegion
+  }));
+  const source = (rows, at = clock.now) => ({
+    ...f1142Source(app, at), sensitiveRows: rows
+  });
+  await A.birdGenSensitiveJournalAsync(source([], clock.now - 1), clock.now - 1);
+  return { app, W, A, clock, birds, source };
+}
+
+test('F247 Sensitive native receipts withhold new rows and notifications and copy acquired evidence', async () => {
+  const { app, W, A, clock, birds, source } = await nativeSensitiveFixture();
+  const key = A.sensitiveJournalKey(), before = W.localStorage.getItem(key), input = source(birds);
+  let pending, done = false;
+  const packing = holdPersonalSnapshotEncoding(W, value => value.entries?.[0]?.firstDetectedAt === clock.now);
+  try {
+    pending = A.birdGenSensitiveJournalAsync(input, clock.now).finally(() => { done = true; });
+    input.sensitiveRows[0].name = 'Caller mutation';
+    await waitFor(() => packing.ready() || done, 'actual native Sensitive packing');
+    assert.equal(packing.ready(), true);
+    assert.equal(done, false, 'source completion must join actual native acknowledgment');
+    assert.equal(W.localStorage.getItem(key), before, 'packing must not allocate raw history first');
+    assert.equal(A.birdGenSensitiveJournal(source(birds), clock.now).length, 0,
+      'synchronous journal projection cannot admit acquired but unacknowledged detections');
+    assert.equal(A.birdGenSensitiveRows(clock.now).length, 0);
+    assert.equal(A.birdGenNotificationEvents(A.birdGenSensitiveRows(clock.now)).length, 0);
+    packing.release();
+    const alerts = await pending;
+    assert.equal(alerts.length, 40);
+    assert.equal(alerts[0].name, 'Native Sensitive247 bird 0');
+    assert.match(W.localStorage.getItem(key), /^z:/);
+    alerts[0].name = 'Getter mutation';
+    assert.equal(readPersistedFixture(W, key).entries[0].name, 'Native Sensitive247 bird 0');
+    assert.equal(A.birdGenSensitiveRows(clock.now).length, 40);
+    assert.equal(A.birdGenNotificationEvents(A.birdGenSensitiveRows(clock.now)).length, 40);
+    assert.deepEqual(app.state.errors, []);
+  } finally {
+    W.dispatchEvent(new W.Event('unload'));
+    packing.release(); await Promise.allSettled([pending].filter(Boolean));
+    packing.restore(); W.close();
+  }
+});
+
+test('F247 Sensitive native packing rejects changed sources and retired profile, scope or erased owners', async () => {
+  for (const action of ['pre', 'source', 'profile', 'identity', 'scope', 'erase', 'noop', 'late']) {
+    const { app, W, A, clock, birds, source } = await nativeSensitiveFixture();
+    const key = A.sensitiveJournalKey(), before = W.localStorage.getItem(key);
+    const foreign = 'j:' + JSON.stringify({ ...readPersistedFixture(W, key), blocked: true });
+    const proto = W.Storage.prototype, get = proto.getItem, set = proto.setItem;
+    let pending, done = false;
+    const packing = holdPersonalSnapshotEncoding(W, value => value.entries?.[0]?.firstDetectedAt === clock.now);
+    try {
+      pending = A.birdGenSensitiveJournalAsync(source(birds), clock.now).finally(() => { done = true; });
+      if (action === 'pre') W.localStorage.setItem(key, foreign);
+      await waitFor(() => packing.ready() || done, 'owned native Sensitive packing admission');
+      if (action === 'pre') {
+        assert.equal(done, true);
+        assert.equal((await pending).length, 0);
+        assert.equal(W.localStorage.getItem(key), foreign);
+        continue;
+      }
+      assert.equal(packing.ready(), true);
+      if (action === 'source') W.localStorage.setItem(key, foreign);
+      if (action === 'profile') W.localStorage.setItem(A.BC_PROFILE_PTR, '2');
+      if (action === 'identity') {
+        W.Capacitor = { Plugins: { CapgoInAppBrowser: { clearAllBrowsingData: () => Promise.resolve() } } };
+        A.bcSetProfile('2'); await waitFor(() => A.bcProfile() === '2', 'Sensitive profile departure');
+        A.bcSetProfile(''); await waitFor(() => A.bcProfile() === '', 'Sensitive profile return');
+      }
+      if (action === 'scope') { A.setCountyView('US-WA-033'); A.setCountyView(''); }
+      if (action === 'erase') {
+        const saved = Object.fromEntries(Object.keys(W.localStorage).map(key => [key, W.localStorage.getItem(key)]));
+        A.scrubPersonalData(); await A.drainProfileNameWrites();
+        for (const [key, raw] of Object.entries(saved)) W.localStorage.setItem(key, raw);
+      }
+      if (action === 'noop') proto.setItem = function (target, raw) {
+        if (target !== key) return set.call(this, target, raw);
+      };
+      if (action === 'late') {
+        let armed = true;
+        proto.getItem = function (target) {
+          const raw = get.call(this, target);
+          if (target === key && armed) { armed = false; set.call(this, target, foreign); }
+          return raw;
+        };
+      }
+      packing.release();
+      assert.equal((await pending).length, 0, action + ': rejected native work cannot admit new detections');
+      proto.getItem = get; proto.setItem = set;
+      assert.equal(W.localStorage.getItem(key), action === 'source' || action === 'late' ? foreign : before,
+        action + ': native work cannot overwrite the actual source');
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      proto.getItem = get; proto.setItem = set; W.dispatchEvent(new W.Event('unload'));
+      packing.release(); await Promise.allSettled([pending].filter(Boolean));
+      packing.restore(); W.close();
+    }
+  }
+});
+
+test('F247 Sensitive native queues compose only acknowledged history including actual allocation-time arrivals', async () => {
+  for (const action of ['queued', 'allocation', 'foreign']) {
+    const { W, A, clock, birds, source } = await nativeSensitiveFixture();
+    const key = A.sensitiveJournalKey(), proto = W.Storage.prototype, set = proto.setItem;
+    const nextBird = { ...birds[0], code: 'next247', name: 'Next Sensitive native bird' };
+    const nextSource = source(birds.concat(nextBird), clock.now + 1000);
+    let first, next;
+    const packing = holdPersonalSnapshotEncoding(W, value => value.entries?.[0]?.firstDetectedAt === clock.now);
+    try {
+      first = A.birdGenSensitiveJournalAsync(source(birds), clock.now);
+      await waitFor(packing.ready, 'first native Sensitive queue allocation');
+      if (action === 'queued') next = A.birdGenSensitiveJournalAsync(nextSource, clock.now + 1000);
+      else {
+        let armed = true;
+        proto.setItem = function (target, raw) {
+          if (target === key && armed) {
+            armed = false;
+            if (action === 'foreign') set.call(this, target, 'j:' + JSON.stringify({
+              ...readPersistedFixture(W, key), blocked: true
+            }));
+            next = A.birdGenSensitiveJournalAsync(nextSource, clock.now + 1000);
+          }
+          return set.call(this, target, raw);
+        };
+      }
+      packing.release();
+      assert.equal((await first).length, 40);
+      assert.ok(next, 'the actual native writer must admit an allocation-time intent');
+      assert.equal((await next).length, action === 'foreign' ? 0 : 41);
+      const saved = readPersistedFixture(W, key);
+      assert.equal(saved.entries.length, action === 'foreign' ? 40 : 41);
+      assert.equal(saved.entries[0].firstDetectedAt, clock.now, 'composition must not reset detection age');
+    } finally {
+      proto.setItem = set; W.dispatchEvent(new W.Event('unload'));
+      packing.release(); await Promise.allSettled([first, next].filter(Boolean));
+      packing.restore(); W.close();
+    }
+  }
+});
+
+test('F247 actual monthly Sensitive acquisition awaits native acknowledgment, retirement and storage-only retry', async () => {
+  for (const action of ['save', 'retire', 'noop']) {
+    let page = '';
+    const { app, W, A, clock, birds } = await nativeSensitiveFixture({
+      fetch: url => /bird-list/.test(url) ? page : []
+    });
+    page = '<div class="StatsIcon"><span class="StatsIcon-label">This Month</span>'
+      + '<span class="StatsIcon-secondary">Oct 2026</span></div>'
+      + '<div class="BirdList"><section class="BirdList-list"><h3>Native and Naturalized (40)</h3><ol>'
+      + birds.map(bird => '<li class="BirdList-list-list-item countable"><div class="Obs-species">'
+        + '<a href="https://ebird.org/species/' + bird.code + '/US-WA"><span class="Species-common">'
+        + bird.name + '</span></a></div><div class="Obs-count">Count: 1</div>'
+        + '<button class="Sensitive-badge">Sensitive</button></li>').join('')
+      + '</ol></section></div>';
+    const key = A.sensitiveJournalKey(), before = W.localStorage.getItem(key);
+    const proto = W.Storage.prototype, set = proto.setItem;
+    let pending, done = false, current = true;
+    const packing = holdPersonalSnapshotEncoding(W, value => value.entries?.[0]?.firstDetectedAt === clock.now);
+    try {
+      A.fgWindowReset(); A.fgSchedReset(clock.now);
+      pending = A.loadMassFlockAlertSource(true, A.activeScope(), null, { current: () => current })
+        .finally(() => { done = true; });
+      await waitFor(() => packing.ready() || done, 'actual monthly acquisition native Sensitive packing');
+      assert.equal(packing.ready(), true);
+      assert.equal(done, false, 'actual Mass completion must join Sensitive native persistence');
+      assert.equal(W.localStorage.getItem(key), before);
+      assert.equal(A.birdGenNotificationEvents(A.birdGenSensitiveRows(clock.now)).length, 0);
+      if (action === 'retire') current = false;
+      if (action === 'noop') proto.setItem = function (target, raw) {
+        if (target !== key) return set.call(this, target, raw);
+      };
+      packing.release();
+      const acquired = await pending;
+      proto.setItem = set;
+      if (action === 'retire') {
+        assert.equal(W.localStorage.getItem(key), before);
+        assert.equal(A.birdGenSensitiveRows(clock.now).length, 0);
+      } else {
+        assert.equal(A.birdGenSensitiveRows(clock.now).length, action === 'save' ? 40 : 0);
+        if (action === 'noop') {
+          assert.equal(W.localStorage.getItem(key), before);
+          const calls = app.state.fetches.length;
+          await A.loadMassFlockAlertSource(true, A.activeScope(), null, { retrySource: acquired });
+          assert.equal(app.state.fetches.length, calls, 'persistence recovery must not reacquire its monthly page');
+          assert.equal(A.birdGenSensitiveRows(clock.now).length, 40);
+        }
+        assert.match(W.localStorage.getItem(key), /^z:/);
+      }
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      proto.setItem = set; current = false; W.dispatchEvent(new W.Event('unload'));
+      packing.release(); await Promise.allSettled([pending].filter(Boolean));
+      packing.restore(); W.close();
+    }
+  }
+});
+
+test('F247 Sensitive failed receipts cannot rebase queued work or borrow replaced confirmed history', async () => {
+  for (const action of ['readback', 'foreign']) {
+    const { W, A, clock, birds, source } = await nativeSensitiveFixture();
+    const key = A.sensitiveJournalKey(), proto = W.Storage.prototype, get = proto.getItem, set = proto.setItem;
+    const next = { ...birds[0], code: 'next247', name: 'Next Sensitive native bird' };
+    let first, second, unreadable = false;
+    if (action === 'foreign') await A.birdGenSensitiveJournalAsync(source(birds), clock.now);
+    const packing = holdPersonalSnapshotEncoding(W, value => action === 'readback'
+      ? value.entries?.length === 40 : value.entries?.length === 41);
+    try {
+      first = A.birdGenSensitiveJournalAsync(source(action === 'readback' ? birds : birds.concat(next),
+        clock.now + 1000), clock.now + 1000);
+      await waitFor(packing.ready, 'Sensitive failed native receipt barrier');
+      second = A.birdGenSensitiveJournalAsync(source(birds.concat(next), clock.now + 2000), clock.now + 2000);
+      let foreign;
+      if (action === 'foreign') {
+        foreign = 'j:' + JSON.stringify({ ...readPersistedFixture(W, key), entries: [] });
+        W.localStorage.setItem(key, foreign);
+      } else {
+        proto.setItem = function (target, raw) {
+          set.call(this, target, raw);
+          if (target === key) unreadable = true;
+        };
+        proto.getItem = function (target) {
+          if (target === key && unreadable) {
+            unreadable = false;
+            throw new W.DOMException('Synthetic Sensitive readback denied', 'SecurityError');
+          }
+          return get.call(this, target);
+        };
+      }
+      packing.release();
+      assert.equal((await first).length, 0, 'failed native acknowledgment cannot borrow superseded history');
+      assert.equal((await second).length, 0, 'failed acknowledgment cannot rebase queued sources');
+      proto.setItem = set; proto.getItem = get;
+      if (action === 'foreign') assert.equal(W.localStorage.getItem(key), foreign);
+      else {
+        assert.equal(readPersistedFixture(W, key).entries.length, 40);
+        assert.equal((await A.birdGenSensitiveJournalAsync(
+          source(birds.concat(next), clock.now + 2000), clock.now + 2000)).length, 41);
+        assert.equal(readPersistedFixture(W, key).entries[0].firstDetectedAt, clock.now + 1000);
+      }
+    } finally {
+      proto.getItem = get; proto.setItem = set; W.dispatchEvent(new W.Event('unload'));
+      packing.release(); await Promise.allSettled([first, second].filter(Boolean));
+      packing.restore(); W.close();
+    }
+  }
+});
 
 test('F1191 loading warnings exclude coverage limits but preserve mixed-source errors and zero-alert Sensitive attribution', async () => {
   const app=await boot();
@@ -36873,13 +38605,13 @@ test('F1190 Sensitive storage error agrees across source and category and recove
   const proto=app.window.Storage.prototype,set=proto.setItem;
   try{
     const A=app.window.__app,clock=f1142Clock(app);
-    A.birdGenSensitiveJournal(f1142Source(app,clock.now-1,['grgowl']),clock.now-1);
+    (await A.birdGenSensitiveJournalAsync(f1142Source(app,clock.now-1,['grgowl']),clock.now-1));
     const inventory=f1142Source(app,clock.now,['grgowl','loeowl']);
     proto.setItem=function(key,value){
       if(key.includes('bc_sensitive_v1:'))throw new app.window.DOMException('Synthetic denial','SecurityError');
       return set.call(this,key,value);
     };
-    A.birdGenSensitiveJournal(inventory,clock.now);
+    (await A.birdGenSensitiveJournalAsync(inventory,clock.now));
     const source={...inventory,sensitiveSource:inventory,loadingErrors:[]};
     const paint=()=>A.renderSurge([],[],[],[],[],{mass:'ok',massSource:source,suppressNotifications:true});
     paint();
@@ -36903,9 +38635,9 @@ test('F1113 Sensitive availability explains shared Mass coverage without changin
   const app = await boot();
   try {
     const A = app.window.__app, clock = f1142Clock(app);
-    A.birdGenSensitiveJournal(f1142Source(app,clock.now - 1),clock.now - 1);
+    (await A.birdGenSensitiveJournalAsync(f1142Source(app,clock.now - 1),clock.now - 1));
     const source = f1142Source(app,clock.now,['grgowl']);
-    A.birdGenSensitiveJournal(source,clock.now);
+    (await A.birdGenSensitiveJournalAsync(source,clock.now));
     for (const state of ['partial','failed','loading','ok']) {
       A.renderSurge([],[],[],[],[],{
         mass:state,massSource:{...source,state},suppressNotifications:true
@@ -36965,14 +38697,14 @@ test('F1142 actual monthly acquisitions distinguish complete Sensitive inventory
     assert.equal(app.$('surgeFeed').querySelectorAll('[data-alert-kind="sensitive"]').length,1);
     assert.match(app.$('surgeFeed').textContent,/Long-eared Owl/);
     assert.doesNotMatch(app.$('surgeFeed').textContent,/Great Gray Owl/);
-    const entry = JSON.parse(app.window.localStorage.getItem(A.sensitiveJournalKey()))
+    const entry = readPersistedFixture(app.window, A.sensitiveJournalKey())
       .entries.find(row => row.code === 'loeowl');
     assert.equal(entry.firstDetectedAt,fresh.acquiredAt);
     await acquire('<html>Access denied</html>');
     A.renderSurge([],[],[],[],[],{mass:'failed',suppressNotifications:true});
     assert.ok(app.$('surgeFeed').querySelector('[data-sensitive-species="loeowl"]'),
       'a persisted active alert must survive failure of its shared source');
-    assert.equal(JSON.parse(app.window.localStorage.getItem(A.sensitiveJournalKey()))
+    assert.equal(readPersistedFixture(app.window, A.sensitiveJournalKey())
       .entries.find(row => row.code === 'loeowl').firstDetectedAt,entry.firstDetectedAt);
     assert.deepEqual(app.state.errors,[]);
   } finally { app.window.close(); }
@@ -36983,8 +38715,8 @@ test('F1142 rendered timeago advances in place, survives restart and expires at 
   let restarted;
   try {
     const A = app.window.__app, clock = f1142Clock(app), first = clock.now;
-    A.birdGenSensitiveJournal(f1142Source(app,first - 1,['grgowl']),first - 1);
-    A.birdGenSensitiveJournal(f1142Source(app,first,['grgowl','loeowl']),first);
+    (await A.birdGenSensitiveJournalAsync(f1142Source(app,first - 1,['grgowl']),first - 1));
+    (await A.birdGenSensitiveJournalAsync(f1142Source(app,first,['grgowl','loeowl']),first));
     let timer;
     const setTimer = app.window.setTimeout.bind(app.window);
     app.window.setTimeout = (fn,delay,...args) => {
@@ -37029,7 +38761,7 @@ test('F1142 rendered timeago advances in place, survives restart and expires at 
     assert.equal(app.window.localStorage.getItem(A.sensitiveJournalKey()),saved,
       'expiry must retain the whole original monthly record');
     clock.now += 10000;
-    A.birdGenSensitiveJournal(f1142Source(app,clock.now,['loeowl']),clock.now);
+    (await A.birdGenSensitiveJournalAsync(f1142Source(app,clock.now,['loeowl']),clock.now));
     paint();
     assert.equal(app.$('surgeResults').querySelector('[data-sensitive-species="loeowl"]'),null);
     assert.equal(app.state.fetches.length,fetches);
@@ -37041,9 +38773,9 @@ test('F1142 the real age clock expires at source-local month rollover and requir
   const app = await boot();
   try {
     const A = app.window.__app, clock = f1142Clock(app,'2026-11-01T06:59:30Z');
-    A.birdGenSensitiveJournal(f1142Source(app,clock.now - 1),clock.now - 1);
+    (await A.birdGenSensitiveJournalAsync(f1142Source(app,clock.now - 1),clock.now - 1));
     const october = f1142Source(app,clock.now,['loeowl']);
-    A.birdGenSensitiveJournal(october,clock.now);
+    (await A.birdGenSensitiveJournalAsync(october,clock.now));
     let timer;
     const setTimer = app.window.setTimeout.bind(app.window);
     app.window.setTimeout = (fn,delay,...args) => {
@@ -37054,10 +38786,11 @@ test('F1142 the real age clock expires at source-local month rollover and requir
     assert.equal(timer.delay,30000);
     clock.now += 30000; timer.fn();
     assert.equal(app.$('surgeResults').querySelector('[data-alert-kind="sensitive"]'),null);
-    assert.equal(JSON.parse(app.window.localStorage.getItem(A.sensitiveJournalKey())).month,'2026-11');
-    assert.equal(A.birdGenSensitiveJournal(october,clock.now).length,0);
+    assert.equal(readPersistedFixture(app.window, A.sensitiveJournalKey()).month,'2026-10',
+      'the read-only age clock hides the expired month without rewriting retained history');
+    assert.equal((await A.birdGenSensitiveJournalAsync(october,clock.now)).length,0);
     clock.now += 1000;
-    assert.equal(A.birdGenSensitiveJournal(f1142Source(app,clock.now,['loeowl']),clock.now).length,1);
+    assert.equal((await A.birdGenSensitiveJournalAsync(f1142Source(app,clock.now,['loeowl']),clock.now)).length,1);
     A.renderSurge([],[],[],[],[],{mass:'ok',suppressNotifications:true});
     assert.equal(app.$('surgeFeed').querySelector('.surgeage').textContent,'Now');
     assert.match(A.birdGenSensitiveRows()[0].notificationKey,/2026-11/);
@@ -37069,23 +38802,23 @@ test('F1142 unverified persistence withholds new alerts and corrupt stored histo
   const prototype = app.window.Storage.prototype, original = prototype.setItem;
   try {
     const A = app.window.__app, clock = f1142Clock(app);
-    A.birdGenSensitiveJournal(f1142Source(app,clock.now - 1,['grgowl']),clock.now - 1);
+    (await A.birdGenSensitiveJournalAsync(f1142Source(app,clock.now - 1,['grgowl']),clock.now - 1));
     const saved = app.window.localStorage.getItem(A.sensitiveJournalKey());
     prototype.setItem = function (key,value) {
       if (key.includes('bc_sensitive_v1:')) throw new app.window.DOMException('Synthetic denial','SecurityError');
       return original.call(this,key,value);
     };
-    assert.equal(A.birdGenSensitiveJournal(f1142Source(app,clock.now,['loeowl']),clock.now).length,0);
+    assert.equal((await A.birdGenSensitiveJournalAsync(f1142Source(app,clock.now,['loeowl']),clock.now)).length,0);
     assert.equal(app.window.localStorage.getItem(A.sensitiveJournalKey()),saved);
     A.renderSurge([],[],[],[],[],{mass:'ok',suppressNotifications:true});
     assert.equal(app.$('surgeResults').querySelector('[data-alert-kind="sensitive"]'),null);
     assert.match(app.$('surgeResults')._surgeDiagnostics,/history was not saved.*withheld/);
     prototype.setItem = original;
     app.window.localStorage.setItem(A.sensitiveJournalKey(),'broken JSON');
-    assert.equal(A.birdGenSensitiveJournal(f1142Source(app,clock.now,['loeowl']),clock.now).length,0);
+    assert.equal((await A.birdGenSensitiveJournalAsync(f1142Source(app,clock.now,['loeowl']),clock.now)).length,0);
     clock.now += 1000;
-    assert.equal(A.birdGenSensitiveJournal(f1142Source(app,clock.now,['grgowl']),clock.now).length,0);
-    assert.equal(JSON.parse(app.window.localStorage.getItem(A.sensitiveJournalKey())).blocked,true);
+    assert.equal((await A.birdGenSensitiveJournalAsync(f1142Source(app,clock.now,['grgowl']),clock.now)).length,0);
+    assert.equal(readPersistedFixture(app.window, A.sensitiveJournalKey()).blocked,true);
   } finally { prototype.setItem = original; app.window.close(); }
 });
 
@@ -37613,6 +39346,4102 @@ test('F737 zero-429 clock controls preserve foreground headroom and failed calls
   transport.window.close();
 });
 
+function holdPersonalSnapshotEncoding(W, predicate) {
+  const NativeResponse = W.Response;
+  let release, held = false, released = false, started = 0;
+  W.Response = class extends NativeResponse {
+    constructor(value, ...args) {
+      super(value, ...args);
+      if (typeof value === 'string') {
+        try { if (predicate(JSON.parse(value))) started++; } catch {}
+      }
+    }
+    async arrayBuffer() {
+      const bytes = await super.arrayBuffer();
+      let value;
+      try { value = JSON.parse(zlib.gunzipSync(Buffer.from(bytes)).toString('utf8')); }
+      catch { return bytes; }
+      if (!held && predicate(value)) {
+        held = true;
+        if (released) return bytes;
+        return new Promise(resolve => { release = () => resolve(bytes); });
+      }
+      return bytes;
+    }
+  };
+  return { ready: () => held, started: () => started,
+    release: () => { released = true; if (release) release(); },
+    restore: () => { W.Response = NativeResponse; } };
+}
+
+function rankingPersistenceFixture(count = 30, rank = 4) {
+  return Array.from({ length: count }, (_, i) => ({
+    d: new Date(Date.UTC(2025, 0, i + 1)).toISOString().slice(0, 10),
+    r: Object.fromEntries(Array.from({ length: 10 }, (_, j) => ['Synthetic historical birder ' + j, rank + j]))
+  }));
+}
+
+test('F247 Home approval reports silent native draft rejection without advancing', async () => {
+  const key = 'bc_setup_home_draft_v1';
+  const app = await boot({ sample: false, home: false, nativeCompression: true });
+  const W = app.window, A = W.__app, proto = W.Storage.prototype, set = proto.setItem;
+  try {
+    const raw = JSON.stringify({ profile: A.bcProfile(), query: 'Synthetic Home',
+      point: { lat: 48, lng: -121, label: 'Synthetic Home' }, approved: false, options: [] });
+    W.localStorage.setItem(key, raw);
+    W.localStorage.setItem('bc_setup_step_v1', 'home');
+    A.openSetupSheet();
+    app.click(app.$('setupHomeApprove'));
+    await waitFor(() => !app.$('appSheet').hidden
+      && app.$('appSheet').dataset.infoId === 'setup-home-confirmed', 'actual Home approval');
+    proto.setItem = function (target, value) { if (target === key) return; return set.call(this, target, value); };
+    app.click(app.$('appSheet').querySelector('[data-setup-confirm-continue]'));
+    await A.drainSetupWrites();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(app.$('setupSheetBody').dataset.setupStep, 'home',
+      'unacknowledged approval must not advance to region verification');
+    assert.match(app.$('setupActionStatus').textContent, /could not be saved.*retry/i,
+      'an unacknowledged approval must report an actionable retention failure');
+    assert.equal(W.localStorage.getItem(key), raw, 'failed approval retains the original unapproved draft');
+    assert.equal(A.getHome(), null);
+    assert.deepEqual(app.state.errors, []);
+  } finally { proto.setItem = set; await A.drainSetupWrites(); W.close(); }
+});
+
+function setupRecordFixture(key, profile, suffix = '') {
+  if (key === 'ebird_region_setup_v1')
+    return { status: 'recommended', message: 'Synthetic setup status ' + suffix + ' retained evidence '.repeat(60) };
+  return { profile, query: 'Synthetic setup query ' + suffix, approved: true,
+    point: { lat: 48, lng: -121, label: 'Synthetic setup Home ' + suffix + ' retained candidate '.repeat(60) },
+    region: { status: 'ok', code: 'US-WA', label: 'Washington', lat: 48, lng: -121 }, options: [] };
+}
+
+test('F247 setup readers hydrate native and legacy records, preserve malformed bytes and expose copied retained drafts', async () => {
+  for (const dialect of ['legacy', 'gzip']) {
+    const encode = value => dialect === 'legacy' ? JSON.stringify(value)
+      : 'z:' + zlib.gzipSync(JSON.stringify(value)).toString('base64');
+    const draft = setupRecordFixture('bc_setup_home_draft_v1', '2'), status = setupRecordFixture('ebird_region_setup_v1');
+    const app = await boot({ sample: false, nativeCompression: true, storage: {
+      bc_profile: '2', 'bcp:2:ebird_report': 'wa',
+      'bcp:2:bc_setup_home_draft_v1': encode(draft), 'bcp:2:ebird_region_setup_v1': encode(status)
+    } });
+    const W = app.window, A = W.__app;
+    try {
+      assert.deepEqual(JSON.parse(JSON.stringify(A.setupHomeDraft())), draft);
+      assert.deepEqual(JSON.parse(JSON.stringify(A.regionSetupState())), status);
+      A.setupHomeDraft().point.label = 'Getter mutation';
+      assert.equal(A.setupHomeDraft().point.label, draft.point.label);
+      assert.ok(W.localStorage.getItem('bcp:2:bc_setup_home_draft_v1').startsWith('z:'));
+      assert.ok(W.localStorage.getItem('bcp:2:ebird_region_setup_v1').startsWith('z:'));
+      assert.equal(W.localStorage.getItem('bc_setup_home_draft_v1'), null);
+      for (const [key, raw] of [
+        ['ebird_region_setup_v1', 'z:unreadable-setup'],
+        ['ebird_region_setup_v1', '[]'],
+        ['ebird_region_setup_v1', '{"status":42,"message":"Invalid"}'],
+        ['bc_setup_home_draft_v1', '{"profile":"foreign","approved":false}'],
+        ['bc_setup_home_draft_v1', '{"profile":"2","approved":true}'],
+        ['bc_setup_home_draft_v1', '{"profile":"2","approved":"yes","point":{"lat":48,"lng":-121}}'],
+        ['bc_setup_home_draft_v1', '{"profile":"2","point":{"lat":91,"lng":0}}'],
+        ['bc_setup_home_draft_v1', '{"profile":"2","options":[{}]}'],
+        ['bc_setup_home_draft_v1', '{"profile":"2","point":{"lat":48,"lng":-121},"approved":true,"region":{"status":"ok","code":"US-WA","lat":0,"lng":0}}']
+      ]) {
+        W.localStorage.setItem(A.bcReal(key), raw);
+        assert.throws(() => A.setupProjection(key), /unreadable/);
+        assert.equal(await A.saveSetupRecord(key, setupRecordFixture(key, '2')), false);
+        assert.equal(W.localStorage.getItem(A.bcReal(key)), raw);
+      }
+      assert.equal(await A.saveSetupRecord('unknown-setup', status), false);
+      assert.deepEqual(app.state.errors, []);
+    } finally { await A.drainSetupWrites(); W.close(); }
+  }
+});
+
+test('F247 native setup writes await copied retained records and reject source, owner, admission and backend failure', async () => {
+  for (const key of ['ebird_region_setup_v1', 'bc_setup_home_draft_v1']) {
+    for (const action of ['save', 'pre', 'replace', 'late', 'profile', 'erase', 'admission', 'noop', 'quota']) {
+      const app = await boot({ sample: false, nativeCompression: true });
+      const W = app.window, A = W.__app, proto = W.Storage.prototype, get = proto.getItem, set = proto.setItem;
+      const input = setupRecordFixture(key, A.bcProfile(), 'New247'), expected = JSON.parse(JSON.stringify(input));
+      const packing = holdPersonalSnapshotEncoding(W, value => /New247/.test(value.query || value.message || ''));
+      let pending, done = false, admit = true;
+      try {
+        const original = key === 'ebird_region_setup_v1' ? { status: 'unavailable', message: 'Original' }
+          : { profile: A.bcProfile(), query: 'Original', approved: false };
+        const before = JSON.stringify(original);
+        W.localStorage.setItem(key, before);
+        pending = A.saveSetupRecord(key, input, () => admit).finally(() => { done = true; });
+        input[key === 'ebird_region_setup_v1' ? 'message' : 'query'] = 'Caller mutation';
+        if (action === 'pre') W.localStorage.setItem(key, 'null');
+        await waitFor(() => packing.ready() || done, 'actual setup native encoding');
+        if (action === 'pre') {
+          assert.equal(done, true); assert.equal(await pending, false);
+          assert.equal(W.localStorage.getItem(key), 'null'); continue;
+        }
+        assert.equal(packing.ready(), true); assert.equal(done, false);
+        assert.equal(W.localStorage.getItem(key), before);
+        assert.deepEqual(JSON.parse(JSON.stringify(A.setupProjection(key))), original,
+          'pending approval/status cannot masquerade as retained setup evidence');
+        const projected = A.setupProjection(key, {}, true);
+        projected[key === 'ebird_region_setup_v1' ? 'message' : 'query'] = 'Projection mutation';
+        assert.deepEqual(JSON.parse(JSON.stringify(A.setupProjection(key, {}, true))), expected);
+        if (action === 'replace') W.localStorage.setItem(key, 'null');
+        else if (action === 'late') {
+          let armed = true;
+          proto.getItem = function (target) {
+            const raw = get.call(this, target);
+            if (target === key && armed) { armed = false; set.call(this, target, 'null'); }
+            return raw;
+          };
+        } else if (action === 'profile') {
+          W.localStorage.setItem(A.BC_PROFILE_PTR, '2'); W.localStorage.setItem('bcp:2:' + key, before);
+        } else if (action === 'erase') {
+          const restored = Object.fromEntries(Object.keys(W.localStorage).map(key => [key, W.localStorage.getItem(key)]));
+          A.scrubPersonalData(); await A.drainProfileNameWrites();
+          for (const [key, raw] of Object.entries(restored)) W.localStorage.setItem(key, raw);
+        } else if (action === 'admission') admit = false;
+        else if (action === 'noop' || action === 'quota') proto.setItem = function (target, raw) {
+          if (target === key) {
+            if (action === 'quota') throw new W.DOMException('Synthetic setup quota', 'QuotaExceededError');
+            return;
+          }
+          return set.call(this, target, raw);
+        };
+        packing.release();
+        assert.equal(await pending, action === 'save', key + ':' + action);
+        if (action === 'save') {
+          assert.ok(W.localStorage.getItem(key).startsWith('z:'));
+          assert.deepEqual(readPersistedFixture(W, key), expected);
+        } else assert.equal(W.localStorage.getItem(key), ['replace', 'late'].includes(action) ? 'null' : before);
+        if (action === 'profile') assert.equal(W.localStorage.getItem('bcp:2:' + key), before);
+        assert.deepEqual(app.state.errors, []);
+      } finally {
+        proto.getItem = get; proto.setItem = set; packing.restore(); packing.release();
+        await Promise.allSettled([pending].filter(Boolean)); await A.drainSetupWrites();
+        await A.drainProfileNameWrites(); await new Promise(setImmediate); W.close();
+      }
+    }
+  }
+});
+
+test('F247 borrowed setup migrations cannot replace changed bytes or cross restored, foreign or rejected owners', async () => {
+  for (const key of ['ebird_region_setup_v1', 'bc_setup_home_draft_v1']) {
+    for (const action of ['save', 'replace', 'late', 'profile', 'erase', 'admission']) {
+      const app = await boot({ sample: false, nativeCompression: true });
+      const W = app.window, A = W.__app, value = setupRecordFixture(key, A.bcProfile(), 'Borrow247');
+      const raw = JSON.stringify(value), proto = W.Storage.prototype, get = proto.getItem, set = proto.setItem;
+      const packing = holdPersonalSnapshotEncoding(W, value => /Borrow247/.test(value.query || value.message || ''));
+      let pending, admit = true;
+      try {
+        W.localStorage.setItem(key, raw);
+        const observed = {};
+        pending = A.readSetupCache(key, observed, () => admit);
+        await waitFor(packing.ready, 'actual borrowed setup migration');
+        if (action === 'replace') W.localStorage.setItem(key, 'null');
+        else if (action === 'late') {
+          let armed = true;
+          proto.getItem = function (target) {
+            const source = get.call(this, target);
+            if (target === key && armed) { armed = false; set.call(this, target, 'null'); }
+            return source;
+          };
+        } else if (action === 'profile') {
+          W.localStorage.setItem(A.BC_PROFILE_PTR, '2'); W.localStorage.setItem('bcp:2:' + key, raw);
+        } else if (action === 'erase') {
+          const restored = Object.fromEntries(Object.keys(W.localStorage).map(key => [key, W.localStorage.getItem(key)]));
+          A.scrubPersonalData(); await A.drainProfileNameWrites();
+          for (const [key, bytes] of Object.entries(restored)) W.localStorage.setItem(key, bytes);
+        } else if (action === 'admission') admit = false;
+        packing.release(); await pending;
+        if (action === 'save') {
+          assert.ok(W.localStorage.getItem(key).startsWith('z:'));
+          assert.equal(observed.raw, W.localStorage.getItem(key));
+          assert.deepEqual(readPersistedFixture(W, key), value);
+        } else assert.equal(W.localStorage.getItem(key), ['replace', 'late'].includes(action) ? 'null' : raw);
+        if (action === 'profile') assert.equal(W.localStorage.getItem('bcp:2:' + key), raw);
+        assert.deepEqual(app.state.errors, []);
+      } finally {
+        proto.getItem = get; proto.setItem = set; packing.restore(); packing.release();
+        await Promise.allSettled([pending].filter(Boolean)); await A.drainSetupWrites();
+        await A.drainProfileNameWrites(); await new Promise(setImmediate); W.close();
+      }
+    }
+  }
+});
+
+test('F247 actual region verification remains pending until native setup retention and stops honestly on rejection or cancellation', async () => {
+  for (const action of ['save', 'noop', 'cancel']) {
+    const fixture = await pendingHomeRegionFixture(true, true, ' retained candidate '.repeat(60)), { app } = fixture;
+    const W = app.window, A = W.__app, key = 'bc_setup_home_draft_v1', proto = W.Storage.prototype, set = proto.setItem;
+    const packing = holdPersonalSnapshotEncoding(W, value => value.region && value.region.code === 'US-WA');
+    try {
+      const before = W.localStorage.getItem(key);
+      fixture.resolve(0);
+      await waitFor(packing.ready, 'actual verified region native encoding');
+      assert.equal(app.$('setupNext').disabled, true, 'verified provider response is not retained region approval yet');
+      assert.equal(W.localStorage.getItem(key), before);
+      A.renderSetupSheet();
+      assert.equal(fixture.requests.length, 1, 'pending native acknowledgment still coalesces the actual lookup');
+      if (action === 'noop') proto.setItem = function (target, raw) {
+        if (target === key) return; return set.call(this, target, raw);
+      };
+      else if (action === 'cancel') app.click(app.$('setupRegionCancel'));
+      packing.release();
+      await A.drainSetupWrites(); await new Promise(setImmediate);
+      assert.equal(app.$('setupNext').disabled, action !== 'save', action);
+      if (action === 'save') assert.equal(readPersistedFixture(W, key).region.code, 'US-WA');
+      else {
+        assert.equal(W.localStorage.getItem(key), before);
+        assert.match(app.$('setupRegionStatus').textContent, action === 'noop' ? /could not be saved/ : /cancelled/);
+      }
+      assert.equal(A.getHome(), null);
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      proto.setItem = set; packing.restore(); packing.release(); await A.drainSetupWrites(); W.close();
+    }
+  }
+});
+
+test('F247 setup queues join the latest receipt, rebase actual acknowledged allocations and serialize native clear barriers', async () => {
+  for (const key of ['ebird_region_setup_v1', 'bc_setup_home_draft_v1']) {
+    for (const action of ['queue', 'allocation', 'clear']) {
+      const app = await boot({ sample: false, nativeCompression: true });
+      const W = app.window, A = W.__app, proto = W.Storage.prototype, set = proto.setItem;
+      const first = setupRecordFixture(key, A.bcProfile(), 'First247');
+      const last = setupRecordFixture(key, A.bcProfile(), 'Latest247');
+      const packing = holdPersonalSnapshotEncoding(W, value => /First247/.test(value.query || value.message || ''));
+      const allocations = [];
+      let original, newest, armed = true;
+      try {
+        const before = JSON.stringify(key === 'ebird_region_setup_v1'
+          ? { status: 'unavailable', message: 'Original' } : { profile: A.bcProfile(), approved: false });
+        W.localStorage.setItem(key, before);
+        proto.setItem = function (target, raw) {
+          if (target === key) allocations.push(raw);
+          return set.call(this, target, raw);
+        };
+        original = A.saveSetupRecord(key, first);
+        await waitFor(packing.ready, 'first native setup queue allocation');
+        if (action === 'allocation') proto.setItem = function (target, raw) {
+          if (target === key) allocations.push(raw);
+          const result = set.call(this, target, raw);
+          if (target === key && armed) { armed = false; newest = A.saveSetupRecord(key, last); }
+          return result;
+        };
+        else newest = A.saveSetupRecord(key, action === 'clear' ? null : last, null, action === 'clear');
+        assert.equal(W.localStorage.getItem(key), before);
+        packing.release();
+        assert.equal(await original, true, 'older caller joins the actual latest owned tail');
+        assert.equal(await newest, true, key + ':' + action);
+        assert.equal(allocations.length, action === 'allocation' ? 2 : action === 'clear' ? 0 : 1,
+          'superseded native intent cannot allocate before the current queue tail');
+        if (action === 'clear') assert.equal(W.localStorage.getItem(key), null);
+        else assert.deepEqual(readPersistedFixture(W, key), last);
+        assert.deepEqual(app.state.errors, []);
+      } finally {
+        proto.setItem = set; packing.restore(); packing.release();
+        await Promise.allSettled([original, newest].filter(Boolean)); await A.drainSetupWrites(); W.close();
+      }
+    }
+  }
+});
+
+test('F247 typed setup versions bind the same actual read and cannot borrow identical restored-owner bytes', async () => {
+  const app = await boot({ sample: false, nativeCompression: true });
+  const W = app.window, A = W.__app, key = 'bc_setup_home_draft_v1', proto = W.Storage.prototype;
+  const get = proto.getItem, set = proto.setItem;
+  try {
+    const raw = JSON.stringify(setupRecordFixture(key, A.bcProfile()));
+    W.localStorage.setItem(key, raw);
+    let armed = true;
+    proto.getItem = function (target) {
+      const value = get.call(this, target);
+      if (target === key && armed) { armed = false; set.call(this, target, 'null'); }
+      return value;
+    };
+    const sameRead = A.setupPayloadVersion(key);
+    proto.getItem = get;
+    assert.equal(sameRead(), false, 'version cannot certify a replacement made just after its actual read');
+    W.localStorage.setItem(key, raw);
+    const restoredOwner = A.setupPayloadVersion(key);
+    assert.equal(restoredOwner(), true);
+    const restored = Object.fromEntries(Object.keys(W.localStorage).map(key => [key, W.localStorage.getItem(key)]));
+    A.scrubPersonalData(); await A.drainProfileNameWrites();
+    for (const [key, bytes] of Object.entries(restored)) W.localStorage.setItem(key, bytes);
+    assert.equal(restoredOwner(), false, 'identical bytes do not restore a retired confirmation owner');
+    assert.deepEqual(app.state.errors, []);
+  } finally { proto.getItem = get; await A.drainSetupWrites(); await A.drainProfileNameWrites(); W.close(); }
+});
+
+test('F247 actual Home acquisition awaits its initial native draft receipt and cannot fetch or announce a rejected draft', async () => {
+  for (const action of ['save', 'noop']) {
+    const app = await boot({ sample: false, home: false, nativeCompression: true,
+      fetch: url => /photon\.komoot\.io\/api/.test(url) ? { features: [
+        { geometry: { coordinates: [-121, 48] }, properties: { name: 'Synthetic acquired Home' } }
+      ] } : [] });
+    const W = app.window, A = W.__app, key = 'bc_setup_home_draft_v1', proto = W.Storage.prototype, set = proto.setItem;
+    const query = 'Acquire247 retained query '.repeat(60).trim();
+    const packing = holdPersonalSnapshotEncoding(W, value => value.query === query && !value.source);
+    try {
+      W.localStorage.setItem('bc_setup_step_v1', 'home'); A.openSetupSheet();
+      const input = app.$('setupHomePlace');
+      input.value = query; input.dispatchEvent(new W.Event('input', { bubbles: true }));
+      app.click(app.$('setupHomeFind'));
+      await waitFor(packing.ready, 'actual initial Home native retention');
+      assert.equal(app.state.fetches.filter(url => /photon\.komoot\.io\/api/.test(url)).length, 0,
+        'provider acquisition cannot overtake its retained owned draft');
+      assert.equal(W.localStorage.getItem(key), null);
+      if (action === 'noop') proto.setItem = function (target, raw) {
+        if (target === key) return; return set.call(this, target, raw);
+      };
+      packing.release();
+      if (action === 'save') {
+        await waitFor(() => !app.$('appSheet')?.hidden
+          && app.$('appSheet')?.dataset.infoId === 'setup-home-confirmed', 'retained Home acquisition result');
+        assert.equal(app.state.fetches.filter(url => /photon\.komoot\.io\/api/.test(url)).length, 1);
+        assert.equal(readPersistedFixture(W, key).point.label, 'Synthetic acquired Home');
+      } else {
+        await waitFor(() => /could not be saved/.test(app.$('setupActionStatus').textContent), 'rejected Home draft feedback');
+        assert.equal(app.state.fetches.filter(url => /photon\.komoot\.io\/api/.test(url)).length, 0);
+        assert.equal(W.localStorage.getItem(key), null);
+        assert.doesNotMatch(app.$('setupActionStatus').textContent, /Place found/);
+      }
+      assert.equal(A.getHome(), null);
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      proto.setItem = set; packing.restore(); packing.release(); await A.drainSetupWrites(); W.close();
+    }
+  }
+});
+
+test('F247 actual Home approval awaits native retention before transition and retires changed scope or closed UI', async () => {
+  for (const action of ['save', 'scope', 'close']) {
+    const app = await boot({ sample: false, home: false, nativeCompression: true });
+    const W = app.window, A = W.__app, key = 'bc_setup_home_draft_v1';
+    const raw = JSON.stringify({ profile: A.bcProfile(), query: 'Approve247', approved: false,
+      point: { lat: 48, lng: -121, label: 'Approve247 retained Home '.repeat(60) }, options: [] });
+    const packing = holdPersonalSnapshotEncoding(W, value => value.query === 'Approve247' && value.approved);
+    try {
+      W.localStorage.setItem(key, raw); W.localStorage.setItem('bc_setup_step_v1', 'home'); A.openSetupSheet();
+      app.click(app.$('setupHomeApprove'));
+      await waitFor(() => !app.$('appSheet').hidden
+        && app.$('appSheet').dataset.infoId === 'setup-home-confirmed', 'actual owned Home review');
+      app.click(app.$('appSheet').querySelector('[data-setup-confirm-continue]'));
+      await waitFor(() => packing.ready() || W.localStorage.getItem('bc_setup_step_v1') !== 'home',
+        'actual Home approval native encoding or premature transition');
+      assert.equal(W.localStorage.getItem('bc_setup_step_v1'), 'home',
+        'workflow navigation cannot overtake native Home approval retention');
+      assert.equal(packing.ready(), true);
+      assert.equal(app.$('setupSheetBody').dataset.setupStep, 'home');
+      assert.equal(W.localStorage.getItem(key), raw);
+      if (action === 'scope') A.setActiveReport('hi');
+      else if (action === 'close') app.click(app.$('setupSheetClose'));
+      packing.release(); await A.drainSetupWrites(); await new Promise(setImmediate);
+      if (action === 'save') {
+        assert.equal(app.$('setupSheetBody').dataset.setupStep, 'region');
+        assert.equal(readPersistedFixture(W, key).approved, true);
+      } else assert.equal(W.localStorage.getItem(key), raw, action + ' cannot retain the retired approval');
+      assert.equal(A.getHome(), null);
+      assert.deepEqual(app.state.errors, []);
+    } finally { packing.restore(); packing.release(); await A.drainSetupWrites(); W.close(); }
+  }
+});
+
+test('F247 region discovery cannot coalesce a new profile into an older held device-location request', async () => {
+  const app = await boot({ report: null, home: false, sample: false, nativeCompression: true,
+    fetch: url => /photon.*reverse/.test(url) ? { features: [
+      { properties: { state: 'Washington', countrycode: 'US' } }
+    ] } : [] });
+  const W = app.window, A = W.__app, requests = [], pending = [];
+  Object.defineProperty(W.navigator, 'geolocation', { configurable: true,
+    value: { getCurrentPosition(resolve, reject) { requests.push({ resolve, reject }); } } });
+  try {
+    pending.push(A.beginRegionDetection(true));
+    await waitFor(() => requests.length === 1, 'original owned device-location request');
+    W.localStorage.setItem(A.BC_PROFILE_PTR, '2');
+    let secondDone = false;
+    const second = A.beginRegionDetection(true).finally(() => { secondDone = true; });
+    pending.push(second);
+    await waitFor(() => requests.length === 2 || secondDone, 'new profile acquisition or borrowed coalescing');
+    assert.equal(requests.length, 2, 'new profile must start its own request, not inherit the older pending flag');
+    const sourceCalls = app.state.fetches.filter(url => /photon.*reverse/.test(url)).length;
+    requests[0].resolve({ coords: { latitude: 48, longitude: -121 } });
+    await pending[0];
+    assert.equal(app.state.fetches.filter(url => /photon.*reverse/.test(url)).length, sourceCalls,
+      'retired device responses cannot start another region-provider acquisition');
+    let repeatedDone = false;
+    pending.push(A.beginRegionDetection(true).finally(() => { repeatedDone = true; }));
+    await waitFor(() => repeatedDone || requests.length > 2, 'current discovery coalescing after retired finalizer');
+    assert.equal(requests.length, 2, 'retired finalizer cannot retire the newer pending request');
+    assert.deepEqual(app.state.errors, []);
+  } finally {
+    for (const request of requests) request.reject(new Error('Synthetic discovery cleanup'));
+    await Promise.allSettled(pending); await A.drainSetupWrites(); W.close();
+  }
+});
+
+test('F247 actual harvest retention rejects silent metadata failure and preserves prior codes and sub receipts together', async () => {
+  const key = 'ebird_own_seen:wa';
+  const prior = { amerob: { n: 'American Robin', d: '1 Jan 2026', s: 'Old', p: 'checklist' } };
+  const app = await boot({ sample: false, nativeCompression: true, storage: {
+    ebird_display_name: 'Synthetic harvest owner', [key]: JSON.stringify(prior),
+    [key + ':meta']: '{"subs":{},"at":0}'
+  }, fetch: url => /product\/checklist\/view\/New247/.test(url)
+    ? { obs: [{ speciesCode: 'mallar3' }] } : [] });
+  const W = app.window, A = W.__app, proto = W.Storage.prototype, set = proto.setItem;
+  try {
+    const before = [W.localStorage.getItem(key), W.localStorage.getItem(key + ':meta')];
+    proto.setItem = function (target, raw) { if (target === key + ':meta') return; return set.call(this, target, raw); };
+    const retained = await A.harvestOwnChecklists([{ subId: 'New247', userDisplayName: 'Synthetic harvest owner',
+      numSpecies: 1, isoObsDate: '2026-09-06 08:00', loc: { locId: 'L247', name: 'Synthetic marsh' } }]);
+    assert.equal(retained, 0, 'unacknowledged metadata must not report a retained harvested checklist');
+    assert.deepEqual([W.localStorage.getItem(key), W.localStorage.getItem(key + ':meta')], before,
+      'failed native retention cannot publish new codes separately from its sub receipts');
+    assert.equal(A.ownSeenCodes().mallar3, undefined);
+    assert.deepEqual(app.state.errors, []);
+  } finally { proto.setItem = set; W.close(); }
+});
+
+function ownEvidenceFixture(count = 30) {
+  return Object.fromEntries(Array.from({ length: count }, (_, i) => ['own247_' + i, {
+    n: 'Synthetic own species ' + i, d: '1 Jan ' + new Date().getFullYear(), s: 'S247_' + i,
+    l: 'Synthetic own marsh', i: 'L247', h: 1, x: '', p: 'checklist'
+  }]));
+}
+
+test('F247 own evidence readers hydrate native snapshots and legacy maps, metadata and backfill without confusing provenance', async () => {
+  const codes = ownEvidenceFixture(), meta = { subs: { S247: 'n:30' }, at: 1 };
+  const backfill = { year: new Date().getFullYear(), cursor: { 'US-WA-033': '2026-05-10' },
+    days: 10, found: 2, done: false };
+  for (const dialect of ['legacy', 'gzip', 'canonical']) {
+    const encode = value => dialect === 'legacy' ? JSON.stringify(value)
+      : 'z:' + zlib.gzipSync(JSON.stringify(value)).toString('base64');
+    const app = await boot({ sample: false, nativeCompression: true, storage: {
+      bc_profile: '2', 'bcp:2:ebird_report': 'wa', 'bcp:2:ebird_own_seen:wa': encode(codes),
+      'bcp:2:ebird_own_seen:wa:meta': encode(dialect === 'canonical'
+        ? { ...meta, codesSnapshot: { version: 1, codes } } : meta),
+      'bcp:2:ebird_backfill_wa': encode(backfill)
+    } });
+    const W = app.window, A = W.__app;
+    try {
+      assert.deepEqual(JSON.parse(JSON.stringify(A.ownSeenCodes())), codes);
+      assert.deepEqual(JSON.parse(JSON.stringify(A.ownSeenMeta())), meta);
+      assert.deepEqual(JSON.parse(JSON.stringify(A.backfillState())), backfill);
+      A.ownSeenCodes().own247_0.n = 'Getter mutation';
+      assert.equal(A.ownSeenCodes().own247_0.n, codes.own247_0.n);
+      assert.ok(W.localStorage.getItem('bcp:2:ebird_own_seen:wa').startsWith('z:'));
+      assert.match(W.localStorage.getItem('bcp:2:ebird_own_seen:wa:meta'), /^[jz]:/);
+      assert.equal(W.localStorage.getItem('ebird_own_seen:wa:meta'), null);
+      for (const [key, raw] of [
+        ['ebird_own_seen:bad', 'z:unreadable-own-data'],
+        ['ebird_own_seen:bad', '{"bad":null}'],
+        ['ebird_own_seen:bad', '[]'],
+        ['ebird_own_seen:bad', '{"bad":{"n":"Invalid","h":"yes"}}'],
+        ['ebird_own_seen:bad:meta', '{"subs":[]}'],
+        ['ebird_own_seen:bad:meta', '{"subs":{},"at":"invalid"}'],
+        ['ebird_own_seen:bad:meta', '{"codesSnapshot":{"version":2,"codes":{}}}'],
+        ['ebird_backfill_bad', '{"year":2026,"cursor":[],"days":0,"found":0,"done":true}'],
+        ['ebird_backfill_bad', '{"year":2026,"cursor":{},"days":-1,"found":0,"done":true}'],
+        ['ebird_backfill_bad', '{"year":2026,"cursor":{"Invalid":42},"days":0,"found":0,"done":true}']
+      ]) {
+        W.localStorage.setItem(A.bcReal(key), raw);
+        assert.throws(() => A.ownEvidenceProjection(key), /unreadable/);
+      }
+      assert.deepEqual(app.state.errors, []);
+    } finally { await A.drainOwnEvidenceWrites(); W.close(); }
+  }
+});
+
+test('F247 native own evidence snapshots await atomic retention and reject copied-input, source, owner and admission changes', async () => {
+  for (const action of ['save', 'pre', 'replace', 'late', 'legacy', 'profile', 'erase', 'admission', 'noop', 'quota']) {
+    const app = await boot({ sample: false, nativeCompression: true });
+    const W = app.window, A = W.__app, key = 'ebird_own_seen:wa:meta', legacy = 'ebird_own_seen:wa';
+    const proto = W.Storage.prototype, get = proto.getItem, set = proto.setItem;
+    const packing = holdPersonalSnapshotEncoding(W, value => value.codesSnapshot && Object.keys(value.codesSnapshot.codes).length === 30);
+    let pending, done = false, admit = true;
+    try {
+      W.localStorage.setItem(legacy, '{"original":1}'); W.localStorage.setItem(key, '{"subs":{},"at":0}');
+      const before = [W.localStorage.getItem(legacy), W.localStorage.getItem(key)];
+      assert.equal(await A.saveOwnEvidence('wa', { invalid: null }, {}, () => true), false);
+      assert.equal(await A.saveOwnEvidence('wa', { invalid: { n: 42 } }, {}, () => true), false);
+      const input = ownEvidenceFixture(), expected = JSON.parse(JSON.stringify(input));
+      pending = A.saveOwnEvidence('wa', input, { subs: { New247: 'n:30' }, at: 1 }, () => admit)
+        .finally(() => { done = true; });
+      input.own247_0.n = 'Caller mutation';
+      if (action === 'pre') W.localStorage.setItem(key, 'null');
+      await waitFor(() => packing.ready() || done, 'actual own evidence native encoding');
+      if (action === 'pre') {
+        assert.equal(done, true); assert.equal(await pending, false);
+        assert.equal(W.localStorage.getItem(key), 'null'); continue;
+      }
+      assert.equal(packing.ready(), true); assert.equal(done, false);
+      assert.deepEqual([W.localStorage.getItem(legacy), W.localStorage.getItem(key)], before);
+      A.ownSeenCodes().own247_0.n = 'Getter mutation';
+      assert.equal(A.ownSeenCodes().own247_0.n, expected.own247_0.n);
+      if (action === 'replace') W.localStorage.setItem(key, 'null');
+      else if (action === 'legacy') W.localStorage.setItem(legacy, '{"newer":1}');
+      else if (action === 'late') {
+        let armed = true;
+        proto.getItem = function (target) {
+          const raw = get.call(this, target);
+          if (target === key && armed) { armed = false; set.call(this, target, 'null'); }
+          return raw;
+        };
+      } else if (action === 'profile') {
+        W.localStorage.setItem(A.BC_PROFILE_PTR, '2');
+        W.localStorage.setItem('bcp:2:' + legacy, before[0]); W.localStorage.setItem('bcp:2:' + key, before[1]);
+        assert.deepEqual(JSON.parse(JSON.stringify(A.ownSeenCodes('wa'))), { original: 1 });
+      } else if (action === 'erase') {
+        const restored = Object.fromEntries(Object.keys(W.localStorage).map(key => [key, W.localStorage.getItem(key)]));
+        A.scrubPersonalData(); await A.drainProfileNameWrites();
+        for (const [key, raw] of Object.entries(restored)) W.localStorage.setItem(key, raw);
+      } else if (action === 'admission') admit = false;
+      else if (action === 'noop' || action === 'quota') proto.setItem = function (target, raw) {
+        if (target === key) {
+          if (action === 'quota') throw new W.DOMException('Synthetic own quota', 'QuotaExceededError');
+          return;
+        }
+        return set.call(this, target, raw);
+      };
+      packing.release();
+      assert.equal(await pending, action === 'save', action);
+      if (action === 'save') {
+        assert.ok(W.localStorage.getItem(key).startsWith('z:'));
+        assert.deepEqual(readPersistedFixture(W, key).codesSnapshot.codes, expected);
+        assert.deepEqual(JSON.parse(JSON.stringify(A.ownSeenMeta())), { subs: { New247: 'n:30' }, at: 1 });
+      } else assert.equal(W.localStorage.getItem(key), ['replace', 'late'].includes(action) ? 'null' : before[1]);
+      if (action === 'profile') assert.equal(W.localStorage.getItem('bcp:2:' + key), before[1]);
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      proto.getItem = get; proto.setItem = set; packing.restore(); packing.release();
+      await Promise.allSettled([pending].filter(Boolean)); await A.drainOwnEvidenceWrites();
+      await A.drainProfileNameWrites(); await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 borrowed own evidence migrations reject replacement, foreign, erased and unadmitted sources', async () => {
+  for (const action of ['save', 'replace', 'late', 'profile', 'erase', 'admission']) {
+    const app = await boot({ sample: false, nativeCompression: true });
+    const W = app.window, A = W.__app, key = 'ebird_own_seen:wa', raw = JSON.stringify(ownEvidenceFixture());
+    const proto = W.Storage.prototype, get = proto.getItem, set = proto.setItem;
+    const packing = holdPersonalSnapshotEncoding(W, value => value.own247_0);
+    let pending, admit = true;
+    try {
+      W.localStorage.setItem(key, raw);
+      const observed = {};
+      pending = A.readOwnEvidenceCache(key, observed, () => admit);
+      await waitFor(packing.ready, 'borrowed own evidence native migration');
+      if (action === 'replace') W.localStorage.setItem(key, 'null');
+      else if (action === 'late') {
+        let armed = true;
+        proto.getItem = function (target) {
+          const source = get.call(this, target);
+          if (target === key && armed) { armed = false; set.call(this, target, 'null'); }
+          return source;
+        };
+      } else if (action === 'profile') {
+        W.localStorage.setItem(A.BC_PROFILE_PTR, '2'); W.localStorage.setItem('bcp:2:' + key, raw);
+      } else if (action === 'admission') admit = false;
+      else if (action === 'erase') {
+        const restored = Object.fromEntries(Object.keys(W.localStorage).map(key => [key, W.localStorage.getItem(key)]));
+        A.scrubPersonalData(); await A.drainProfileNameWrites();
+        for (const [key, value] of Object.entries(restored)) W.localStorage.setItem(key, value);
+      }
+      packing.release(); await pending;
+      assert.equal(W.localStorage.getItem(key), action === 'save' ? observed.raw
+        : ['replace', 'late'].includes(action) ? 'null' : raw);
+      if (action === 'save') assert.ok(observed.raw.startsWith('z:'));
+      if (action === 'profile') assert.equal(W.localStorage.getItem('bcp:2:' + key), raw);
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      proto.getItem = get; packing.restore(); packing.release(); await Promise.allSettled([pending].filter(Boolean));
+      await A.drainOwnEvidenceWrites(); await A.drainProfileNameWrites(); await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 actual harvest awaits its native snapshot and retires report or profile changes before feedback', async () => {
+  for (const action of ['save', 'report', 'profile', 'noop']) {
+    const app = await boot({ sample: false, nativeCompression: true, storage: {
+      ebird_display_name: 'Synthetic native harvest'
+    }, fetch: url => /product\/checklist\/view\/Harvest247/.test(url)
+      ? { obs: Object.keys(ownEvidenceFixture()).map(speciesCode => ({ speciesCode })) } : [] });
+    const W = app.window, A = W.__app, key = 'ebird_own_seen:wa:meta', proto = W.Storage.prototype, set = proto.setItem;
+    const packing = holdPersonalSnapshotEncoding(W, value => value.codesSnapshot && value.codesSnapshot.codes.own247_0);
+    let pending, done = false;
+    try {
+      pending = A.harvestOwnChecklists([{ subId: 'Harvest247', userDisplayName: 'Synthetic native harvest',
+        numSpecies: 30, isoObsDate: '2026-09-06 08:00', loc: { locId: 'L247', name: 'Synthetic marsh' } }])
+        .finally(() => { done = true; });
+      await waitFor(() => packing.ready() || done, 'actual harvested evidence native snapshot');
+      assert.equal(packing.ready(), true); assert.equal(done, false);
+      if (action === 'report') W.localStorage.setItem('ebird_report', 'hi');
+      else if (action === 'profile') W.localStorage.setItem(A.BC_PROFILE_PTR, '2');
+      else if (action === 'noop') proto.setItem = function (target, raw) {
+        if (target === key) return; return set.call(this, target, raw);
+      };
+      packing.release();
+      assert.equal(await pending, action === 'save' ? 1 : 0, action);
+      assert.equal(W.localStorage.getItem('ebird_own_seen:hi:meta'), null);
+      if (action === 'save') assert.equal(Object.keys(readPersistedFixture(W, key).codesSnapshot.codes).length, 30);
+      else assert.equal(W.localStorage.getItem(key), null);
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      proto.setItem = set; packing.restore(); packing.release(); await Promise.allSettled([pending].filter(Boolean));
+      await A.drainOwnEvidenceWrites(); await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 actual lifelist and name enrichment await native retention without publishing unacknowledged counts', async () => {
+  for (const mode of ['lifelist-save', 'lifelist', 'names']) {
+    const codes = ownEvidenceFixture(), key = 'ebird_own_seen:wa:meta';
+    Object.values(codes).forEach(row => { row.n = ''; });
+    const app = await boot({ sample: false, nativeCompression: true, storage: mode === 'names'
+      ? { 'ebird_own_seen:wa': JSON.stringify(codes) } : {}, fetch: url => {
+      if (/ebird\.org\/lifelist/.test(url)) return '<html><body>'
+        + Object.entries(ownEvidenceFixture()).map(([code, row]) =>
+          '<div><a href="/species/' + code.replace('_', 'x') + '">' + row.n + '</a><span>01 Jan 2026</span></div>').join('')
+        + '</body></html>';
+      if (/ref\/taxonomy\/ebird/.test(url)) return Object.entries(ownEvidenceFixture())
+        .map(([speciesCode, row]) => ({ speciesCode, comName: row.n }));
+      return [];
+    } });
+    const W = app.window, A = W.__app, proto = W.Storage.prototype, set = proto.setItem;
+    const packing = holdPersonalSnapshotEncoding(W, value => value.codesSnapshot
+      && Object.keys(value.codesSnapshot.codes).length === 30 && Object.values(value.codesSnapshot.codes)[0].n);
+    let pending, done = false;
+    try {
+      const before = W.localStorage.getItem(key);
+      pending = (mode.startsWith('lifelist') ? A.tryLifelistPage() : A.nameOwnCodes())
+        .then(value => ({ value }), error => ({ error })).finally(() => { done = true; });
+      await waitFor(() => packing.ready() || done, 'actual ' + mode + ' native evidence retention');
+      assert.equal(packing.ready(), true); assert.equal(done, false);
+      if (mode !== 'lifelist-save') proto.setItem = function (target, raw) { if (target === key) return; return set.call(this, target, raw); };
+      packing.release();
+      const result = await pending;
+      if (mode === 'lifelist-save') assert.equal(result.value, 30);
+      else if (mode === 'lifelist') assert.equal(result.error.ownSeenPersistence, true);
+      else assert.equal(result.value, 0);
+      if (mode === 'lifelist-save') assert.equal(Object.keys(readPersistedFixture(W, key).codesSnapshot.codes).length, 30);
+      else assert.equal(W.localStorage.getItem(key), before);
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      proto.setItem = set; packing.restore(); packing.release(); await Promise.allSettled([pending].filter(Boolean));
+      await A.drainOwnEvidenceWrites(); await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 actual owner ticks await native retention without changing exact personal membership', async () => {
+  for (const action of ['save', 'noop', 'report']) {
+    const app = await boot({ sample: false, nativeCompression: true, storage: {
+      ebird_display_name: 'Synthetic own tick'
+    } });
+    const W = app.window, A = W.__app, proto = W.Storage.prototype, set = proto.setItem;
+    const key = 'ebird_own_seen:wa:meta', index = {}, groups = {};
+    Object.entries(ownEvidenceFixture()).forEach(([code, row]) => {
+      index[row.n.toLowerCase()] = code;
+      groups[row.n] = { birders: [{ name: 'Synthetic own tick', date: '2026-09-06' }] };
+    });
+    const packing = holdPersonalSnapshotEncoding(W, value => value.codesSnapshot && value.codesSnapshot.codes.own247_0);
+    let pending, done = false;
+    try {
+      const before = JSON.stringify(A.personalListEvidence());
+      pending = A.reconcileLastNewOwnerTicks(groups, index).finally(() => { done = true; });
+      await waitFor(() => packing.ready() || done, 'actual owner tick native retention');
+      assert.equal(packing.ready(), true); assert.equal(done, false);
+      if (action === 'noop') proto.setItem = function (target, raw) {
+        if (target === key) return; return set.call(this, target, raw);
+      };
+      else if (action === 'report') W.localStorage.setItem('ebird_report', 'hi');
+      packing.release();
+      assert.equal(await pending, action === 'save' ? 30 : 0);
+      if (action !== 'report') assert.equal(JSON.stringify(A.personalListEvidence()), before);
+      if (action === 'save') assert.equal(Object.keys(readPersistedFixture(W, key).codesSnapshot.codes).length, 30);
+      else assert.equal(W.localStorage.getItem(key), null);
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      proto.setItem = set; packing.restore(); packing.release(); await Promise.allSettled([pending].filter(Boolean));
+      await A.drainOwnEvidenceWrites(); await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 native own evidence queues serialize source reads and acknowledge latest retained intent', async () => {
+  const app = await boot({ sample: false, nativeCompression: true });
+  const W = app.window, A = W.__app, key = 'ebird_own_seen:wa:meta';
+  const proto = W.Storage.prototype, get = proto.getItem, set = proto.setItem;
+  const packing = holdPersonalSnapshotEncoding(W, value => value.codesSnapshot && Object.keys(value.codesSnapshot.codes).length === 30);
+  let first, next, reads = 0, allocations = 0;
+  try {
+    proto.setItem = function (target, raw) { if (target === key) allocations++; return set.call(this, target, raw); };
+    first = A.saveOwnEvidence('wa', ownEvidenceFixture(), { subs: {}, at: 0 }, () => true);
+    await waitFor(packing.ready, 'first own evidence native encoding');
+    proto.getItem = function (target) { if (target === key) reads++; return get.call(this, target); };
+    next = A.saveOwnEvidence('wa', ownEvidenceFixture(31), { subs: { Latest: 'n:31' }, at: 1 }, () => true);
+    await new Promise(setImmediate);
+    assert.equal(reads, 0, 'next own intent cannot read retained source while the first is encoding');
+    proto.getItem = get; packing.release();
+    assert.equal(await first, true); assert.equal(await next, true);
+    assert.equal(allocations, 1);
+    assert.equal(Object.keys(readPersistedFixture(W, key).codesSnapshot.codes).length, 31);
+    assert.deepEqual(app.state.errors, []);
+  } finally {
+    proto.getItem = get; proto.setItem = set; packing.restore(); packing.release();
+    await Promise.allSettled([first, next].filter(Boolean)); await A.drainOwnEvidenceWrites();
+    await new Promise(setImmediate); W.close();
+  }
+});
+
+test('F247 actual own evidence allocation rebases newer intent without approving foreign ownership', async () => {
+  for (const action of ['intent', 'profile']) {
+    const app = await boot({ sample: false, nativeCompression: true });
+    const W = app.window, A = W.__app, key = 'ebird_own_seen:wa:meta', proto = W.Storage.prototype, set = proto.setItem;
+    let next, intercepted = false;
+    try {
+      proto.setItem = function (target, raw) {
+        const result = set.call(this, target, raw);
+        if (target === key && !intercepted) {
+          intercepted = true;
+          if (action === 'intent') next = A.saveOwnEvidence('wa', ownEvidenceFixture(31), { subs: {}, at: 1 }, () => true);
+          else set.call(this, A.BC_PROFILE_PTR, '2');
+        }
+        return result;
+      };
+      assert.equal(await A.saveOwnEvidence('wa', ownEvidenceFixture(), { subs: {}, at: 0 }, () => true), action === 'intent');
+      if (next) assert.equal(await next, true);
+      assert.equal(intercepted, true);
+      assert.equal(Object.keys(readPersistedFixture(W, key).codesSnapshot.codes).length, action === 'intent' ? 31 : 30);
+      assert.equal(W.localStorage.getItem('bcp:2:' + key), null);
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      proto.setItem = set; await Promise.allSettled([next].filter(Boolean)); await A.drainOwnEvidenceWrites();
+      await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 native backfill writes preserve retained progress until acknowledgment and reject retired or changed sources', async () => {
+  for (const action of ['save', 'pre', 'replace', 'late', 'profile', 'admission', 'noop']) {
+    const app = await boot({ sample: false, nativeCompression: true });
+    const W = app.window, A = W.__app, key = 'ebird_backfill_wa', proto = W.Storage.prototype, set = proto.setItem, get = proto.getItem;
+    const state = { year: new Date().getFullYear(), days: 10, found: 2, done: true,
+      cursor: Object.fromEntries(Array.from({ length: 40 }, (_, i) => ['County247_' + i, '2026-05-10'])) };
+    const expected = JSON.parse(JSON.stringify(state));
+    const packing = holdPersonalSnapshotEncoding(W, value => value.cursor && Object.keys(value.cursor).length === 40);
+    let pending, done = false, admit = true;
+    try {
+      assert.equal(await A.backfillSave({ ...state, cursor: [] }, () => true), false);
+      pending = A.backfillSave(state, () => admit).finally(() => { done = true; });
+      state.cursor.County247_0 = '2026-01-01';
+      if (action === 'pre') W.localStorage.setItem(key, 'null');
+      await waitFor(() => packing.ready() || done, 'actual backfill progress native encoding');
+      if (action === 'pre') {
+        assert.equal(done, true); assert.equal(await pending, false); continue;
+      }
+      assert.equal(packing.ready(), true); assert.equal(done, false);
+      assert.equal(A.backfillState().done, false, 'pending completion is not durable progress');
+      assert.equal(A.backfillState().days, 0);
+      if (action === 'replace') W.localStorage.setItem(key, 'null');
+      else if (action === 'late') {
+        let armed = true;
+        proto.getItem = function (target) {
+          const raw = get.call(this, target);
+          if (target === key && armed) { armed = false; set.call(this, target, 'null'); }
+          return raw;
+        };
+      }
+      else if (action === 'profile') W.localStorage.setItem(A.BC_PROFILE_PTR, '2');
+      else if (action === 'admission') admit = false;
+      else if (action === 'noop') proto.setItem = function (target, raw) {
+        if (target === key) return; return set.call(this, target, raw);
+      };
+      packing.release();
+      assert.equal(await pending, action === 'save', action);
+      if (action === 'save') assert.deepEqual(readPersistedFixture(W, key), expected);
+      else assert.equal(W.localStorage.getItem(key), ['replace', 'late'].includes(action) ? 'null' : null);
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      proto.setItem = set; proto.getItem = get; packing.restore(); packing.release(); await Promise.allSettled([pending].filter(Boolean));
+      await A.drainOwnEvidenceWrites(); await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 native backfill queues serialize latest progress and rebase only acknowledged allocation', async () => {
+  for (const action of ['queue', 'intent', 'profile']) {
+    const app = await boot({ sample: false, nativeCompression: true });
+    const W = app.window, A = W.__app, key = 'ebird_backfill_wa', proto = W.Storage.prototype;
+    const set = proto.setItem, get = proto.getItem, state = { year: new Date().getFullYear(),
+      days: 10, found: 2, done: false,
+      cursor: Object.fromEntries(Array.from({ length: 40 }, (_, i) => ['County247_' + i, '2026-05-10'])) };
+    const latest = { ...state, days: 11, cursor: { ...state.cursor, Latest247: '2026-05-09' } };
+    const packing = holdPersonalSnapshotEncoding(W, value => action === 'queue' && value.cursor && Object.keys(value.cursor).length === 40);
+    let first, next, intercepted = false, reads = 0, allocations = 0;
+    try {
+      proto.setItem = function (target, raw) {
+        const result = set.call(this, target, raw);
+        if (target === key) {
+          allocations++;
+          if (action !== 'queue' && !intercepted) {
+            intercepted = true;
+            if (action === 'intent') next = A.backfillSave(latest, () => true);
+            else set.call(this, A.BC_PROFILE_PTR, '2');
+          }
+        }
+        return result;
+      };
+      first = A.backfillSave(state, () => true);
+      if (action === 'queue') {
+        await waitFor(packing.ready, 'first native backfill progress');
+        proto.getItem = function (target) { if (target === key) reads++; return get.call(this, target); };
+        next = A.backfillSave(latest, () => true);
+        await new Promise(setImmediate);
+        assert.equal(reads, 0);
+        proto.getItem = get; packing.release();
+      }
+      assert.equal(await first, action !== 'profile');
+      if (next) assert.equal(await next, true);
+      assert.equal(readPersistedFixture(W, key).days, action === 'profile' ? 10 : 11);
+      assert.equal(allocations, action === 'intent' ? 2 : 1);
+      assert.equal(W.localStorage.getItem('bcp:2:' + key), null);
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      proto.setItem = set; proto.getItem = get; packing.restore(); packing.release();
+      await Promise.allSettled([first, next].filter(Boolean)); await A.drainOwnEvidenceWrites();
+      await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 actual backfill waits for native progress and does not advance or rearm after failed retention', async () => {
+  const key = 'ebird_backfill_wa', state = { year: new Date().getFullYear(), days: 0, found: 0, done: false,
+    cursor: Object.fromEntries(Array.from({ length: 30 }, (_, i) => ['County247_' + i, '2026-05-10'])) };
+  const app = await boot({ sample: false, nativeCompression: true, storage: {
+    ebird_display_name: 'Synthetic backfill owner', [key]: JSON.stringify(state)
+  }, fetch: () => [] });
+  const W = app.window, A = W.__app, proto = W.Storage.prototype, set = proto.setItem;
+  const packing = holdPersonalSnapshotEncoding(W, value => value.cursor && value.days === 1);
+  let pending, done = false;
+  try {
+    const before = W.localStorage.getItem(key);
+    pending = A.backfillTick({ current: () => true, label: 'Synthetic native backfill' }).finally(() => { done = true; });
+    await waitFor(() => packing.ready() || done, 'actual backfill cursor native encoding');
+    assert.equal(packing.ready(), true); assert.equal(done, false);
+    assert.equal(A.backfillState().days, 0);
+    proto.setItem = function (target, raw) { if (target === key) return; return set.call(this, target, raw); };
+    packing.release(); await pending;
+    assert.equal(W.localStorage.getItem(key), before);
+    assert.equal(A.backfillState().days, 0);
+    assert.equal(A.backfillRuntime().timerPending, false);
+    assert.deepEqual(app.state.errors, []);
+  } finally {
+    proto.setItem = set; packing.restore(); packing.release(); await Promise.allSettled([pending].filter(Boolean));
+    await A.drainOwnEvidenceWrites(); await new Promise(setImmediate); W.close();
+  }
+});
+
+test('F247 ranking readers hydrate legacy and native history in the active profile without losing public shared rows', async () => {
+  const board = rankingPersistenceFixture();
+  const rank = board.map(row => ({ d: row.d, rank: 4, species: 100 }));
+  const birds = { schema: 1, lastReadAt: new Date().toISOString(), people: {
+    Stable247: [{ species: 'Ruff', date: new Date().toISOString().slice(0, 10),
+      firstObservedAt: new Date().toISOString(), lastObservedAt: new Date().toISOString() }]
+  } };
+  for (const dialect of ['legacy', 'gzip']) {
+    const encode = value => dialect === 'legacy' ? JSON.stringify(value)
+      : 'z:' + zlib.gzipSync(JSON.stringify(value)).toString('base64');
+    const app = await boot({ sample: false, nativeCompression: true, storage: {
+      bc_profile: '2', 'bc_board_v1:F247-restart': encode(board),
+      'bcp:2:ebird_rankhist:F247-restart': encode(rank),
+      'bcp:2:bc_rankbirds_v1:F247-restart': encode(birds)
+    } });
+    const W = app.window, A = W.__app;
+    try {
+      assert.deepEqual(JSON.parse(JSON.stringify(A.boardHistRead('F247-restart'))), board);
+      assert.deepEqual(JSON.parse(JSON.stringify(A.rankHistRead('F247-restart'))), rank);
+      assert.deepEqual(JSON.parse(JSON.stringify(A.rankBirdHistoryRead('F247-restart'))), birds);
+      assert.ok(W.localStorage.getItem('bc_board_v1:F247-restart').startsWith('z:'));
+      assert.ok(W.localStorage.getItem('bcp:2:ebird_rankhist:F247-restart').startsWith('z:'));
+      assert.match(W.localStorage.getItem('bcp:2:bc_rankbirds_v1:F247-restart'), /^[jz]:/);
+      assert.equal(W.localStorage.getItem('bcp:2:bc_board_v1:F247-restart'), null);
+      A.rankHistRead('F247-restart')[0].rank = 99;
+      A.rankBirdHistoryRead('F247-restart').people.Stable247[0].species = 'Getter mutation';
+      assert.equal(A.rankHistRead('F247-restart')[0].rank, 4);
+      assert.equal(A.rankBirdHistoryRead('F247-restart').people.Stable247[0].species, 'Ruff');
+      assert.deepEqual(app.state.errors, []);
+    } finally { await A.drainRankingHistoryWrites(); W.close(); }
+  }
+});
+
+test('F247 shared ranking reconciliation decodes foreign physical profiles and preserves richest rows, shared ties and forty dates', async () => {
+  const canonical = rankingPersistenceFixture(40);
+  const foreign = rankingPersistenceFixture(45);
+  canonical[6].r = { Tie: 4 }; foreign[6].r = { Tie: 9 };
+  canonical[7].r = { Old: 4 };
+  const key = 'bc_board_v1:F247-merge', legacy = 'bcp:3:' + key;
+  for (const dialect of ['legacy', 'gzip']) {
+    const foreignRaw = dialect === 'legacy' ? JSON.stringify(foreign)
+      : 'z:' + zlib.gzipSync(JSON.stringify(foreign)).toString('base64');
+    const app = await boot({ sample: false, nativeCompression: true, storage: {
+      bc_profile: '2', [key]: 'z:' + zlib.gzipSync(JSON.stringify(canonical)).toString('base64'),
+      [legacy]: foreignRaw, ebird_profile_names: '{"1":"Main","2":"Second"}',
+      ebird_profile_identity_v2: 'ebird-only',
+      'bcp:2:ebird_seen': '{"synthetic":1}'
+    } });
+    const W = app.window, A = W.__app;
+    try {
+      const saved = readPersistedFixture(W, key);
+      assert.equal(saved.length, 40);
+      assert.equal(saved[0].d, foreign[5].d);
+      assert.deepEqual(saved.find(row => row.d === canonical[6].d).r, { Tie: 4 });
+      assert.equal(Object.keys(saved.find(row => row.d === canonical[7].d).r).length, 10);
+      assert.equal(saved.at(-1).d, foreign.at(-1).d);
+      assert.deepEqual(readPersistedFixture(W, legacy), foreign);
+      assert.ok(W.localStorage.getItem(legacy).startsWith('z:'));
+      assert.equal(W.localStorage.getItem('bcp:2:' + legacy), null);
+      assert.equal(W.localStorage.getItem('bcp:2:' + key), null);
+      assert.equal(A.getSeen().synthetic, 1, 'unrelated payloads remain profile-shimmed');
+      assert.deepEqual(JSON.parse(JSON.stringify(A.profileNames())), { 1: 'Main', 2: 'Second' });
+      assert.match(W.localStorage.getItem('ebird_profile_names'), /^[jz]:/, 'shared profile labels are acknowledged through the same reviewed backend');
+      assert.equal(W.localStorage.getItem('bcp:2:ebird_profile_names'), null);
+      assert.equal(await A.migrateSharedBoardHistory(), true);
+      assert.deepEqual(readPersistedFixture(W, key), saved);
+      assert.deepEqual(app.state.errors, []);
+    } finally { await A.drainRankingHistoryWrites(); W.close(); }
+  }
+});
+
+test('F247 shared ranking reconciliation rejects replaced legacy or canonical inputs and retired ownership during native retention', async () => {
+  for (const action of ['save', 'legacy', 'canonical', 'profile', 'erase']) {
+    const app = await boot({ sample: false, nativeCompression: true });
+    const W = app.window, A = W.__app, key = 'bc_board_v1:F247-merge-owned', legacy = 'bcp:3:' + key;
+    const packing = holdPersonalSnapshotEncoding(W, candidate => Array.isArray(candidate) && candidate.length === 40);
+    let pending;
+    try {
+      const canonicalRaw = 'z:' + zlib.gzipSync(JSON.stringify([rankingPersistenceFixture(1)[0]])).toString('base64');
+      const legacyRaw = 'z:' + zlib.gzipSync(JSON.stringify(rankingPersistenceFixture(40, 3))).toString('base64');
+      W.localStorage.setItem(key, canonicalRaw); W.localStorage.setItem(legacy, legacyRaw);
+      pending = A.migrateSharedBoardHistory();
+      await waitFor(packing.ready, 'actual merged shared ranking-history encoding');
+      assert.equal(W.localStorage.getItem(key), canonicalRaw);
+      if (action === 'legacy') W.localStorage.setItem(legacy, 'null');
+      else if (action === 'canonical') W.localStorage.setItem(key, 'null');
+      else if (action === 'profile') W.localStorage.setItem(A.BC_PROFILE_PTR, '2');
+      else if (action === 'erase') {
+        const restored = Object.fromEntries(Object.keys(W.localStorage).map(key => [key, W.localStorage.getItem(key)]));
+        A.scrubPersonalData(); await A.drainProfileNameWrites();
+        for (const [key, raw] of Object.entries(restored)) W.localStorage.setItem(key, raw);
+      }
+      packing.release();
+      assert.equal(await pending, action === 'save', action);
+      if (action === 'save') assert.equal(readPersistedFixture(W, key).length, 40);
+      else assert.equal(W.localStorage.getItem(key), action === 'canonical' ? 'null' : canonicalRaw);
+      assert.equal(W.localStorage.getItem(legacy), action === 'legacy' ? 'null' : legacyRaw);
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      packing.restore(); packing.release(); await Promise.allSettled([pending].filter(Boolean));
+      await A.drainRankingHistoryWrites(); await A.drainProfileNameWrites(); await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 malformed and unknown ranking histories cannot replace retained evidence', async () => {
+  const app = await boot({ sample: false, nativeCompression: true });
+  const W = app.window, A = W.__app;
+  try {
+    for (const [key, raw, proposed] of [
+      ['bc_board_v1:F247-bad', 'z:unknown-ranking-bytes', rankingPersistenceFixture()],
+      ['bc_board_v1:F247-bad', '[{"d":"2025-01-01","r":{"Invalid":"4"}}]', rankingPersistenceFixture()],
+      ['ebird_rankhist:F247-bad', '[{"d":"2025-01-01","rank":"4"}]', [{ d: '2025-01-01', rank: 4 }]],
+      ['bc_rankbirds_v1:F247-bad', '{"schema":1,"lastReadAt":"","people":{"Invalid":42}}',
+        { schema: 1, lastReadAt: '', people: {} }]
+    ]) {
+      W.localStorage.setItem(key, raw);
+      assert.throws(() => A.rankingHistoryProjection(key), /unreadable/);
+      assert.equal(await A.saveRankingHistory(key, proposed, 'Synthetic'), false);
+      assert.equal(W.localStorage.getItem(key), raw);
+      assert.equal(A.rankingHistoryStatus(key), 'failed');
+      if (!raw.startsWith('z:')) {
+        assert.equal(await A.readRankingHistoryCache(key), null);
+        assert.equal(W.localStorage.getItem(key), raw, 'malformed readable JSON is not migrated as valid history');
+      }
+    }
+    for (const [key, invalid] of [
+      ['bc_board_v1:F247-input', [{ d: '2025-01-01', r: { Invalid: '4' } }]],
+      ['ebird_rankhist:F247-input', [{ d: '2025-01-01', rank: '4' }]],
+      ['bc_rankbirds_v1:F247-input', { schema: 1, lastReadAt: '', people: { Invalid: 42 } }],
+      ['bc_rankbirds_v1:F247-input', { schema: 1, lastReadAt: '', people: {
+        Invalid: [{ species: 42, date: '', firstObservedAt: '', lastObservedAt: '' }]
+      } }]
+    ]) {
+      assert.equal(await A.saveRankingHistory(key, invalid, 'Synthetic'), false);
+      assert.equal(W.localStorage.getItem(key), null, 'invalid incoming histories never allocate a payload');
+    }
+    assert.equal(await A.saveRankingHistory('unrelated-key', rankingPersistenceFixture(), 'Synthetic'), false);
+    assert.equal(W.localStorage.getItem('unrelated-key'), null);
+    assert.deepEqual(app.state.errors, []);
+  } finally { await A.drainRankingHistoryWrites(); W.close(); }
+});
+
+test('F247 borrowed ranking migrations bind acknowledgment to source bytes, current ownership and admission', async () => {
+  for (const action of ['save', 'replace', 'late', 'profile', 'erase', 'admission']) {
+    const app = await boot({ sample: false, nativeCompression: true });
+    const W = app.window, A = W.__app, key = 'bc_board_v1:F247-borrowed';
+    const value = rankingPersistenceFixture(), raw = JSON.stringify(value), observed = {};
+    const proto = W.Storage.prototype, get = proto.getItem, set = proto.setItem;
+    const packing = holdPersonalSnapshotEncoding(W, candidate => Array.isArray(candidate) && candidate.length === 30);
+    let pending, admit = true;
+    try {
+      W.localStorage.setItem(key, raw);
+      pending = A.readRankingHistoryCache(key, observed, () => admit);
+      await waitFor(packing.ready, 'actual borrowed ranking-history migration');
+      assert.equal(W.localStorage.getItem(key), raw);
+      if (action === 'replace') W.localStorage.setItem(key, 'null');
+      else if (action === 'late') {
+        let armed = true;
+        proto.getItem = function (target) {
+          const saved = get.call(this, target);
+          if (target === key && armed) { armed = false; set.call(this, key, 'null'); }
+          return saved;
+        };
+      }
+      else if (action === 'profile') W.localStorage.setItem(A.BC_PROFILE_PTR, '2');
+      else if (action === 'admission') admit = false;
+      else if (action === 'erase') {
+        const restored = Object.fromEntries(Object.keys(W.localStorage).map(key => [key, W.localStorage.getItem(key)]));
+        A.scrubPersonalData(); await A.drainProfileNameWrites();
+        for (const [key, saved] of Object.entries(restored)) W.localStorage.setItem(key, saved);
+      }
+      packing.release(); await pending;
+      assert.equal(W.localStorage.getItem(key), action === 'save' ? observed.raw : ['replace', 'late'].includes(action) ? 'null' : raw);
+      if (action === 'save') assert.ok(observed.raw.startsWith('z:'), 'acknowledged migration advances the observed baseline');
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      proto.getItem = get; packing.restore(); packing.release(); await Promise.allSettled([pending].filter(Boolean));
+      await A.drainRankingHistoryWrites(); await A.drainProfileNameWrites(); await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 native ranking snapshots await retention and protect copied drafts against replacement, foreign ownership and erasure', async () => {
+  for (const action of ['save', 'pre', 'replace', 'late', 'profile', 'erase', 'admission', 'noop', 'quota']) {
+    const app = await boot({ sample: false, nativeCompression: true });
+    const W = app.window, A = W.__app, key = 'bc_board_v1:F247-native';
+    const proto = W.Storage.prototype, get = proto.getItem, set = proto.setItem;
+    const baseline = JSON.stringify([{ d: '2000-01-01', r: { Original: 9 } }]);
+    const packing = holdPersonalSnapshotEncoding(W, candidate => Array.isArray(candidate) && candidate.length === 30);
+    let pending, done = false, admit = true;
+    try {
+      W.localStorage.setItem(key, baseline);
+      const input = rankingPersistenceFixture(), expected = JSON.parse(JSON.stringify(input));
+      pending = A.saveRankingHistory(key, input, 'Synthetic', { accept: () => admit }).finally(() => { done = true; });
+      input[0].r['Synthetic historical birder 0'] = 99;
+      if (action === 'pre') W.localStorage.setItem(key, 'null');
+      await waitFor(() => packing.ready() || done, 'actual native ranking-history encoding');
+      if (action === 'pre') {
+        assert.equal(done, true, 'a changed queued source retires before native encoding');
+        assert.equal(await pending, false);
+        assert.equal(W.localStorage.getItem(key), 'null');
+        continue;
+      }
+      assert.equal(packing.ready(), true); assert.equal(done, false);
+      assert.equal(A.rankingHistoryStatus(key), 'pending');
+      assert.equal(W.localStorage.getItem(key), baseline);
+      A.boardHistRead('F247-native')[0].r['Synthetic historical birder 0'] = 98;
+      assert.equal(A.boardHistRead('F247-native')[0].r['Synthetic historical birder 0'], 4);
+      if (action === 'replace') W.localStorage.setItem(key, 'null');
+      else if (action === 'late') {
+        let armed = true;
+        proto.getItem = function (target) {
+          const raw = get.call(this, target);
+          if (target === key && armed) { armed = false; set.call(this, key, 'null'); }
+          return raw;
+        };
+      } else if (action === 'profile') {
+        W.localStorage.setItem(A.BC_PROFILE_PTR, '2');
+        assert.equal(A.boardHistRead('F247-native')[0].r.Original, 9, 'foreign profile cannot borrow the pending draft');
+        assert.equal(A.rankingHistoryStatus(key), '', 'foreign profile cannot borrow pending retention status');
+      } else if (action === 'admission') admit = false;
+      else if (action === 'erase') {
+        const restored = Object.fromEntries(Object.keys(W.localStorage).map(key => [key, W.localStorage.getItem(key)]));
+        A.scrubPersonalData(); await A.drainProfileNameWrites();
+        for (const [key, raw] of Object.entries(restored)) W.localStorage.setItem(key, raw);
+      } else if (action === 'noop' || action === 'quota') {
+        proto.setItem = function (target, raw) {
+          if (target === key) {
+            if (action === 'quota') throw new W.DOMException('Synthetic ranking quota', 'QuotaExceededError');
+            return;
+          }
+          return set.call(this, target, raw);
+        };
+      }
+      packing.release();
+      assert.equal(await pending, action === 'save', action);
+      assert.equal(W.localStorage.getItem(key), ['replace', 'late'].includes(action) ? 'null'
+        : action === 'save' ? W.localStorage.getItem(key) : baseline);
+      if (action === 'save') {
+        assert.ok(W.localStorage.getItem(key).startsWith('z:'));
+        assert.deepEqual(readPersistedFixture(W, key), expected);
+        assert.equal(A.rankingHistoryStatus(key), 'verified');
+      }
+      if (['noop', 'quota', 'replace', 'late', 'admission'].includes(action))
+        assert.equal(A.rankingHistoryStatus(key), 'failed');
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      proto.getItem = get; proto.setItem = set; packing.restore(); packing.release();
+      await Promise.allSettled([pending].filter(Boolean)); await A.drainRankingHistoryWrites();
+      await A.drainProfileNameWrites(); await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 native ranking queues serialize source reads and acknowledge only the newest retained snapshot', async () => {
+  const app = await boot({ sample: false, nativeCompression: true });
+  const W = app.window, A = W.__app, key = 'bc_board_v1:F247-queue';
+  const proto = W.Storage.prototype, get = proto.getItem, set = proto.setItem;
+  const packing = holdPersonalSnapshotEncoding(W, candidate => Array.isArray(candidate) && candidate.length === 30);
+  let first, next, reads = 0, allocations = 0;
+  try {
+    proto.setItem = function (target, raw) { if (target === key) allocations++; return set.call(this, target, raw); };
+    first = A.saveRankingHistory(key, rankingPersistenceFixture(), 'Synthetic');
+    await waitFor(packing.ready, 'actual first ranking-history encoding');
+    proto.getItem = function (target) { if (target === key) reads++; return get.call(this, target); };
+    next = A.saveRankingHistory(key, rankingPersistenceFixture(31, 3), 'Synthetic');
+    await new Promise(setImmediate);
+    assert.equal(reads, 0, 'newer ranking intent cannot read retained source while the old job is packing');
+    proto.getItem = get; packing.release();
+    assert.equal(await first, true, 'receipt joins the latest same-owner tail');
+    assert.equal(await next, true);
+    assert.equal(allocations, 1);
+    assert.equal(readPersistedFixture(W, key).length, 31);
+    assert.equal(A.rankingHistoryStatus(key), 'verified');
+    assert.deepEqual(app.state.errors, []);
+  } finally {
+    proto.getItem = get; proto.setItem = set; packing.restore(); packing.release();
+    await Promise.allSettled([first, next].filter(Boolean)); await A.drainRankingHistoryWrites();
+    await new Promise(setImmediate); W.close();
+  }
+});
+
+test('F247 actual ranking allocation rebases newer intent without approving a foreign profile', async () => {
+  for (const action of ['intent', 'profile']) {
+    const app = await boot({ sample: false, nativeCompression: true });
+    const W = app.window, A = W.__app, key = 'bc_board_v1:F247-allocation';
+    const proto = W.Storage.prototype, set = proto.setItem;
+    let intercepted = false, next;
+    try {
+      proto.setItem = function (target, raw) {
+        const result = set.call(this, target, raw);
+        if (target === key && !intercepted) {
+          intercepted = true;
+          if (action === 'intent') next = A.saveRankingHistory(key, rankingPersistenceFixture(31, 3), 'Synthetic');
+          else set.call(this, A.BC_PROFILE_PTR, '2');
+        }
+        return result;
+      };
+      assert.equal(await A.saveRankingHistory(key, rankingPersistenceFixture(), 'Synthetic'), action === 'intent');
+      if (next) assert.equal(await next, true);
+      assert.equal(intercepted, true);
+      assert.equal(readPersistedFixture(W, key).length, action === 'intent' ? 31 : 30);
+      assert.equal(W.localStorage.getItem('bcp:2:' + key), null);
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      proto.setItem = set; await Promise.allSettled([next].filter(Boolean));
+      await A.drainRankingHistoryWrites(); await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 actual ranking transport waits for captured native history and reports session-only failure without losing valid rows', async () => {
+  const period = String(new Date().getFullYear()), date = new Date()
+    .toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  for (const action of ['save', 'noop', 'profile']) {
+    const app = await boot({ sample: false, nativeCompression: true, fetch: url => /top100/.test(url)
+      ? dualRankFixture('spp', Array.from({ length: 20 }, (_, i) => ({
+        rank: i + 1, name: 'Synthetic native birder ' + i, profileId: 'Native247_' + i,
+        species: 200 - i, checklists: 300 - i, recent: 'Ruff (' + date + ')'
+      })), 'US-WA', period) : [] });
+    const W = app.window, A = W.__app, proto = W.Storage.prototype, set = proto.setItem;
+    const packing = holdPersonalSnapshotEncoding(W, candidate => candidate.schema === 1 && candidate.people && candidate.people.Native247_0);
+    let pending, done = false;
+    try {
+      pending = A.fetchRank({ region: 'US-WA', max: 500, rowLimit: 500, metric: 'spp' }, period, '', true)
+        .then(data => ({ data }), error => ({ error })).finally(() => { done = true; });
+      await waitFor(() => packing.ready() || done, 'actual transport captured-history encoding');
+      assert.equal(packing.ready(), true); assert.equal(done, false, 'transport must wait for native retention');
+      const key = 'bc_rankbirds_v1:' + A.rankingHistoryOwner('US-WA', period, 'spp', '');
+      assert.equal(W.localStorage.getItem(key), null);
+      if (action === 'noop') proto.setItem = function (target, raw) {
+        if (target === key) return; return set.call(this, target, raw);
+      };
+      else if (action === 'profile') W.localStorage.setItem(A.BC_PROFILE_PTR, '2');
+      packing.release();
+      const result = await pending;
+      if (action === 'profile') assert.match(result.error.message, /superseded/);
+      else {
+        assert.equal(result.data.rows.length, 20);
+        A.renderRankings(result.data, 'US-WA', result.data.url, '');
+        await A.drainRankingHistoryWrites(); await new Promise(setImmediate);
+        assert.equal(A.rankBirdHistoryRead(A.rankingHistoryOwner('US-WA', period, 'spp', '')).people.Native247_0.length, 1);
+        if (action === 'noop') {
+          assert.equal(W.localStorage.getItem(key), null);
+          assert.match(app.$('rankResults').textContent, /Captured bird history is session-only/);
+        } else assert.ok(W.localStorage.getItem(key).startsWith('z:'));
+      }
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      proto.setItem = set; packing.restore(); packing.release(); await Promise.allSettled([pending].filter(Boolean));
+      await A.drainRankingHistoryWrites(); await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 actual ranking render updates pending captured-history failure after native acknowledgment', async () => {
+  const period = String(new Date().getFullYear()), date = new Date()
+    .toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  const app = await boot({ sample: false, nativeCompression: true, fetch: url => /top100/.test(url)
+    ? dualRankFixture('spp', Array.from({ length: 20 }, (_, i) => ({
+      rank: i + 1, name: 'Synthetic native render birder ' + i, profileId: 'Render247_' + i,
+      species: 200 - i, checklists: 300 - i, recent: 'Ruff (' + date + ')'
+    })), 'US-WA', period) : [] });
+  const W = app.window, A = W.__app, proto = W.Storage.prototype, set = proto.setItem;
+  let packing;
+  try {
+    const data = await A.fetchRank({ region: 'US-WA', max: 500, rowLimit: 500, metric: 'spp' }, period, '', true);
+    await new Promise(resolve => setTimeout(resolve, 2));
+    data.readAt = new Date().toISOString();
+    data.rows[0].recent = 'Snowy Owl (' + date + ')';
+    const owner = A.rankingHistoryOwner('US-WA', period, 'spp', ''), key = 'bc_rankbirds_v1:' + owner;
+    const before = W.localStorage.getItem(key);
+    packing = holdPersonalSnapshotEncoding(W, value => value.schema === 1 && value.people?.Render247_0?.length === 2);
+    proto.setItem = function (target, raw) { if (target === key) return; return set.call(this, target, raw); };
+    assert.equal(A.recordRankBirdHistory(data, 'US-WA', period, 'spp', ''), true);
+    await waitFor(packing.ready, 'actual render-time captured-history encoding');
+    A.renderRankings(data, 'US-WA', data.url, '');
+    assert.doesNotMatch(app.$('rankResults').textContent, /Captured bird history is session-only/);
+    packing.release(); await A.drainRankingHistoryWrites(); await new Promise(setImmediate);
+    assert.match(app.$('rankResults').textContent, /Captured bird history is session-only/);
+    assert.equal(W.localStorage.getItem(key), before);
+    assert.equal(A.rankBirdHistoryRead(owner).people.Render247_0.length, 2);
+    assert.deepEqual(app.state.errors, []);
+  } finally {
+    proto.setItem = set; if (packing) { packing.restore(); packing.release(); }
+    await A.drainRankingHistoryWrites(); await new Promise(setImmediate); W.close();
+  }
+});
+
+test('F247 captured ranking session copies do not survive restored-erasure ownership', async () => {
+  const period = String(new Date().getFullYear()), date = new Date()
+    .toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  const app = await boot({ sample: false, fetch: url => /top100/.test(url)
+    ? dualRankFixture('spp', [{ rank: 1, name: 'Session fixture', profileId: 'Session247',
+      species: 200, checklists: 300, recent: 'Ruff (' + date + ')' }], 'US-WA', period) : [] });
+  const W = app.window, A = W.__app, proto = W.Storage.prototype, set = proto.setItem;
+  try {
+    proto.setItem = function (key, raw) {
+      if (key.startsWith('bc_rankbirds_v1:')) return; return set.call(this, key, raw);
+    };
+    await A.fetchRank({ region: 'US-WA', max: 500, rowLimit: 500, metric: 'spp' }, period, '', true);
+    const owner = A.rankingHistoryOwner('US-WA', period, 'spp', '');
+    A.rankBirdHistoryRead(owner).people.Session247[0].species = 'Getter mutation';
+    assert.equal(A.rankBirdHistoryRead(owner).people.Session247[0].species, 'Ruff');
+    proto.setItem = set;
+    const restored = Object.fromEntries(Object.keys(W.localStorage).map(key => [key, W.localStorage.getItem(key)]));
+    A.scrubPersonalData(); await A.drainProfileNameWrites();
+    for (const [key, raw] of Object.entries(restored)) W.localStorage.setItem(key, raw);
+    assert.equal(A.rankingHistoryOwner('US-WA', period, 'spp', ''), owner,
+      'the textual owner is restored; only the monotonic erasure generation separates the session');
+    assert.equal(Object.keys(A.rankBirdHistoryRead(owner).people).length, 0);
+    assert.deepEqual(app.state.errors, []);
+  } finally {
+    proto.setItem = set; await A.drainRankingHistoryWrites(); await A.drainProfileNameWrites();
+    await new Promise(setImmediate); W.close();
+  }
+});
+
+async function nativePersonalSnapshotApp(storage = {}) {
+  const app = await boot({ sample: false, nativeCompression: true, indexedDB: new IDBFactory(),
+    storage: { ebird_display_name: 'Sample Observer', ...storage }, fetch(url) {
+      if (/ref\/taxonomy\/versions/.test(url)) return [{ authorityVer: 2024, latest: true }];
+      if (/ref\/taxonomy\/ebird/.test(url)) return syntheticEditionRows('2024.0');
+      if (/ebird\.org\/lifelist\//.test(url)) return ownedPersonalListFixture();
+      return [];
+    }
+  });
+  await app.window.__app.checkTaxonomyEdition(true);
+  return app;
+}
+
+test('F247 personal choice readers hydrate canonical, partial and legacy native records without replacing unknown data', async () => {
+  const watch = Array.from({ length: 30 }, (_, i) => ({ code: 'choice' + i, name: 'Personal choice bird ' + i }));
+  const favorites = Array.from({ length: 30 }, (_, i) => ({
+    id: 'L247' + i, locId: 'L247' + i, locName: 'Personal choice patch ' + i,
+    lat: 47.5, lng: -122.2, region: 'US-WA'
+  }));
+  const canonical = 'ebird_personal_choices_v1', legacyWatch = 'ebird_watchlist_v1', legacyFavs = 'ebird_favs';
+  for (const dialect of ['legacy', 'gzip']) {
+    for (const mode of ['canonical', 'partial', 'legacy']) {
+      const values = mode === 'canonical' ? { [canonical]: { version: 1, watch, favorites } }
+        : mode === 'partial' ? { [canonical]: { version: 1, watch }, [legacyFavs]: favorites }
+        : { [legacyWatch]: watch, [legacyFavs]: favorites };
+      const storage = Object.fromEntries(Object.entries(values).map(([key, value]) =>
+        [key, dialect === 'legacy' ? JSON.stringify(value)
+          : 'z:' + zlib.gzipSync(JSON.stringify(value)).toString('base64')]));
+      const app = await boot({ sample: false, nativeCompression: true, storage });
+      const W = app.window, A = W.__app;
+      try {
+        for (const key of Object.keys(values)) assert.ok(W.localStorage.getItem(key).startsWith('z:'));
+        assert.deepEqual(JSON.parse(JSON.stringify(A.getWatchlist())), watch);
+        assert.deepEqual(JSON.parse(JSON.stringify(A.getFavs())), favorites);
+        A.getWatchlist().push({ code: 'poison', name: 'Poison' });
+        A.getFavs()[0].locName = 'Poison';
+        assert.equal(A.getWatchlist().length, 30);
+        assert.equal(A.getFavs()[0].locName, favorites[0].locName);
+        const key = mode === 'legacy' ? legacyWatch : canonical;
+        const changed = mode === 'legacy' ? watch.slice(0, 1) : { version: 1, watch: watch.slice(0, 1) };
+        const unknown = 'z:' + zlib.gzipSync(JSON.stringify(changed)).toString('base64');
+        W.localStorage.setItem(key, unknown);
+        assert.equal(A.getWatchlist().length, 0, 'an unknown changed gzip cannot reuse the prior choices');
+        assert.equal(await A.setWatchlist([]), false);
+        assert.equal(W.localStorage.getItem(key), unknown, 'an unreadable source cannot be overwritten as an empty list');
+        await A.readPersonalChoiceCache(key);
+        assert.deepEqual(JSON.parse(JSON.stringify(A.getWatchlist())), watch.slice(0, 1));
+        W.localStorage.setItem(key, 'null');
+        assert.equal(await A.setWatchlist([]), false);
+        assert.equal(W.localStorage.getItem(key), 'null', 'stored invalid null is not an absent choices key');
+        assert.deepEqual(app.state.errors, []);
+      } finally { W.close(); }
+    }
+  }
+});
+
+test('F247 shared profile labels hydrate native restart and protect other slots from unknown or malformed maps', async () => {
+  const key = 'ebird_profile_names', marker = 'ebird_profile_identity_v2';
+  const names = { '': 'Sample main account '.repeat(20), '2': 'Sample second account '.repeat(20),
+    '3': 'Sample third account '.repeat(20), '4': 'Sample fourth account '.repeat(20) };
+  let packed;
+  for (const restart of [false, true]) {
+    const app = await boot({ sample: false, nativeCompression: true,
+      storage: { [marker]: 'ebird-only', [key]: restart ? packed : JSON.stringify(names), bc_profile: '2' } });
+    const W = app.window, A = W.__app;
+    try {
+      packed = W.localStorage.getItem(key);
+      assert.ok(packed.startsWith('z:'), 'shared labels must hydrate their actual native encoding');
+      assert.deepEqual(JSON.parse(JSON.stringify(A.profileNames())), names);
+      assert.equal(A.profileLabel(''), names['']);
+      assert.equal(A.profileLabel('2'), names['2']);
+      A.profileNames()['3'] = 'Caller mutation';
+      assert.equal(A.profileLabel('3'), names['3']);
+      assert.equal(W.localStorage.getItem('bcp:2:' + key), null, 'labels belong to one shared map, not an active-profile copy');
+      assert.equal(await A.setProfileName('2', 'Updated saved second account'), true);
+      assert.deepEqual(readPersistedFixture(W, key), { ...names, '2': 'Updated saved second account' });
+      assert.equal(W.localStorage.getItem('bcp:2:' + key), null, 'non-Main writes still use the shared physical record');
+      const changed = await A.packJson({ ...names, '3': 'Changed third account' });
+      W.localStorage.setItem(key, changed);
+      assert.equal(A.profileLabel('3'), 'Test 3', 'unknown changed gzip cannot borrow a prior label');
+      assert.equal(await A.setProfileName('2', 'Replacement'), false);
+      assert.equal(W.localStorage.getItem(key), changed);
+      await A.readProfileNameCache();
+      assert.equal(A.profileLabel('3'), 'Changed third account');
+      for (const raw of ['null', '{"2":[]}', '["malformed"]']) {
+        W.localStorage.setItem(key, raw);
+        assert.equal(await A.setProfileName('2', 'Replacement'), false);
+        assert.equal(W.localStorage.getItem(key), raw);
+      }
+      assert.deepEqual(app.state.errors, []);
+    } finally { W.close(); }
+  }
+});
+
+test('F247 borrowed shared profile-label migrations preserve replaced, foreign and restored erased maps', async () => {
+  const key = 'ebird_profile_names', marker = 'ebird_profile_identity_v2';
+  for (const action of ['save', 'replace', 'profile', 'erase', 'reject']) {
+    const app = await boot({ sample: false, nativeCompression: true, storage: { [marker]: 'ebird-only' } });
+    const W = app.window, A = W.__app;
+    const names = { '': 'Sample shared account '.repeat(30), '2': 'Other preserved account '.repeat(30) };
+    const before = JSON.stringify(names), observed = {};
+    const packing = holdPersonalSnapshotEncoding(W, candidate => candidate['2'] === names['2']);
+    let pending, done = false, current = true;
+    try {
+      W.localStorage.setItem(key, before);
+      W.localStorage.removeItem(A.bcReal(A.IDENTITY_REV_KEY));
+      pending = A.readProfileNameCache(observed, () => current).finally(() => { done = true; });
+      await waitFor(() => packing.ready() || done, 'the actual shared profile-label migration');
+      assert.equal(packing.ready(), true); assert.equal(done, false);
+      if (action === 'replace') W.localStorage.setItem(key, 'null');
+      else if (action === 'profile') W.localStorage.setItem(A.BC_PROFILE_PTR, '2');
+      else if (action === 'erase') {
+        const persisted = Object.fromEntries(Object.keys(W.localStorage).map(k => [k, W.localStorage.getItem(k)]));
+        A.scrubPersonalData();
+        await A.drainProfileNameWrites();
+        for (const [k, raw] of Object.entries(persisted)) W.localStorage.setItem(k, raw);
+      } else if (action === 'reject') current = false;
+      packing.release(); await pending;
+      if (action === 'save') {
+        assert.ok(W.localStorage.getItem(key).startsWith('z:'));
+        assert.equal(observed.raw, W.localStorage.getItem(key));
+      } else {
+        assert.equal(W.localStorage.getItem(key), action === 'replace' ? 'null' : before);
+        assert.equal(observed.raw, before);
+      }
+      assert.equal(W.localStorage.getItem('bcp:2:' + key), null);
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      packing.restore(); packing.release(); await Promise.allSettled([pending].filter(Boolean));
+      await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 identity sidecar readers hydrate native records without borrowing changed or foreign bytes', async () => {
+  const aliases = Array.from({ length: 30 }, (_, i) => 'Previous synthetic account ' + i);
+  const meta = { source: 'ebird-bird-list', profileId: 'synthetic-account',
+    observedAt: '2026-11-26T12:00:00Z', evidence: 'Synthetic retained identity evidence '.repeat(30) };
+  const recommendation = { status: 'supported', code: 'CA-BC', parentCode: 'CA-BC',
+    source: 'ebird-profile', evidence: 'Synthetic retained regional evidence '.repeat(30) };
+  const values = { ebird_identity_aliases_v1: aliases, ebird_identity_v1: meta,
+    bc_profile_region_recommendation_v1: recommendation };
+  for (const dialect of ['legacy', 'gzip']) {
+    const storage = Object.fromEntries(Object.entries(values).map(([key, value]) =>
+      [key, dialect === 'legacy' ? JSON.stringify(value) : 'z:' + zlib.gzipSync(JSON.stringify(value)).toString('base64')]));
+    const app = await boot({ sample: false, nativeCompression: true,
+      storage: { ebird_display_name: 'Current synthetic account', ...storage } });
+    const W = app.window, A = W.__app;
+    try {
+      for (const key of Object.keys(values)) assert.ok(W.localStorage.getItem(key).startsWith('z:'), key);
+      assert.deepEqual(Array.from(A.getIdentityAliases()), ['Current synthetic account', ...aliases]);
+      assert.deepEqual(JSON.parse(JSON.stringify(A.getIdentityMeta())), meta);
+      assert.deepEqual(JSON.parse(JSON.stringify(A.storedProfileRegionRecommendation())), recommendation);
+      A.getIdentityMeta().profileId = 'Caller mutation';
+      A.storedProfileRegionRecommendation().code = 'US-WA';
+      assert.equal(A.getIdentityMeta().profileId, meta.profileId);
+      assert.equal(A.storedProfileRegionRecommendation().code, recommendation.code);
+      const before = W.localStorage.getItem(A.IDENTITY_META_KEY);
+      const unknown = 'z:' + zlib.gzipSync(JSON.stringify({ ...meta, profileId: 'changed-account' })).toString('base64');
+      W.localStorage.setItem(A.IDENTITY_META_KEY, unknown);
+      assert.equal(A.getIdentityMeta(), null, 'changed gzip must not borrow an earlier identity');
+      assert.equal(await A.saveIdentityProjection(A.IDENTITY_META_KEY, meta), false);
+      assert.equal(W.localStorage.getItem(A.IDENTITY_META_KEY), unknown, 'unknown metadata cannot be replaced without its projection read');
+      await A.readIdentityCache(A.IDENTITY_META_KEY);
+      assert.equal(A.getIdentityMeta().profileId, 'changed-account');
+      W.localStorage.setItem(A.IDENTITY_META_KEY, '["malformed identity"]');
+      assert.equal(A.getIdentityMeta(), null);
+      W.localStorage.setItem(A.IDENTITY_META_KEY, '{"profileId":[]}');
+      assert.equal(A.getIdentityMeta(), null);
+      W.localStorage.setItem(A.IDENTITY_ALIASES_KEY, '{"malformed":"aliases"}');
+      assert.deepEqual(Array.from(A.getIdentityAliases()), ['Current synthetic account']);
+      W.localStorage.setItem(A.IDENTITY_ALIASES_KEY, '[{"malformed":"alias"}]');
+      assert.deepEqual(Array.from(A.getIdentityAliases()), ['Current synthetic account']);
+      W.localStorage.setItem(A.PROFILE_REGION_RECOMMENDATION_KEY, '["malformed recommendation"]');
+      assert.equal(A.storedProfileRegionRecommendation(), null);
+      W.localStorage.setItem(A.BC_PROFILE_PTR, '2');
+      W.localStorage.setItem('bcp:2:' + A.IDENTITY_META_KEY, before);
+      assert.equal(A.getIdentityMeta(), null, 'a physical foreign gzip needs its own actual projection read');
+      await A.readIdentityCache(A.IDENTITY_META_KEY);
+      assert.equal(A.getIdentityMeta().profileId, meta.profileId);
+      assert.deepEqual(Array.from(A.getIdentityAliases()), [], 'Main aliases do not identify another profile');
+      assert.deepEqual(app.state.errors, []);
+    } finally { W.close(); }
+  }
+});
+
+test('F247 borrowed identity sidecar migrations preserve replaced, foreign and restored erased sources', async () => {
+  for (const action of ['save', 'replace', 'profile', 'erase', 'reject']) {
+    const app = await boot({ sample: false, nativeCompression: true });
+    const W = app.window, A = W.__app;
+    const meta = { source: 'ebird-bird-list', profileId: 'borrowed-account',
+      evidence: 'Borrowed synthetic identity evidence '.repeat(30) };
+    const before = JSON.stringify(meta), observed = {};
+    const packing = holdPersonalSnapshotEncoding(W, candidate => candidate.profileId === meta.profileId);
+    let pending, done = false, current = true;
+    try {
+      W.localStorage.setItem(A.IDENTITY_META_KEY, before);
+      W.localStorage.removeItem(A.bcReal(A.IDENTITY_REV_KEY));
+      pending = A.readIdentityCache(A.IDENTITY_META_KEY, observed, () => current).finally(() => { done = true; });
+      await waitFor(() => packing.ready() || done, 'actual identity sidecar migration');
+      assert.equal(packing.ready(), true); assert.equal(done, false);
+      if (action === 'replace') W.localStorage.setItem(A.IDENTITY_META_KEY, 'null');
+      else if (action === 'profile') {
+        W.localStorage.setItem(A.BC_PROFILE_PTR, '2');
+        W.localStorage.setItem(A.bcReal(A.IDENTITY_META_KEY), before);
+      } else if (action === 'erase') {
+        const persisted = Object.fromEntries(Object.keys(W.localStorage).map(k => [k, W.localStorage.getItem(k)]));
+        A.scrubPersonalData(); await A.drainProfileNameWrites();
+        for (const [k, raw] of Object.entries(persisted)) W.localStorage.setItem(k, raw);
+      } else if (action === 'reject') current = false;
+      packing.release(); await pending;
+      if (action === 'save') {
+        assert.ok(W.localStorage.getItem(A.IDENTITY_META_KEY).startsWith('z:'));
+        assert.equal(observed.raw, W.localStorage.getItem(A.IDENTITY_META_KEY));
+      } else {
+        assert.equal(W.localStorage.getItem(A.IDENTITY_META_KEY), action === 'replace' ? 'null' : before);
+        assert.equal(observed.raw, before);
+      }
+      if (action === 'profile') assert.equal(W.localStorage.getItem(A.bcReal(A.IDENTITY_META_KEY)), before);
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      packing.restore(); packing.release(); await Promise.allSettled([pending].filter(Boolean));
+      await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 native identity writes retain a coherent name and provenance across receipt failure or retired ownership', async () => {
+  const oldName = 'Original synthetic identity', newName = 'Changed synthetic identity';
+  const profileId = 'SyntheticAccount'.repeat(40);
+  for (const action of ['save', 'replace', 'late', 'profile', 'profile-same', 'erase', 'noop', 'quota']) {
+    const meta = { source: 'ebird-bird-list', profileId: 'OriginalAccount',
+      observedAt: '2026-11-26T12:00:00Z', evidence: 'Original synthetic evidence '.repeat(30) };
+    const aliases = Array.from({ length: 30 }, (_, i) => 'Previous synthetic account ' + i);
+    const app = await boot({ sample: false, nativeCompression: true,
+      storage: { ebird_display_name: oldName, ebird_identity_v1: JSON.stringify(meta),
+        ebird_identity_aliases_v1: JSON.stringify(aliases),
+        'bcp:2:ebird_display_name': 'Foreign synthetic identity',
+        'bcp:2:ebird_identity_v1': JSON.stringify({ source: 'manual', profileId: 'ForeignAccount' }) } });
+    const W = app.window, A = W.__app, proto = W.Storage.prototype, get = proto.getItem, set = proto.setItem;
+    const packing = holdPersonalSnapshotEncoding(W, candidate => candidate.profileId === profileId);
+    let pending, done = false;
+    try {
+      const before = W.localStorage.getItem(A.IDENTITY_META_KEY);
+      const foreign = W.localStorage.getItem('bcp:2:' + A.IDENTITY_META_KEY);
+      assert.equal(A.applyCapturedIdentity({ status: 'ok', displayName: newName, profileId }).applied, true);
+      pending = A.identityPersistenceReceipt().finally(() => { done = true; });
+      await waitFor(() => packing.ready() || done, 'actual native captured-identity metadata encoding');
+      assert.equal(packing.ready(), true); assert.equal(done, false);
+      assert.equal(W.localStorage.getItem(A.IDENTITY_META_KEY), before);
+      assert.equal(A.getDisplayName(), newName, 'copied live identity intent remains available while encoding');
+      A.getIdentityMeta().profileId = 'Getter mutation';
+      assert.equal(A.getIdentityMeta().profileId, profileId);
+      if (action === 'replace') W.localStorage.setItem(A.IDENTITY_META_KEY, 'null');
+      else if (action === 'late') {
+        let armed = true;
+        proto.getItem = function (key) {
+          const raw = get.call(this, key);
+          if (key === A.IDENTITY_META_KEY && armed) { armed = false; set.call(this, key, 'null'); }
+          return raw;
+        };
+      } else if (action === 'profile' || action === 'profile-same') {
+        W.localStorage.setItem(A.BC_PROFILE_PTR, '2');
+        if (action === 'profile-same') W.localStorage.setItem('bcp:2:' + A.IDENTITY_META_KEY, before);
+        assert.equal(A.getDisplayName(), 'Foreign synthetic identity', 'foreign scope cannot expose an old-owner draft');
+      }
+      else if (action === 'erase') {
+        const persisted = Object.fromEntries(Object.keys(W.localStorage).map(k => [k, W.localStorage.getItem(k)]));
+        A.scrubPersonalData(); await A.drainProfileNameWrites();
+        for (const [key, raw] of Object.entries(persisted)) W.localStorage.setItem(key, raw);
+      } else if (action === 'noop' || action === 'quota') proto.setItem = function (key, raw) {
+        if (key === A.IDENTITY_META_KEY) {
+          if (action === 'quota') throw new W.DOMException('Identity quota', 'QuotaExceededError');
+          return;
+        }
+        return set.call(this, key, raw);
+      };
+      packing.release();
+      assert.equal(await pending, action === 'save', action + ' qualifies retained identity');
+      if (action === 'save') {
+        assert.ok(W.localStorage.getItem(A.IDENTITY_META_KEY).startsWith('z:'));
+        assert.equal(readPersistedFixture(W, A.IDENTITY_META_KEY).profileId, profileId);
+        assert.equal(A.getDisplayName(), newName);
+      } else {
+        assert.equal(W.localStorage.getItem(A.IDENTITY_META_KEY),
+          ['replace', 'late'].includes(action) ? 'null' : before);
+        if (action === 'profile' || action === 'profile-same') W.localStorage.setItem(A.BC_PROFILE_PTR, '');
+        if (action !== 'erase') assert.equal(A.getDisplayName(), oldName,
+          'unretained name intent must not be paired with previous identity provenance');
+      }
+      assert.equal(W.localStorage.getItem('bcp:2:' + A.IDENTITY_META_KEY), action === 'profile-same' ? before : foreign);
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      proto.getItem = get; proto.setItem = set; packing.restore(); packing.release();
+      await Promise.allSettled([pending].filter(Boolean)); await A.drainIdentityWrites(); await A.drainProfileNameWrites();
+      await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 identity receipts expose alias and scalar-mirror failures without incoherent retained provenance', async () => {
+  for (const action of ['aliases', 'scalar-noop', 'scalar-quota']) {
+    const oldName = 'Previous synthetic account', name = 'Current synthetic account';
+    const aliases = Array.from({ length: 30 }, (_, i) => 'Older synthetic account ' + i);
+    const app = await boot({ sample: false, nativeCompression: true, storage: {
+      ebird_display_name: oldName, ebird_identity_v1: JSON.stringify({ source: 'ebird-bird-list', displayName: oldName }),
+      ebird_identity_aliases_v1: JSON.stringify(aliases) } });
+    const W = app.window, A = W.__app, proto = W.Storage.prototype, set = proto.setItem;
+    const packing = holdPersonalSnapshotEncoding(W, candidate => Array.isArray(candidate) && candidate.includes(oldName));
+    let pending, done = false;
+    try {
+      const before = W.localStorage.getItem(A.IDENTITY_ALIASES_KEY);
+      proto.setItem = function (key, raw) {
+        if (action === 'aliases' && key === A.IDENTITY_ALIASES_KEY) return;
+        if (action !== 'aliases' && key === 'ebird_display_name') {
+          if (action === 'scalar-quota') throw new W.DOMException('Scalar quota', 'QuotaExceededError');
+          return;
+        }
+        return set.call(this, key, raw);
+      };
+      A.applyCapturedIdentity({ status: 'ok', displayName: name, profileId: 'CurrentAccount' }, true);
+      pending = A.identityPersistenceReceipt().finally(() => { done = true; });
+      await waitFor(() => packing.ready() || done, 'actual alias retention encoding');
+      assert.equal(packing.ready(), true); assert.equal(done, false);
+      await waitFor(() => readPersistedFixture(W, A.IDENTITY_META_KEY).profileId === 'CurrentAccount',
+        'independently acknowledged coherent metadata');
+      assert.equal(W.localStorage.getItem(A.IDENTITY_ALIASES_KEY), before);
+      packing.release();
+      assert.equal(await pending, false);
+      assert.equal(A.getDisplayName(), name);
+      assert.equal(A.getIdentityMeta().source, 'ebird-bird-list');
+      assert.equal(A.getIdentityMeta().profileId, 'CurrentAccount');
+      if (action === 'aliases') assert.equal(W.localStorage.getItem(A.IDENTITY_ALIASES_KEY), before);
+      else assert.equal(W.localStorage.getItem('ebird_display_name'), oldName);
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      proto.setItem = set; packing.restore(); packing.release(); await Promise.allSettled([pending].filter(Boolean));
+      await A.drainIdentityWrites(); await A.drainProfileNameWrites(); await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 native identity projection queues copy, serialize and retain only the latest same-owner metadata', async () => {
+  const initial = { source: 'ebird-bird-list', profileId: 'OriginalAccount', displayName: 'Original account' };
+  const app = await boot({ sample: false, nativeCompression: true, storage: { ebird_identity_v1: JSON.stringify(initial) } });
+  const W = app.window, A = W.__app, proto = W.Storage.prototype, get = proto.getItem, set = proto.setItem;
+  const firstValue = { source: 'ebird-bird-list', displayName: 'Queued synthetic account '.repeat(30).trim(),
+    profileId: 'QueuedSynthetic'.repeat(30) };
+  const nextValue = { ...firstValue, source: 'Updated synthetic source', evidence: { retained: true } };
+  const expected = JSON.parse(JSON.stringify(nextValue));
+  const packing = holdPersonalSnapshotEncoding(W, candidate => candidate.profileId === firstValue.profileId);
+  let first, next, sourceReads = 0, allocations = 0;
+  try {
+    const before = W.localStorage.getItem(A.IDENTITY_META_KEY);
+    proto.setItem = function (key, value) { if (key === A.IDENTITY_META_KEY) allocations++; return set.call(this, key, value); };
+    first = A.saveIdentityProjection(A.IDENTITY_META_KEY, firstValue);
+    await waitFor(packing.ready, 'actual first metadata encoding');
+    proto.getItem = function (key) { if (key === A.IDENTITY_META_KEY) sourceReads++; return get.call(this, key); };
+    next = A.saveIdentityProjection(A.IDENTITY_META_KEY, nextValue);
+    nextValue.evidence.retained = false;
+    await new Promise(setImmediate);
+    assert.equal(sourceReads, 0, 'the next same-owner metadata job cannot begin its retained-source read early');
+    proto.getItem = get;
+    assert.equal(W.localStorage.getItem(A.IDENTITY_META_KEY), before);
+    assert.deepEqual(JSON.parse(JSON.stringify(A.getIdentityMeta())), expected);
+    A.getIdentityMeta().evidence.retained = false;
+    assert.equal(A.getIdentityMeta().evidence.retained, true);
+    packing.release();
+    assert.equal(await first, true); assert.equal(await next, true);
+    assert.equal(allocations, 1, 'superseded metadata encoding cannot allocate');
+    assert.deepEqual(readPersistedFixture(W, A.IDENTITY_META_KEY), expected);
+    assert.deepEqual(app.state.errors, []);
+  } finally {
+    proto.getItem = get; proto.setItem = set; packing.restore(); packing.release();
+    await Promise.allSettled([first, next].filter(Boolean)); await A.drainIdentityWrites();
+    await new Promise(setImmediate); W.close();
+  }
+});
+
+test('F247 native metadata acknowledgment rebases a newer intent without borrowing replacement or foreign bytes', async () => {
+  for (const action of ['intent', 'profile']) {
+    const original = { source: 'ebird-bird-list', displayName: 'Original synthetic account' };
+    const value = { source: 'ebird-bird-list', displayName: 'Acknowledged synthetic account '.repeat(30).trim(),
+      profileId: 'AcknowledgedSynthetic'.repeat(30) };
+    const nextValue = { ...value, source: 'Updated source' };
+    const app = await boot({ sample: false, nativeCompression: true,
+      storage: { ebird_identity_v1: JSON.stringify(original) } });
+    const W = app.window, A = W.__app, proto = W.Storage.prototype, set = proto.setItem;
+    let next, intercepted = false;
+    try {
+      proto.setItem = function (key, raw) {
+        const result = set.call(this, key, raw);
+        if (key === A.IDENTITY_META_KEY && !intercepted) {
+          intercepted = true;
+          if (action === 'intent') next = A.saveIdentityProjection(A.IDENTITY_META_KEY, nextValue);
+          else set.call(this, A.BC_PROFILE_PTR, '2');
+        }
+        return result;
+      };
+      assert.equal(await A.saveIdentityProjection(A.IDENTITY_META_KEY, value), action === 'intent');
+      assert.equal(intercepted, true, 'transition must occur during actual metadata allocation');
+      if (next) assert.equal(await next, true);
+      assert.deepEqual(readPersistedFixture(W, A.IDENTITY_META_KEY), action === 'intent' ? nextValue : value);
+      assert.equal(W.localStorage.getItem('bcp:2:' + A.IDENTITY_META_KEY), null);
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      proto.setItem = set; await Promise.allSettled([next].filter(Boolean)); await A.drainIdentityWrites();
+      await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+function sharedProfileNameFixture() {
+  return { '': 'Sample main account '.repeat(30), '2': 'Sample second account '.repeat(30),
+    '3': 'Sample third account '.repeat(30), '4': 'Sample fourth account '.repeat(30) };
+}
+
+test('F247 shared profile-label native writes copy intent and reject replacement, foreign, erased and failed receipts', async () => {
+  const key = 'ebird_profile_names', marker = 'ebird_profile_identity_v2';
+  for (const action of ['save', 'replace', 'late', 'profile', 'identity', 'erase', 'noop', 'quota']) {
+    const names = sharedProfileNameFixture(), changed = 'Changed main account '.repeat(30).trim();
+    const app = await boot({ sample: false, nativeCompression: true,
+      storage: { [marker]: 'ebird-only', [key]: JSON.stringify(names) } });
+    const W = app.window, A = W.__app, proto = W.Storage.prototype, get = proto.getItem, set = proto.setItem;
+    const packing = holdPersonalSnapshotEncoding(W, candidate => candidate[''] === changed);
+    let pending, done = false;
+    try {
+      W.localStorage.removeItem(A.bcReal(A.IDENTITY_REV_KEY));
+      const before = W.localStorage.getItem(key);
+      pending = A.setProfileName('', changed).finally(() => { done = true; });
+      await waitFor(() => packing.ready() || done, 'actual shared profile-label encoding');
+      assert.equal(packing.ready(), true); assert.equal(done, false);
+      assert.equal(W.localStorage.getItem(key), before, 'pending labels are not retained evidence');
+      assert.deepEqual(JSON.parse(JSON.stringify(A.profileNames())), { ...names, '': changed });
+      A.profileNames()['2'] = 'Getter mutation';
+      assert.equal(A.profileLabel('2'), names['2']);
+      if (action === 'replace') W.localStorage.setItem(key, 'null');
+      else if (action === 'late') {
+        let armed = true;
+        proto.getItem = function (k) {
+          const raw = get.call(this, k);
+          if (k === key && armed) { armed = false; set.call(this, k, 'null'); }
+          return raw;
+        };
+      } else if (action === 'profile') W.localStorage.setItem(A.BC_PROFILE_PTR, '2');
+      else if (action === 'identity') W.localStorage.setItem(A.bcReal(A.IDENTITY_REV_KEY), '1');
+      else if (action === 'erase') {
+        const persisted = Object.fromEntries(Object.keys(W.localStorage).map(k => [k, W.localStorage.getItem(k)]));
+        A.scrubPersonalData();
+        await A.drainProfileNameWrites();
+        assert.deepEqual(readPersistedFixture(W, key),
+          { '2': names['2'], '3': names['3'], '4': names['4'] }, 'current erasure does not wait for old-owner encoding');
+        for (const [k, raw] of Object.entries(persisted)) W.localStorage.setItem(k, raw);
+      } else if (action === 'noop' || action === 'quota') proto.setItem = function (k, raw) {
+        if (k === key) {
+          if (action === 'quota') throw new W.DOMException('Profile-label quota', 'QuotaExceededError');
+          return;
+        }
+        return set.call(this, k, raw);
+      };
+      packing.release();
+      assert.equal(await pending, action === 'save', action + ' qualifies its actual profile-label receipt');
+      if (action === 'save') {
+        assert.ok(W.localStorage.getItem(key).startsWith('z:'));
+        assert.deepEqual(readPersistedFixture(W, key), { ...names, '': changed });
+      } else assert.equal(W.localStorage.getItem(key), ['replace', 'late'].includes(action) ? 'null' : before);
+      assert.equal(W.localStorage.getItem('bcp:2:' + key), null, 'no active-profile map is allocated');
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      proto.getItem = get; proto.setItem = set; packing.restore(); packing.release();
+      await Promise.allSettled([pending].filter(Boolean)); await A.drainProfileNameWrites();
+      await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 shared profile-label queues compose and serialize the latest copied intent', async () => {
+  const key = 'ebird_profile_names', names = sharedProfileNameFixture();
+  const main = 'Queued main account '.repeat(30).trim(), second = 'Queued second account '.repeat(30).trim();
+  const app = await boot({ sample: false, nativeCompression: true,
+    storage: { ebird_profile_identity_v2: 'ebird-only', [key]: JSON.stringify(names) } });
+  const W = app.window, A = W.__app, proto = W.Storage.prototype, set = proto.setItem, get = proto.getItem;
+  const packing = holdPersonalSnapshotEncoding(W, candidate => candidate[''] === main);
+  let first, next, done = false, allocations = 0;
+  try {
+    const before = W.localStorage.getItem(key);
+    proto.setItem = function (k, raw) { if (k === key) allocations++; return set.call(this, k, raw); };
+    first = A.setProfileName('', main).finally(() => { done = true; });
+    await waitFor(packing.ready, 'first real shared profile-label encoding');
+    let sourceReads = 0;
+    proto.getItem = function (k) { if (k === key) sourceReads++; return get.call(this, k); };
+    next = A.setProfileName('2', second);
+    await new Promise(setImmediate);
+    assert.equal(done, false);
+    assert.equal(sourceReads, 0, 'a queued intent must not begin its source read while the preceding encoding is held');
+    proto.getItem = get;
+    assert.equal(packing.started(), 1, 'a newer same-owner encoding waits for the actual older job');
+    assert.equal(W.localStorage.getItem(key), before);
+    A.profileNames()['3'] = 'Getter mutation';
+    assert.deepEqual(JSON.parse(JSON.stringify(A.profileNames())), { ...names, '': main, '2': second });
+    packing.release();
+    assert.equal(await first, true, 'the first presentation receipt joins the latest same-owner intent');
+    assert.equal(await next, true);
+    assert.equal(allocations, 1, 'superseded encoding never allocates');
+    assert.deepEqual(readPersistedFixture(W, key), { ...names, '': main, '2': second });
+    assert.deepEqual(app.state.errors, []);
+  } finally {
+    proto.setItem = set; proto.getItem = get; packing.restore(); packing.release();
+    await Promise.allSettled([first, next].filter(Boolean)); await A.drainProfileNameWrites();
+    await new Promise(setImmediate); W.close();
+  }
+});
+
+test('F247 shared profile-label acknowledged allocation rebases the next intent without approving foreign ownership', async () => {
+  const key = 'ebird_profile_names';
+  for (const action of ['intent', 'profile']) {
+    const names = sharedProfileNameFixture(), main = 'Acknowledged main account '.repeat(30).trim();
+    const second = 'Acknowledged second account '.repeat(30).trim();
+    const app = await boot({ sample: false, nativeCompression: true,
+      storage: { ebird_profile_identity_v2: 'ebird-only', [key]: JSON.stringify(names) } });
+    const W = app.window, A = W.__app, proto = W.Storage.prototype, set = proto.setItem;
+    let next, intercepted = false;
+    try {
+      proto.setItem = function (k, raw) {
+        const result = set.call(this, k, raw);
+        if (k === key && !intercepted) {
+          intercepted = true;
+          if (action === 'intent') next = A.setProfileName('2', second);
+          else set.call(this, A.BC_PROFILE_PTR, '2');
+        }
+        return result;
+      };
+      assert.equal(await A.setProfileName('', main), action === 'intent');
+      assert.equal(intercepted, true, 'transition occurs at actual backend allocation');
+      if (next) assert.equal(await next, true);
+      assert.deepEqual(readPersistedFixture(W, key),
+        { ...names, '': main, '2': action === 'intent' ? second : names['2'] });
+      assert.equal(W.localStorage.getItem('bcp:2:' + key), null);
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      proto.setItem = set; await Promise.allSettled([next].filter(Boolean)); await A.drainProfileNameWrites();
+      await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 shared profile-label empty-map removal rejects replaced, foreign and unacknowledged deletion', async () => {
+  const key = 'ebird_profile_names';
+  for (const action of ['save', 'replace', 'profile', 'noop', 'quota']) {
+    const app = await boot({ sample: false, nativeCompression: true,
+      storage: { ebird_profile_identity_v2: 'ebird-only', [key]: JSON.stringify({ '': 'Only main account' }) } });
+    const W = app.window, A = W.__app, proto = W.Storage.prototype, remove = proto.removeItem;
+    try {
+      const before = W.localStorage.getItem(key);
+      if (action === 'noop' || action === 'quota') proto.removeItem = function (k) {
+        if (k === key) {
+          if (action === 'quota') throw new W.DOMException('Profile-label removal quota', 'QuotaExceededError');
+          return;
+        }
+        return remove.call(this, k);
+      };
+      const pending = A.setProfileName('', '');
+      if (action === 'replace') W.localStorage.setItem(key, 'null');
+      else if (action === 'profile') W.localStorage.setItem(A.BC_PROFILE_PTR, '2');
+      assert.equal(await pending, action === 'save');
+      assert.equal(W.localStorage.getItem(key), action === 'save' ? null : action === 'replace' ? 'null' : before);
+      assert.equal(W.localStorage.getItem('bcp:2:' + key), null);
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      proto.removeItem = remove; await A.drainProfileNameWrites();
+      await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 actual account connection waits for native profile-label acknowledgment and exposes storage failure', async () => {
+  for (const action of ['save', 'noop']) {
+    const key = 'ebird_profile_names', names = sharedProfileNameFixture(), captured = 'Native captured account';
+    const app = await boot({ sample: false, nativeCompression: true,
+      storage: { ebird_profile_identity_v2: 'ebird-only', [key]: JSON.stringify(names), bc_setup_step_v1: 'account' } });
+    const W = app.window, A = W.__app, proto = W.Storage.prototype, set = proto.setItem, handlers = {};
+    const packing = holdPersonalSnapshotEncoding(W, candidate => candidate[''] === captured);
+    try {
+      W.Capacitor = { Plugins: { CapgoInAppBrowser: {
+        addListener(name, fn) { handlers[name] = fn; return { remove() {} }; },
+        openWebView() { return Promise.resolve({ id: 'profile-label-capture' }); },
+        hide() {}, show() {}, close() {},
+        executeScript() {
+          handlers.messageFromWebview({ id: 'profile-label-capture', detail: {
+            __ebird: true, kind: 'identity', ok: true,
+            data: { status: 'ok', displayName: captured, evidence: 'account-menu-aria-label' }
+          } });
+          return Promise.resolve();
+        }
+      } } };
+      A.openSetupSheet();
+      const button = app.$('setupConnectEbird'), before = W.localStorage.getItem(key);
+      assert.ok(button); app.click(button);
+      await waitFor(() => !!handlers.browserPageLoaded, 'actual account capture listener');
+      await new Promise(setImmediate);
+      handlers.browserPageLoaded({ id: 'profile-label-capture' });
+      await waitFor(packing.ready, 'actual captured-label compression');
+      assert.equal(button.disabled, true);
+      assert.equal(W.localStorage.getItem(key), before);
+      assert.notEqual(app.$('appSheet')?.dataset.infoId, 'setup-account-connected');
+      assert.doesNotMatch(app.$('setupActionStatus').textContent, /found and saved|name matches the saved name/);
+      if (action === 'noop') proto.setItem = function (k, raw) { if (k !== key) return set.call(this, k, raw); };
+      packing.release();
+      await waitFor(() => app.$('appSheet')?.dataset.infoId === 'setup-account-connected' || !button.disabled,
+      'actual account controller settles its label receipt');
+      if (action === 'save') {
+        assert.deepEqual(readPersistedFixture(W, key), { ...names, '': captured });
+        assert.equal(app.$('appSheet').dataset.infoId, 'setup-account-connected');
+      } else {
+        assert.equal(W.localStorage.getItem(key), before);
+        assert.match(app.$('setupActionStatus').textContent, /profile label could not be saved and verified/);
+        assert.notEqual(app.$('appSheet')?.dataset.infoId, 'setup-account-connected');
+      }
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      proto.setItem = set; packing.restore(); packing.release(); await A.drainProfileNameWrites();
+      await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 actual Fetch my name keeps visible recovery until native profile-label acknowledgment', async () => {
+  for (const action of ['save', 'noop']) {
+    const key = 'ebird_profile_names', names = sharedProfileNameFixture(), captured = 'Native banner account';
+    const app = await boot({ sample: false, nativeCompression: true,
+      storage: { ebird_profile_identity_v2: 'ebird-only', [key]: JSON.stringify(names) } });
+    const W = app.window, A = W.__app, proto = W.Storage.prototype, set = proto.setItem, handlers = {};
+    const packing = holdPersonalSnapshotEncoding(W, candidate => candidate[''] === captured);
+    try {
+      W.Capacitor = { Plugins: { CapgoInAppBrowser: {
+        addListener(name, fn) { handlers[name] = fn; return { remove() {} }; },
+        openWebView() { return Promise.resolve({ id: 'profile-label-banner' }); },
+        hide() {}, show() {}, close() {},
+        executeScript() {
+          handlers.messageFromWebview({ id: 'profile-label-banner', detail: {
+            __ebird: true, kind: 'identity', ok: true,
+            data: { status: 'ok', displayName: captured, evidence: 'account-menu-aria-label' }
+          } });
+          return Promise.resolve();
+        }
+      } } };
+      const button = app.$('nameFetchBtn'), status = app.$('identityFetchStatus');
+      assert.ok(button); assert.ok(status);
+      const before = W.localStorage.getItem(key);
+      app.click(button);
+      await waitFor(() => !!handlers.browserPageLoaded, 'actual banner capture listener');
+      await new Promise(setImmediate);
+      handlers.browserPageLoaded({ id: 'profile-label-banner' });
+      await waitFor(packing.ready, 'actual banner profile-label encoding');
+      assert.equal(status.isConnected, true, 'the only recovery status must not disappear before its receipt');
+      assert.equal(button.disabled, true); assert.equal(W.localStorage.getItem(key), before);
+      if (action === 'noop') proto.setItem = function (k, raw) { if (k !== key) return set.call(this, k, raw); };
+      packing.release();
+      await waitFor(() => action === 'save' ? !button.isConnected : !button.disabled, 'actual banner receipt');
+      if (action === 'save') assert.deepEqual(readPersistedFixture(W, key), { ...names, '': captured });
+      else {
+        assert.equal(status.isConnected, true);
+        assert.match(status.textContent, /profile label could not be saved and verified/);
+        assert.equal(W.localStorage.getItem(key), before);
+      }
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      proto.setItem = set; packing.restore(); packing.release(); await A.drainProfileNameWrites();
+      await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 actual account connection cannot approve an identity before its native name/provenance receipt', async () => {
+  for (const action of ['save', 'noop']) {
+    const app = await boot({ sample: false, nativeCompression: true, storage: { bc_setup_step_v1: 'account' } });
+    const W = app.window, A = W.__app, proto = W.Storage.prototype, set = proto.setItem, handlers = {};
+    const profileId = 'NativeCapturedAccount'.repeat(30), name = 'Native metadata account';
+    const packing = holdPersonalSnapshotEncoding(W, candidate => candidate.profileId === profileId);
+    try {
+      W.Capacitor = { Plugins: { CapgoInAppBrowser: {
+        addListener(event, fn) { handlers[event] = fn; return { remove() {} }; },
+        openWebView() { return Promise.resolve({ id: 'native-metadata-capture' }); },
+        hide() {}, show() {}, close() {},
+        executeScript() {
+          handlers.messageFromWebview({ id: 'native-metadata-capture', detail: {
+            __ebird: true, kind: 'identity', ok: true,
+            data: { status: 'ok', displayName: name, profileId, evidence: 'account-menu-aria-label' }
+          } });
+          return Promise.resolve();
+        }
+      } } };
+      A.openSetupSheet();
+      const button = app.$('setupConnectEbird'), before = W.localStorage.getItem(A.IDENTITY_META_KEY);
+      assert.ok(button); app.click(button);
+      await waitFor(() => !!handlers.browserPageLoaded, 'actual native identity listener');
+      await new Promise(setImmediate);
+      handlers.browserPageLoaded({ id: 'native-metadata-capture' });
+      await waitFor(packing.ready, 'actual captured name/provenance encoding');
+      assert.equal(button.disabled, true);
+      assert.notEqual(app.$('appSheet')?.dataset.infoId, 'setup-account-connected');
+      assert.equal(W.localStorage.getItem(A.IDENTITY_META_KEY), before);
+      assert.notEqual(W.localStorage.getItem('ebird_display_name'), name,
+        'the compatibility scalar must not outrun its coherent metadata record');
+      if (action === 'noop') proto.setItem = function (key, raw) {
+        if (key !== A.IDENTITY_META_KEY) return set.call(this, key, raw);
+      };
+      packing.release();
+      await waitFor(() => app.$('appSheet')?.dataset.infoId === 'setup-account-connected' || !button.disabled,
+        'actual coherent identity receipt');
+      if (action === 'save') {
+        assert.equal(app.$('appSheet').dataset.infoId, 'setup-account-connected');
+        assert.equal(readPersistedFixture(W, A.IDENTITY_META_KEY).displayName, name);
+        assert.equal(W.localStorage.getItem('ebird_display_name'), name);
+      } else {
+        assert.notEqual(app.$('appSheet')?.dataset.infoId, 'setup-account-connected');
+        assert.match(app.$('setupActionStatus').textContent, /identity data could not be saved and verified/);
+        assert.equal(W.localStorage.getItem(A.IDENTITY_META_KEY), before);
+        assert.notEqual(A.getDisplayName(), name);
+      }
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      proto.setItem = set; packing.restore(); packing.release(); await A.drainIdentityWrites(); await A.drainProfileNameWrites();
+      await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 actual first-year fetch awaits native identity retention without discarding valid regional rows on failure', async () => {
+  const name = 'Native annual observer '.repeat(30).trim();
+  const header = ACCOUNT_MENU_HTML.match(/<header[\s\S]*?<\/header>/)[0].replaceAll('Sample Observer', name);
+  const html = FIRST_YEAR_HTML.replace(/<body[^>]*>/i, body => body + header);
+  for (const action of ['save', 'noop']) {
+    const app = await boot({ sample: false, nativeCompression: true,
+      fetch: url => /\/bird-list\?/.test(url) ? html : null });
+    const W = app.window, A = W.__app, proto = W.Storage.prototype, set = proto.setItem;
+    const packing = holdPersonalSnapshotEncoding(W, candidate => candidate.displayName === name && candidate.source === 'ebird-bird-list');
+    let pending, done = false;
+    try {
+      const before = W.localStorage.getItem(A.IDENTITY_META_KEY);
+      pending = A.firstYearFetch('US-WA').finally(() => { done = true; });
+      await waitFor(() => packing.ready() || done, 'actual annual-first identity encoding');
+      assert.equal(packing.ready(), true); assert.equal(done, false);
+      assert.equal(W.localStorage.getItem(A.IDENTITY_META_KEY), before);
+      if (action === 'noop') proto.setItem = function (key, raw) { if (key !== A.IDENTITY_META_KEY) return set.call(this, key, raw); };
+      packing.release();
+      const page = await pending;
+      assert.equal(page.valid, true);
+      assert.ok(page.rows.length > 0, 'retention failure must not manufacture an empty regional source');
+      assert.equal(page.identitySaveStatus, action === 'save' ? undefined : 'identity-save-failed');
+      assert.equal(app.state.fetches.filter(url => /\/bird-list\?/.test(url)).length, 1);
+      if (action === 'save') assert.equal(readPersistedFixture(W, A.IDENTITY_META_KEY).displayName, name);
+      else assert.equal(W.localStorage.getItem(A.IDENTITY_META_KEY), before);
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      proto.setItem = set; packing.restore(); packing.release(); await Promise.allSettled([pending].filter(Boolean));
+      await A.drainIdentityWrites(); await A.drainProfileNameWrites(); await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+function importedPayloadCsv(prefix, count = 30) {
+  return ['Common Name,Scientific Name,Date', ...Array.from({ length: count }, (_, i) =>
+    prefix + ' synthetic import species ' + i + ',Syntheticus species' + i + ',2026-09-04')].join('\n');
+}
+
+test('F247 imported payload readers hydrate legacy and native snapshots without borrowing changed or malformed records', async () => {
+  const seen = Object.fromEntries(Array.from({ length: 30 }, (_, i) => ['syntheticus species' + i, 1]));
+  const names = Array.from({ length: 30 }, (_, i) => 'Synthetic previous imported species ' + i);
+  const meta = { count: 30, yearCount: 30, source: 'csv', year: '2026',
+    csvSnapshot: { version: 1, field: 'sciName', seen, lifeNames: names, yearNames: names } };
+  for (const dialect of ['legacy', 'gzip']) {
+    const raw = dialect === 'legacy' ? JSON.stringify(meta) : 'z:' + zlib.gzipSync(JSON.stringify(meta)).toString('base64');
+    const app = await boot({ sample: false, nativeCompression: true, storage: { ebird_seen_meta: raw } });
+    const W = app.window, A = W.__app;
+    try {
+      assert.ok(W.localStorage.getItem('ebird_seen_meta').startsWith('z:'));
+      assert.deepEqual(JSON.parse(JSON.stringify(A.getSeen())), seen);
+      assert.deepEqual(Array.from(A.importedNames('ebird_year_names')), names);
+      assert.equal(A.getSeenMeta().count, 30);
+      const changed = { ...meta, year: '2025' };
+      const unknown = 'z:' + zlib.gzipSync(JSON.stringify(changed)).toString('base64');
+      W.localStorage.setItem('ebird_seen_meta', unknown);
+      assert.equal(A.getSeenMeta(), null);
+      assert.throws(() => A.importCSV(importedPayloadCsv('Replacement')), /unreadable/);
+      assert.equal(W.localStorage.getItem('ebird_seen_meta'), unknown);
+      await A.readImportedCache('ebird_seen_meta');
+      assert.equal(A.getSeenMeta().year, '2025');
+      for (const malformed of [[], { count: '30' }, { ...meta, count: 31 },
+        { ...meta, csvSnapshot: { ...meta.csvSnapshot, yearNames: names.map(() => false) } },
+        { ...meta, csvSnapshot: { ...meta.csvSnapshot, seen: Object.fromEntries(Object.keys(seen).map(key => [key, 0])) } }]) {
+        W.localStorage.setItem('ebird_seen_meta', JSON.stringify(malformed));
+        assert.equal(A.getSeenMeta(), null);
+        assert.throws(() => A.importCSV(importedPayloadCsv('Replacement')), /unreadable/);
+      }
+      W.localStorage.setItem(A.BC_PROFILE_PTR, '2');
+      assert.deepEqual(JSON.parse(JSON.stringify(A.getSeen())), {});
+      assert.deepEqual(app.state.errors, []);
+    } finally { W.close(); }
+  }
+});
+
+test('F247 borrowed imported-payload migrations preserve replacement, foreign and restored erased sources', async () => {
+  const names = Array.from({ length: 30 }, (_, i) => 'Synthetic imported species ' + i);
+  const seen = Object.fromEntries(names.map(name => [name.toLowerCase(), 1]));
+  const meta = { count: 30, yearCount: 30, source: 'csv',
+    csvSnapshot: { version: 1, field: 'comName', seen, lifeNames: names, yearNames: names } };
+  for (const action of ['save', 'replace', 'profile', 'erase', 'reject']) {
+    const app = await boot({ sample: false, nativeCompression: true });
+    const W = app.window, A = W.__app, observed = {}, before = JSON.stringify(meta);
+    const packing = holdPersonalSnapshotEncoding(W, candidate => candidate.csvSnapshot && candidate.count === 30);
+    let pending, done = false, current = true;
+    try {
+      W.localStorage.setItem('ebird_seen_meta', before);
+      W.localStorage.removeItem(A.bcReal(A.IDENTITY_REV_KEY));
+      pending = A.readImportedCache('ebird_seen_meta', observed, () => current).finally(() => { done = true; });
+      await waitFor(() => packing.ready() || done, 'actual imported payload migration');
+      assert.equal(packing.ready(), true); assert.equal(done, false);
+      if (action === 'replace') W.localStorage.setItem('ebird_seen_meta', 'null');
+      else if (action === 'profile') {
+        W.localStorage.setItem(A.BC_PROFILE_PTR, '2');
+        W.localStorage.setItem('bcp:2:ebird_seen_meta', before);
+      } else if (action === 'erase') {
+        const restored = Object.fromEntries(Object.keys(W.localStorage).map(key => [key, W.localStorage.getItem(key)]));
+        A.scrubPersonalData(); await A.drainProfileNameWrites();
+        for (const [key, raw] of Object.entries(restored)) W.localStorage.setItem(key, raw);
+      } else if (action === 'reject') current = false;
+      packing.release(); await pending;
+      if (action === 'save') {
+        assert.ok(W.localStorage.getItem('ebird_seen_meta').startsWith('z:'));
+        assert.equal(observed.raw, W.localStorage.getItem('ebird_seen_meta'));
+      } else {
+        assert.equal(W.localStorage.getItem('ebird_seen_meta'), action === 'replace' ? 'null' : before);
+        assert.equal(observed.raw, before);
+      }
+      if (action === 'profile') assert.equal(W.localStorage.getItem('bcp:2:ebird_seen_meta'), before);
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      packing.restore(); packing.release(); await Promise.allSettled([pending].filter(Boolean));
+      await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 actual CSV file acknowledgment waits for its native payload and suppresses retired file feedback', async () => {
+  for (const action of ['save', 'profile', 'clear']) {
+    const app = await boot({ sample: false, nativeCompression: true });
+    const W = app.window, A = W.__app;
+    const packing = holdPersonalSnapshotEncoding(W, candidate => candidate.csvSnapshot && candidate.count === 30);
+    let pending;
+    try {
+      const input = app.$('csvFile'), status = app.$('csvStatus');
+      Object.defineProperty(input, 'files', { configurable: true, value: [
+        new W.File([importedPayloadCsv('Native file')], 'MyEBirdData.csv', { type: 'text/csv' }) ] });
+      input.dispatchEvent(new W.Event('change', { bubbles: true }));
+      await waitFor(packing.ready, 'actual file payload encoding');
+      pending = A.importPersistenceReceipt();
+      assert.match(status.textContent, /^Reading/);
+      assert.equal(W.localStorage.getItem('ebird_seen_meta'), null);
+      if (action === 'profile') W.localStorage.setItem(A.BC_PROFILE_PTR, '2');
+      else if (action === 'clear') app.click(app.$('clearCsv'));
+      packing.release();
+      assert.equal(await pending, action === 'save');
+      await new Promise(setImmediate);
+      if (action === 'save') {
+        await waitFor(() => /countable species imported/.test(status.textContent), 'actual retained import confirmation');
+        assert.equal(A.getSeenMeta().count, 30);
+      } else {
+        assert.equal(W.localStorage.getItem('ebird_seen_meta'), null);
+        assert.equal(W.localStorage.getItem('bcp:2:ebird_seen_meta'), null);
+        assert.doesNotMatch(status.textContent, /Could not import|countable species imported/);
+      }
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      packing.restore(); packing.release(); await Promise.allSettled([pending].filter(Boolean));
+      await A.drainImportedWrites(); await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 actual imported-data Clear reports unacknowledged removal and retries the retained coherent snapshot', async () => {
+  const app = await boot({ sample: false, nativeCompression: true });
+  const W = app.window, A = W.__app, proto = W.Storage.prototype, remove = proto.removeItem;
+  try {
+    A.importCSV(importedPayloadCsv('Retained'));
+    assert.equal(await A.importPersistenceReceipt(), true);
+    const before = W.localStorage.getItem('ebird_seen_meta');
+    proto.removeItem = function (key) { if (key !== 'ebird_seen_meta') return remove.call(this, key); };
+    app.click(app.$('clearCsv'));
+    assert.equal(await A.importPersistenceReceipt(), false);
+    await new Promise(setImmediate);
+    assert.equal(W.localStorage.getItem('ebird_seen_meta'), before);
+    assert.equal(A.getSeenMeta().count, 30);
+    assert.equal(Object.keys(A.getSeen()).length, 30);
+    assert.match(app.$('csvStatus').textContent, /could not be cleared and verified/);
+    proto.removeItem = remove;
+    app.click(app.$('clearCsv'));
+    assert.equal(await A.importPersistenceReceipt(), true);
+    await new Promise(setImmediate);
+    assert.equal(W.localStorage.getItem('ebird_seen_meta'), null);
+    assert.equal(A.getSeenMeta(), null);
+    assert.deepEqual(JSON.parse(JSON.stringify(A.getSeen())), {});
+    assert.deepEqual(app.state.errors, []);
+  } finally { proto.removeItem = remove; await A.drainImportedWrites(); W.close(); }
+});
+
+test('F247 a CSV FileReader from a retired owner never imports into the replacement profile', async () => {
+  const app = await boot({ sample: false, nativeCompression: true });
+  const W = app.window, A = W.__app, Reader = W.FileReader;
+  let finished = false;
+  try {
+    W.FileReader = class extends Reader {
+      constructor() { super(); this.addEventListener('loadend', () => { finished = true; }); }
+    };
+    const input = app.$('csvFile');
+    Object.defineProperty(input, 'files', { configurable: true, value: [
+      new W.File([importedPayloadCsv('Retired file')], 'MyEBirdData.csv', { type: 'text/csv' }) ] });
+    input.dispatchEvent(new W.Event('change', { bubbles: true }));
+    W.localStorage.setItem(A.BC_PROFILE_PTR, '2');
+    await waitFor(() => finished, 'actual retired FileReader completion');
+    await A.drainImportedWrites(); await new Promise(setImmediate);
+    assert.equal(W.localStorage.getItem('bcp:2:ebird_seen_meta'), null);
+    assert.equal(W.localStorage.getItem('ebird_seen_meta'), null);
+    assert.doesNotMatch(app.$('csvStatus').textContent, /Could not import|countable species imported/);
+    assert.deepEqual(app.state.errors, []);
+  } finally { W.FileReader = Reader; W.close(); }
+});
+
+test('F247 native imported snapshots retain copied coherent maps, names and metadata only for their admitted source', async () => {
+  const oldSeen = { 'turdus migratorius': 1 }, oldMeta = { count: 1, source: 'csv', year: '2026' };
+  for (const action of ['save', 'replace', 'late', 'legacy', 'profile', 'identity', 'erase', 'noop', 'quota', 'clear']) {
+    const app = await boot({ sample: false, nativeCompression: true, storage: {
+      ebird_seen: JSON.stringify(oldSeen), ebird_seen_meta: JSON.stringify(oldMeta),
+      ebird_life_names: '["American Robin"]', ebird_year_names: '["American Robin"]' } });
+    const W = app.window, A = W.__app, proto = W.Storage.prototype, get = proto.getItem, set = proto.setItem;
+    const packing = holdPersonalSnapshotEncoding(W, candidate => candidate.csvSnapshot && candidate.count === 30);
+    let pending, done = false;
+    try {
+      const keys = ['ebird_seen_meta', 'ebird_seen', 'ebird_life_names', 'ebird_year_names'];
+      const before = Object.fromEntries(keys.map(key => [key, W.localStorage.getItem(key)]));
+      assert.equal(A.importCSV(importedPayloadCsv('First')), 30);
+      pending = A.importPersistenceReceipt().finally(() => { done = true; });
+      await waitFor(() => packing.ready() || done, 'actual imported snapshot encoding');
+      assert.equal(packing.ready(), true); assert.equal(done, false);
+      assert.equal(W.localStorage.getItem('ebird_seen_meta'), before.ebird_seen_meta);
+      assert.equal(A.getSeenMeta().count, 30);
+      assert.equal(Object.keys(A.getSeen()).length, 30);
+      A.getSeen()['syntheticus species0'] = false; A.getSeenMeta().count = 0;
+      A.importedNames('ebird_year_names')[0] = 'Getter mutation';
+      assert.equal(A.getSeen()['syntheticus species0'], 1);
+      assert.equal(A.getSeenMeta().count, 30);
+      assert.match(A.importedNames('ebird_year_names')[0], /^First/);
+      if (action === 'replace') W.localStorage.setItem('ebird_seen_meta', 'null');
+      else if (action === 'late') {
+        let armed = true;
+        proto.getItem = function (key) {
+          const raw = get.call(this, key);
+          if (key === 'ebird_seen_meta' && armed) { armed = false; set.call(this, key, 'null'); }
+          return raw;
+        };
+      } else if (action === 'legacy') W.localStorage.setItem('ebird_seen', '{"independently-newer":1}');
+      else if (action === 'profile') {
+        W.localStorage.setItem(A.BC_PROFILE_PTR, '2');
+        for (const key of keys) W.localStorage.setItem('bcp:2:' + key, before[key]);
+        assert.deepEqual(JSON.parse(JSON.stringify(A.getSeen())), oldSeen);
+      } else if (action === 'identity') W.localStorage.setItem(A.bcReal(A.IDENTITY_REV_KEY), '1');
+      else if (action === 'erase') {
+        const restored = Object.fromEntries(Object.keys(W.localStorage).map(key => [key, W.localStorage.getItem(key)]));
+        A.scrubPersonalData(); await A.drainProfileNameWrites();
+        for (const [key, raw] of Object.entries(restored)) W.localStorage.setItem(key, raw);
+      } else if (action === 'noop' || action === 'quota') {
+        proto.setItem = function (key, raw) {
+          if (key === 'ebird_seen_meta') {
+            if (action === 'quota') throw new W.DOMException('Import quota', 'QuotaExceededError');
+            return;
+          }
+          return set.call(this, key, raw);
+        };
+      } else if (action === 'clear') app.click(app.$('clearCsv'));
+      packing.release();
+      assert.equal(await pending, action === 'save', action);
+      if (action === 'save') {
+        const retained = readPersistedFixture(W, 'ebird_seen_meta');
+        assert.ok(W.localStorage.getItem('ebird_seen_meta').startsWith('z:'));
+        assert.equal(retained.count, 30);
+        assert.equal(Object.keys(retained.csvSnapshot.seen).length, 30);
+        assert.equal(retained.csvSnapshot.yearNames.length, 30);
+        assert.equal(A.getField(), retained.csvSnapshot.field);
+        assert.equal(W.localStorage.getItem('ebird_seen'), before.ebird_seen,
+          'new imported map is not published separately from its metadata');
+      } else assert.equal(W.localStorage.getItem('ebird_seen_meta'),
+        action === 'clear' ? null : ['replace', 'late'].includes(action) ? 'null' : before.ebird_seen_meta);
+      if (action === 'profile') for (const key of keys) assert.equal(W.localStorage.getItem('bcp:2:' + key), before[key]);
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      proto.getItem = get; proto.setItem = set; packing.restore(); packing.release();
+      await Promise.allSettled([pending].filter(Boolean)); await A.drainImportedWrites();
+      await A.drainProfileNameWrites(); await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 imported snapshot writer copies caller input before native encoding and field-mirror acknowledgment', async () => {
+  const app = await boot({ sample: false, nativeCompression: true });
+  const W = app.window, A = W.__app;
+  const names = Array.from({ length: 30 }, (_, i) => 'Synthetic copied input species ' + i);
+  const value = { count: 30, yearCount: 30, source: 'csv', csvSnapshot: {
+    version: 1, field: 'sciName', seen: Object.fromEntries(names.map(name => [name.toLowerCase(), 1])),
+    lifeNames: names, yearNames: names } };
+  const expected = JSON.parse(JSON.stringify(value));
+  const packing = holdPersonalSnapshotEncoding(W, candidate => candidate.csvSnapshot && candidate.count === 30);
+  let pending;
+  try {
+    const before = W.localStorage.getItem('ebird_seen_meta');
+    assert.equal(await A.saveImportedCSV({ count: 1, source: 'csv' }, () => true), false);
+    assert.equal(W.localStorage.getItem('ebird_seen_meta'), before);
+    pending = A.saveImportedCSV(value, () => W.localStorage.getItem(A.bcReal('ebird_seen_meta')) === before);
+    value.csvSnapshot.field = 'comName'; value.csvSnapshot.lifeNames[0] = 'Caller mutation';
+    value.csvSnapshot.seen[expected.csvSnapshot.lifeNames[0].toLowerCase()] = 0;
+    await waitFor(packing.ready, 'actual copied import input encoding');
+    assert.equal(A.getField(), 'sciName');
+    assert.deepEqual(Array.from(A.importedNames('ebird_life_names')), expected.csvSnapshot.lifeNames);
+    packing.release();
+    assert.equal(await pending, true);
+    assert.deepEqual(readPersistedFixture(W, 'ebird_seen_meta'), expected);
+    assert.equal(W.localStorage.getItem('ebird_seen_field'), 'sciName');
+    assert.deepEqual(app.state.errors, []);
+  } finally {
+    packing.restore(); packing.release(); await Promise.allSettled([pending].filter(Boolean));
+    await A.drainImportedWrites(); await new Promise(setImmediate); W.close();
+  }
+});
+
+test('F247 native imported snapshot queues serialize source reads and acknowledge only the latest coherent import', async () => {
+  const app = await boot({ sample: false, nativeCompression: true });
+  const W = app.window, A = W.__app, proto = W.Storage.prototype, get = proto.getItem, set = proto.setItem;
+  const packing = holdPersonalSnapshotEncoding(W, candidate => candidate.csvSnapshot && candidate.count === 30);
+  let first, next, reads = 0, allocations = 0;
+  try {
+    proto.setItem = function (key, raw) { if (key === 'ebird_seen_meta') allocations++; return set.call(this, key, raw); };
+    A.importCSV(importedPayloadCsv('First')); first = A.importPersistenceReceipt();
+    await waitFor(packing.ready, 'actual first import encoding');
+    proto.getItem = function (key) { if (key === 'ebird_seen_meta') reads++; return get.call(this, key); };
+    A.importCSV(importedPayloadCsv('Next', 31)); next = A.importPersistenceReceipt();
+    await new Promise(setImmediate);
+    assert.equal(reads, 0, 'next import cannot read the retained metadata source before the first job retires');
+    proto.getItem = get;
+    packing.release();
+    assert.equal(await first, true); assert.equal(await next, true);
+    assert.equal(allocations, 1);
+    assert.equal(A.getSeenMeta().count, 31);
+    assert.match(A.importedNames('ebird_life_names')[0], /^Next/);
+    assert.equal(Object.keys(readPersistedFixture(W, 'ebird_seen_meta').csvSnapshot.seen).length, 31);
+    assert.deepEqual(app.state.errors, []);
+  } finally {
+    proto.getItem = get; proto.setItem = set; packing.restore(); packing.release();
+    await Promise.allSettled([first, next].filter(Boolean)); await A.drainImportedWrites();
+    await new Promise(setImmediate); W.close();
+  }
+});
+
+test('F247 actual imported snapshot allocation rebases a newer import without approving a foreign profile', async () => {
+  for (const action of ['intent', 'profile']) {
+    const app = await boot({ sample: false, nativeCompression: true });
+    const W = app.window, A = W.__app, proto = W.Storage.prototype, set = proto.setItem;
+    let next, intercepted = false;
+    try {
+      proto.setItem = function (key, raw) {
+        const result = set.call(this, key, raw);
+        if (key === 'ebird_seen_meta' && !intercepted) {
+          intercepted = true;
+          if (action === 'intent') { A.importCSV(importedPayloadCsv('Next', 31)); next = A.importPersistenceReceipt(); }
+          else set.call(this, A.BC_PROFILE_PTR, '2');
+        }
+        return result;
+      };
+      A.importCSV(importedPayloadCsv('First'));
+      assert.equal(await A.importPersistenceReceipt(), action === 'intent');
+      assert.equal(intercepted, true);
+      if (next) assert.equal(await next, true);
+      assert.equal(readPersistedFixture(W, 'ebird_seen_meta').count, action === 'intent' ? 31 : 30);
+      assert.equal(W.localStorage.getItem('bcp:2:ebird_seen_meta'), null);
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      proto.setItem = set; await Promise.allSettled([next].filter(Boolean)); await A.drainImportedWrites();
+      await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 imported field mirror failure remains explicit while the acknowledged snapshot stays coherent', async () => {
+  const app = await boot({ sample: false, nativeCompression: true, storage: { ebird_seen_field: 'sciName' } });
+  const W = app.window, A = W.__app, proto = W.Storage.prototype, set = proto.setItem;
+  try {
+    proto.setItem = function (key, raw) { if (key !== 'ebird_seen_field') return set.call(this, key, raw); };
+    A.importCSV(['Common Name,Date', ...Array.from({ length: 30 }, (_, i) =>
+      'Synthetic common import species ' + i + ',2026-09-04')].join('\n'));
+    assert.equal(await A.importPersistenceReceipt(), false);
+    assert.equal(A.getField(), 'comName');
+    assert.equal(A.getSeenMeta().count, 30);
+    assert.equal(Object.keys(A.getSeen()).length, 30);
+    assert.equal(readPersistedFixture(W, 'ebird_seen_meta').csvSnapshot.field, 'comName');
+    assert.equal(W.localStorage.getItem('ebird_seen_field'), 'sciName');
+    assert.deepEqual(app.state.errors, []);
+  } finally { proto.setItem = set; await A.drainImportedWrites(); W.close(); }
+});
+
+test('F247 failed actual CSV payload retention preserves the previous imported map and metadata together', async () => {
+  const oldSeen = { 'turdus migratorius': 1 };
+  const oldMeta = { count: 1, countableCount: 1, source: 'csv', year: '2026', yearCount: 1 };
+  const app = await boot({ sample: false, nativeCompression: true, storage: {
+    ebird_seen: JSON.stringify(oldSeen), ebird_seen_meta: JSON.stringify(oldMeta),
+    ebird_life_names: JSON.stringify(['American Robin']), ebird_year_names: JSON.stringify(['American Robin']) } });
+  const W = app.window, A = W.__app, proto = W.Storage.prototype, set = proto.setItem;
+  try {
+    proto.setItem = function (key, raw) { if (key !== 'ebird_seen_meta') return set.call(this, key, raw); };
+    const input = app.$('csvFile');
+    Object.defineProperty(input, 'files', { configurable: true, value: [
+      new W.File(['Common Name,Scientific Name,Date\nMallard,Anas platyrhynchos,2026-09-04'],
+        'MyEBirdData.csv', { type: 'text/csv' }) ] });
+    input.dispatchEvent(new W.Event('change', { bubbles: true }));
+    await waitFor(() => !/^Reading/.test(app.$('csvStatus').textContent), 'actual CSV payload receipt');
+    assert.deepEqual(JSON.parse(JSON.stringify(A.getSeenMeta())), oldMeta);
+    assert.deepEqual(JSON.parse(JSON.stringify(A.getSeen())), oldSeen);
+    assert.match(app.$('csvStatus').textContent, /Could not import.*saved and verified/);
+    assert.deepEqual(app.state.errors, []);
+  } finally { proto.setItem = set; W.close(); }
+});
+
+test('F247 actual CSV import waits for native identity acknowledgment and a nameless retry does not borrow its failure', async () => {
+  for (const action of ['save', 'noop']) {
+    const app = await boot({ sample: false, nativeCompression: true });
+    const W = app.window, A = W.__app, proto = W.Storage.prototype, set = proto.setItem;
+    const firstName = 'NativeCSV'.repeat(40), name = firstName + ' account';
+    const packing = holdPersonalSnapshotEncoding(W, candidate => candidate.displayName === name && candidate.source === 'ebird-csv');
+    function importFile(csv) {
+      const input = app.$('csvFile');
+      Object.defineProperty(input, 'files', { configurable: true,
+        value: [new W.File([csv], 'MyEBirdData.csv', { type: 'text/csv' })] });
+      input.dispatchEvent(new W.Event('change', { bubbles: true }));
+    }
+    try {
+      const before = W.localStorage.getItem(A.IDENTITY_META_KEY);
+      importFile('Common Name,Scientific Name,Date,First Name,Last Name\nAmerican Robin,Turdus migratorius,2026-09-04,' + firstName + ',account');
+      await waitFor(packing.ready, 'actual CSV identity encoding');
+      assert.match(app.$('csvStatus').textContent, /^Reading/);
+      assert.equal(W.localStorage.getItem(A.IDENTITY_META_KEY), before);
+      assert.notEqual(W.localStorage.getItem('ebird_display_name'), name);
+      if (action === 'noop') proto.setItem = function (key, raw) { if (key !== A.IDENTITY_META_KEY) return set.call(this, key, raw); };
+      packing.release();
+      await waitFor(() => !/^Reading/.test(app.$('csvStatus').textContent), 'actual CSV identity receipt');
+      if (action === 'save') {
+        assert.match(app.$('csvStatus').textContent, /countable species imported/);
+        assert.equal(readPersistedFixture(W, A.IDENTITY_META_KEY).displayName, name);
+        assert.equal(W.localStorage.getItem('ebird_display_name'), name);
+      } else {
+        assert.match(app.$('csvStatus').textContent, /Could not import.*identity could not be saved and verified/);
+        assert.equal(W.localStorage.getItem(A.IDENTITY_META_KEY), before);
+        proto.setItem = set;
+        importFile('Common Name,Scientific Name,Date\nAmerican Robin,Turdus migratorius,2026-09-04');
+        await waitFor(() => !/^Reading/.test(app.$('csvStatus').textContent), 'nameless CSV after failed identity');
+        assert.match(app.$('csvStatus').textContent, /countable species imported/);
+      }
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      proto.setItem = set; packing.restore(); packing.release(); await A.drainIdentityWrites(); await A.drainProfileNameWrites();
+      await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 actual device-region discovery awaits native retention and suppresses obsolete recommendations', async () => {
+  const country = 'Synthetic country evidence '.repeat(40);
+  for (const action of ['save', 'noop', 'report', 'profile', 'erase']) {
+    const app = await boot({ report: null, key: null, home: false, sample: false, nativeCompression: true,
+      location: { lat: 31.76, lng: -106.48 }, fetch: url => /photon\.komoot\.io\/reverse/.test(url) ? {
+        features: [{ properties: { state: 'Texas', countrycode: 'US', country },
+          geometry: { type: 'Point', coordinates: [-106.48, 31.76] } }]
+      } : null });
+    const W = app.window, A = W.__app, proto = W.Storage.prototype, set = proto.setItem;
+    const packing = holdPersonalSnapshotEncoding(W, candidate => candidate.source === 'device-location' && candidate.resolved.country === country);
+    let draining;
+    try {
+      const before = W.localStorage.getItem(A.PROFILE_REGION_RECOMMENDATION_KEY);
+      const status = app.$('regionSetupStatus');
+      app.click(app.$('regionLocateBtn'));
+      await waitFor(packing.ready, 'actual device recommendation encoding');
+      draining = A.drainIdentityWrites();
+      assert.equal(W.localStorage.getItem(A.PROFILE_REGION_RECOMMENDATION_KEY), before);
+      assert.doesNotMatch(status.textContent, /is recommended/);
+      if (action === 'noop') proto.setItem = function (key, raw) {
+        if (key !== A.PROFILE_REGION_RECOMMENDATION_KEY) return set.call(this, key, raw);
+      };
+      else if (action === 'report') A.setActiveReport('hi');
+      else if (action === 'profile') W.localStorage.setItem(A.BC_PROFILE_PTR, '2');
+      else if (action === 'erase') A.scrubPersonalData();
+      packing.release(); await draining; await new Promise(setImmediate);
+      if (action === 'save') {
+        await waitFor(() => /is recommended/.test(app.$('regionSetupStatus').textContent), 'acknowledged device recommendation');
+        assert.equal(readPersistedFixture(W, A.PROFILE_REGION_RECOMMENDATION_KEY).code, 'US-TX');
+        assert.equal(A.getReportSlug(), '', 'recommendation does not silently accept a region');
+      } else {
+        assert.equal(W.localStorage.getItem(A.PROFILE_REGION_RECOMMENDATION_KEY), before);
+        if (action === 'noop') {
+          assert.match(app.$('regionSetupStatus').textContent, /could not be saved and verified/);
+          assert.doesNotMatch(app.$('regionSetupStatus').textContent, /is recommended/);
+        } else assert.doesNotMatch(status.textContent, /is recommended|could not be saved/);
+      }
+      assert.equal(W.localStorage.getItem('bcp:2:' + A.PROFILE_REGION_RECOMMENDATION_KEY), null);
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      proto.setItem = set; packing.restore(); packing.release(); await Promise.allSettled([draining].filter(Boolean));
+      await A.drainIdentityWrites(); await A.drainProfileNameWrites(); await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 owned native region recommendations copy input and reject expired producer admission', async () => {
+  for (const action of ['save', 'reject']) {
+    const app = await boot({ sample: false, nativeCompression: true });
+    const W = app.window, A = W.__app;
+    const value = { source: 'device-location', status: 'supported', code: 'CA-BC', parentCode: 'CA-BC',
+      resolved: { code: 'CA-BC', label: 'Synthetic province' }, evidence: 'Synthetic recommendation evidence '.repeat(40) };
+    const expected = JSON.parse(JSON.stringify(value));
+    const packing = holdPersonalSnapshotEncoding(W, candidate => candidate.evidence === expected.evidence);
+    let pending, current = true;
+    try {
+      const before = W.localStorage.getItem(A.PROFILE_REGION_RECOMMENDATION_KEY);
+      assert.equal(await A.saveIdentityProjection(A.PROFILE_REGION_RECOMMENDATION_KEY, { status: [] }), false);
+      assert.equal(W.localStorage.getItem(A.PROFILE_REGION_RECOMMENDATION_KEY), before);
+      pending = A.saveIdentityProjection(A.PROFILE_REGION_RECOMMENDATION_KEY, value, () => current);
+      value.resolved.label = 'Caller mutation';
+      await waitFor(packing.ready, 'actual region recommendation encoding');
+      assert.equal(W.localStorage.getItem(A.PROFILE_REGION_RECOMMENDATION_KEY), before);
+      assert.equal(A.storedProfileRegionRecommendation().resolved.label, expected.resolved.label);
+      A.storedProfileRegionRecommendation().resolved.label = 'Getter mutation';
+      assert.equal(A.storedProfileRegionRecommendation().resolved.label, expected.resolved.label);
+      if (action === 'reject') current = false;
+      packing.release();
+      assert.equal(await pending, action === 'save');
+      assert.equal(W.localStorage.getItem('bcp:2:' + A.PROFILE_REGION_RECOMMENDATION_KEY), null);
+      if (action === 'save') assert.deepEqual(readPersistedFixture(W, A.PROFILE_REGION_RECOMMENDATION_KEY), expected);
+      else assert.equal(W.localStorage.getItem(A.PROFILE_REGION_RECOMMENDATION_KEY), before);
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      packing.restore(); packing.release(); await Promise.allSettled([pending].filter(Boolean)); await A.drainIdentityWrites();
+      await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 actual sign-out reports unacknowledged identity removal and retries the retained sidecar', async () => {
+  const meta = { source: 'ebird-bird-list', profileId: 'OriginalAccount', displayName: 'Original synthetic account' };
+  const app = await boot({ sample: false, nativeCompression: true,
+    storage: { ebird_display_name: meta.displayName, ebird_identity_v1: JSON.stringify(meta),
+      'bcp:2:ebird_identity_v1': JSON.stringify({ source: 'manual', displayName: 'Foreign synthetic account' }) } });
+  const W = app.window, A = W.__app, proto = W.Storage.prototype, remove = proto.removeItem;
+  try {
+    W.Capacitor = { Plugins: { CapgoInAppBrowser: { clearAllBrowsingData() { return Promise.resolve(); } } } };
+    const before = W.localStorage.getItem(A.IDENTITY_META_KEY), foreign = W.localStorage.getItem('bcp:2:' + A.IDENTITY_META_KEY);
+    proto.removeItem = function (key) { if (key !== A.IDENTITY_META_KEY) return remove.call(this, key); };
+    assert.equal(await A.ebirdSignOut(), false);
+    assert.equal(W.localStorage.getItem(A.IDENTITY_META_KEY), before);
+    assert.match(app.$('rankStatus').textContent, /Identity cleanup failed/);
+    proto.removeItem = remove;
+    assert.equal(await A.ebirdSignOut(), true);
+    assert.equal(W.localStorage.getItem(A.IDENTITY_META_KEY), null);
+    assert.equal(A.getDisplayName(), '');
+    assert.equal(W.localStorage.getItem('bcp:2:' + A.IDENTITY_META_KEY), foreign);
+    assert.deepEqual(app.state.errors, []);
+  } finally { proto.removeItem = remove; await A.drainIdentityWrites(); await A.drainProfileNameWrites(); W.close(); }
+});
+
+test('F247 actual CSV import waits for its new native label receipt without inheriting an unrelated failure', async () => {
+  const key = 'ebird_profile_names', captured = 'Native CSV account';
+  for (const action of ['save', 'noop']) {
+    const names = sharedProfileNameFixture();
+    const app = await boot({ sample: false, nativeCompression: true,
+      storage: { ebird_profile_identity_v2: 'ebird-only', [key]: JSON.stringify(names) } });
+    const W = app.window, A = W.__app, proto = W.Storage.prototype, set = proto.setItem;
+    const packing = holdPersonalSnapshotEncoding(W, candidate => candidate[''] === captured);
+    function importFile(csv) {
+      const input = app.$('csvFile');
+      Object.defineProperty(input, 'files', { configurable: true,
+        value: [new W.File([csv], 'MyEBirdData.csv', { type: 'text/csv' })] });
+      input.dispatchEvent(new W.Event('change', { bubbles: true }));
+    }
+    try {
+      const before = W.localStorage.getItem(key);
+      importFile('Common Name,Scientific Name,Date,First Name,Last Name\nAmerican Robin,Turdus migratorius,2026-09-04,Native CSV,account');
+      await waitFor(packing.ready, 'actual CSV label encoding');
+      assert.equal(W.localStorage.getItem(key), before);
+      assert.match(app.$('csvStatus').textContent, /^Reading MyEBirdData.csv/);
+      if (action === 'noop') proto.setItem = function (k, raw) { if (k !== key) return set.call(this, k, raw); };
+      packing.release();
+      await waitFor(() => !/^Reading/.test(app.$('csvStatus').textContent), 'actual CSV receipt status');
+      if (action === 'save') {
+        assert.match(app.$('csvStatus').textContent, /countable species imported/);
+        assert.deepEqual(readPersistedFixture(W, key), { ...names, '': captured });
+      } else {
+        assert.match(app.$('csvStatus').textContent, /Could not import.*profile label could not be saved and verified/);
+        assert.equal(W.localStorage.getItem(key), before);
+        proto.setItem = set;
+        importFile('Common Name,Scientific Name,Date\nAmerican Robin,Turdus migratorius,2026-09-04');
+        await waitFor(() => !/^Reading/.test(app.$('csvStatus').textContent), 'nameless CSV completion');
+        assert.match(app.$('csvStatus').textContent, /countable species imported/,
+          'a CSV without identity must not borrow an earlier failed label receipt');
+      }
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      proto.setItem = set; packing.restore(); packing.release(); await A.drainProfileNameWrites();
+      await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 actual erase waits for native shared-label cleanup before clearing the browser session', async () => {
+  const key = 'ebird_profile_names';
+  for (const action of ['save', 'noop']) {
+    const names = sharedProfileNameFixture();
+    const app = await boot({ sample: false, nativeCompression: true, indexedDB: new IDBFactory(),
+      storage: { ebird_profile_identity_v2: 'ebird-only', [key]: JSON.stringify(names) } });
+    const W = app.window, A = W.__app, proto = W.Storage.prototype, set = proto.setItem;
+    const packing = holdPersonalSnapshotEncoding(W, candidate => !Object.hasOwn(candidate, '') && candidate['2'] === names['2']);
+    let clears = 0;
+    try {
+      W.Capacitor = { Plugins: { CapgoInAppBrowser: {
+        clearAllBrowsingData() { clears++; return Promise.resolve(); }
+      } } };
+      W.confirm = () => true;
+      const before = W.localStorage.getItem(key);
+      app.click(app.$('scrubBtn'));
+      await waitFor(() => packing.ready() || clears > 0, 'actual erase shared-label receipt or browser transition');
+      assert.equal(clears, 0, 'browser generation must not invalidate its pending label cleanup');
+      assert.equal(packing.ready(), true, 'the actual label encoding must begin before browser clearing');
+      assert.equal(W.localStorage.getItem(key), before);
+      assert.match(app.$('scrubStatus').textContent, /waiting for profile label storage/);
+      assert.equal(A.profileLabel(''), names[''], 'hidden cleanup does not publish unretained deletion');
+      if (action === 'noop') proto.setItem = function (k, raw) { if (k !== key) return set.call(this, k, raw); };
+      packing.release();
+      await waitFor(() => !/waiting for profile label storage/.test(app.$('scrubStatus').textContent), 'actual erase acknowledgment');
+      if (action === 'save') {
+        await waitFor(() => clears === 1, 'browser clearing follows retained label cleanup');
+        assert.deepEqual(readPersistedFixture(W, key), { '2': names['2'], '3': names['3'], '4': names['4'] });
+      } else {
+        assert.equal(clears, 0);
+        assert.equal(W.localStorage.getItem(key), before);
+        assert.match(app.$('scrubStatus').textContent, /could not be erased and verified.*not reloaded/);
+      }
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      proto.setItem = set; packing.restore(); packing.release(); await A.drainProfileNameWrites();
+      await waitFor(() => /Everything stored|could not be erased and verified|could not be cleared/
+        .test(app.$('scrubStatus').textContent), 'actual erase cleanup settles before window teardown');
+      await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 actual sign-out retries failed shared-label cleanup and never deletes a foreign profile label', async () => {
+  const key = 'ebird_profile_names';
+  for (const action of ['save', 'noop', 'profile']) {
+    const names = sharedProfileNameFixture();
+    const app = await boot({ sample: false, nativeCompression: true,
+      storage: { ebird_profile_identity_v2: 'ebird-only', [key]: JSON.stringify(names),
+        ebird_display_name: names[''], ebird_identity_meta_v1: JSON.stringify({ source: 'ebird-bird-list' }) } });
+    const W = app.window, A = W.__app, proto = W.Storage.prototype, set = proto.setItem;
+    const packing = holdPersonalSnapshotEncoding(W, candidate => !Object.hasOwn(candidate, '') && candidate['2'] === names['2']);
+    let pending, done = false, releaseClear;
+    try {
+      W.Capacitor = { Plugins: { CapgoInAppBrowser: {
+        clearAllBrowsingData() { return new Promise(resolve => { releaseClear = resolve; }); }
+      } } };
+      const before = W.localStorage.getItem(key);
+      pending = A.ebirdSignOut().finally(() => { done = true; });
+      await waitFor(() => !!releaseClear, 'actual sign-out browser clearing');
+      if (action === 'profile') W.localStorage.setItem(A.BC_PROFILE_PTR, '2');
+      releaseClear(); releaseClear = null;
+      if (action === 'profile') {
+        await waitFor(() => done || packing.ready(), 'foreign sign-out admission or encoding');
+        assert.equal(packing.ready(), false, 'foreign cleanup never begins encoding');
+        assert.equal(await pending, false);
+        assert.equal(W.localStorage.getItem(key), before);
+      } else {
+        await waitFor(() => packing.ready() || done, 'actual sign-out profile-label cleanup');
+        assert.equal(packing.ready(), true); assert.equal(done, false);
+        assert.doesNotMatch(app.$('rankStatus').textContent, /^Signed out/);
+        assert.equal(W.localStorage.getItem(key), before);
+        if (action === 'noop') proto.setItem = function (k, raw) { if (k !== key) return set.call(this, k, raw); };
+        packing.release();
+        assert.equal(await pending, action === 'save');
+        if (action === 'noop') {
+          assert.equal(W.localStorage.getItem(key), before);
+          assert.match(app.$('rankStatus').textContent, /Profile label cleanup failed/);
+          proto.setItem = set;
+          const retry = A.ebirdSignOut();
+          await waitFor(() => !!releaseClear, 'actual sign-out retry');
+          releaseClear(); releaseClear = null;
+          assert.equal(await retry, true, 'retry must remove the label even after display identity was already cleared');
+        }
+        assert.deepEqual(readPersistedFixture(W, key), { '2': names['2'], '3': names['3'], '4': names['4'] });
+        assert.match(app.$('rankStatus').textContent, /^Signed out/);
+      }
+      assert.equal(W.localStorage.getItem('bcp:2:' + key), null);
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      if (releaseClear) releaseClear(); proto.setItem = set; packing.restore(); packing.release();
+      await Promise.allSettled([pending].filter(Boolean)); await A.drainProfileNameWrites();
+      await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 actual Logout waits for native shared-label retention and retries without reviving old captures', async () => {
+  const key = 'ebird_profile_names';
+  for (const action of ['save', 'noop']) {
+    const names = sharedProfileNameFixture();
+    const app = await boot({ sample: false, nativeCompression: true, indexedDB: new IDBFactory(),
+      storage: { ebird_profile_identity_v2: 'ebird-only', [key]: JSON.stringify(names) } });
+    const W = app.window, A = W.__app, proto = W.Storage.prototype, set = proto.setItem;
+    const packing = holdPersonalSnapshotEncoding(W, candidate => !Object.hasOwn(candidate, '') && candidate['2'] === names['2']);
+    let pending, done = false, clears = 0;
+    try {
+      W.Capacitor = { Plugins: { CapgoInAppBrowser: {
+        clearAllBrowsingData() { clears++; return Promise.resolve(); }
+      } } };
+      W.confirm = () => true;
+      A.showSettingsCategory('account');
+      const before = W.localStorage.getItem(key);
+      app.click(app.$('ebirdSignOut'));
+      pending = A.logoutActiveProfile().finally(() => { done = true; });
+      await waitFor(() => packing.ready() || done, 'actual Logout shared-label receipt');
+      assert.equal(packing.ready(), true); assert.equal(done, false);
+      assert.equal(clears, 1);
+      assert.equal(W.localStorage.getItem(key), before);
+      assert.equal(A.profileLabel(''), names[''], 'Logout cleanup remains hidden until acknowledged');
+      assert.equal(W.localStorage.getItem(A.bcReal('bc_logout_setup_account')), null);
+      assert.doesNotMatch(app.$('settingsLogoutStatus').textContent, /^Logged out/);
+      assert.equal(A.applyCapturedIdentity({ status: 'ok', displayName: 'Late old account' }).applied, false);
+      if (action === 'noop') proto.setItem = function (k, raw) { if (k !== key) return set.call(this, k, raw); };
+      packing.release();
+      assert.equal(await pending, action === 'save');
+      if (action === 'noop') {
+        assert.equal(W.localStorage.getItem(key), before);
+        assert.equal(W.localStorage.getItem(A.bcReal('bc_logout_setup_account')), null);
+        assert.match(app.$('settingsLogoutStatus').textContent, /Logout did not finish.*Profile label cleanup/);
+        proto.setItem = set;
+        assert.equal(await A.logoutActiveProfile(), true, 'retry acknowledges the unfinished shared-label cleanup');
+      }
+      assert.deepEqual(readPersistedFixture(W, key), { '2': names['2'], '3': names['3'], '4': names['4'] });
+      assert.equal(W.localStorage.getItem(A.bcReal('bc_logout_setup_account')), '1');
+      assert.equal(A.applyCapturedIdentity({ status: 'ok', displayName: 'Late old account' }).applied, false);
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      proto.setItem = set; packing.restore(); packing.release();
+      await Promise.allSettled([pending].filter(Boolean)); await A.drainProfileNameWrites();
+      await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+function personalChoicePersistenceFixture() {
+  return {
+    version: 1,
+    watch: Array.from({ length: 30 }, (_, i) => ({ code: 'choice' + i, name: 'Personal choice bird ' + i })),
+    favorites: Array.from({ length: 30 }, (_, i) => ({
+      id: 'L247' + i, locId: 'L247' + i, locName: 'Personal choice patch ' + i,
+      lat: 47.5, lng: -122.2, region: 'US-WA'
+    }))
+  };
+}
+
+test('F247 personal choice native saves copy intent and reject replacement, foreign, erased and failed receipts', async () => {
+  for (const kind of ['watch', 'favorites']) {
+    for (const action of ['save', 'replace', 'late', 'profile', 'erase', 'noop', 'quota']) {
+      const record = personalChoicePersistenceFixture();
+      const key = kind === 'watch' ? 'ebird_personal_choices_v1' : 'ebird_favs';
+      const value = kind === 'watch' ? record : record.favorites;
+      const app = await boot({ sample: false, nativeCompression: true,
+        storage: { [key]: JSON.stringify(value) } });
+      const W = app.window, A = W.__app, proto = W.Storage.prototype, set = proto.setItem, get = proto.getItem;
+      const rows = JSON.parse(JSON.stringify(record[kind]));
+      rows[0][kind === 'watch' ? 'name' : 'locName'] = 'Changed copied choice';
+      const expected = JSON.parse(JSON.stringify(rows));
+      const packing = holdPersonalSnapshotEncoding(W, candidate =>
+        JSON.stringify(candidate).includes('Changed copied choice'));
+      let pending, done = false;
+      try {
+        W.localStorage.removeItem(A.bcReal(A.IDENTITY_REV_KEY));
+        const before = W.localStorage.getItem(key);
+        pending = (kind === 'watch' ? A.setWatchlist(rows) : A.setFavs(rows))
+          .finally(() => { done = true; });
+        rows[0][kind === 'watch' ? 'name' : 'locName'] = 'Caller mutation';
+        await waitFor(() => packing.ready() || done, 'actual native personal choice encoding');
+        assert.equal(packing.ready(), true); assert.equal(done, false);
+        assert.equal(W.localStorage.getItem(key), before, 'live intent is not retained evidence');
+        const choices = () => kind === 'watch' ? A.getWatchlist() : A.getFavs();
+        assert.deepEqual(JSON.parse(JSON.stringify(choices())), expected);
+        choices()[0][kind === 'watch' ? 'name' : 'locName'] = 'Getter mutation';
+        assert.deepEqual(JSON.parse(JSON.stringify(choices())), expected);
+        if (action === 'replace') W.localStorage.setItem(key, 'null');
+        else if (action === 'late') {
+          let armed = true;
+          proto.getItem = function (k) {
+            const raw = get.call(this, k);
+            if (k === key && armed) { armed = false; set.call(this, k, 'null'); }
+            return raw;
+          };
+        }
+        else if (action === 'profile') {
+          W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-choice-owner');
+          W.localStorage.setItem(A.bcReal(key), before);
+        } else if (action === 'erase') {
+          const persisted = Object.fromEntries(Object.keys(W.localStorage).map(k => [k, W.localStorage.getItem(k)]));
+          A.scrubPersonalData();
+          for (const [k, raw] of Object.entries(persisted)) W.localStorage.setItem(k, raw);
+        } else if (action === 'noop' || action === 'quota') proto.setItem = function (k, raw) {
+          if (k === key) {
+            if (action === 'quota') throw new W.DOMException('Personal choice quota', 'QuotaExceededError');
+            return;
+          }
+          return set.call(this, k, raw);
+        };
+        packing.release();
+        assert.equal(await pending, action === 'save');
+        if (action !== 'save') assert.equal(W.localStorage.getItem(key), ['replace', 'late'].includes(action) ? 'null' : before);
+        if (action === 'save') {
+          assert.ok(W.localStorage.getItem(key).startsWith('z:'));
+          assert.deepEqual(readPersistedFixture(W, key), kind === 'watch' ? { ...record, watch: expected } : expected);
+        }
+        if (action === 'profile') assert.equal(W.localStorage.getItem(A.bcReal(key)), before);
+        assert.deepEqual(app.state.errors, []);
+      } finally {
+        proto.setItem = set; proto.getItem = get; packing.restore(); packing.release();
+        await Promise.allSettled([pending].filter(Boolean));
+        if (packing.started()) await waitFor(packing.ready, 'the actual encoding before cleanup');
+        await new Promise(setImmediate); W.close();
+      }
+    }
+  }
+});
+
+test('F247 personal choice native queues compose latest copied intents without allocating superseded values', async () => {
+  const key = 'ebird_personal_choices_v1', record = personalChoicePersistenceFixture();
+  const app = await boot({ sample: false, nativeCompression: true, storage: { [key]: JSON.stringify(record) } });
+  const W = app.window, A = W.__app, proto = W.Storage.prototype, set = proto.setItem;
+  const watch = record.watch.map(row => ({ ...row }));
+  watch[0].name = 'Latest composed Watch';
+  const favorites = record.favorites.map(row => ({ ...row }));
+  favorites[0].locName = 'Latest composed Favorite';
+  const expected = { ...record, watch: JSON.parse(JSON.stringify(watch)), favorites: JSON.parse(JSON.stringify(favorites)) };
+  const packing = holdPersonalSnapshotEncoding(W, candidate => candidate.watch?.[0]?.name === watch[0].name);
+  let first, next, done = false, writes = 0;
+  try {
+    W.localStorage.setItem(key, JSON.stringify(record));
+    const before = W.localStorage.getItem(key);
+    proto.setItem = function (k, raw) { if (k === key) writes++; return set.call(this, k, raw); };
+    first = A.setWatchlist(watch);
+    await waitFor(packing.ready, 'the superseded native choice encoding');
+    next = A.setFavs(favorites).finally(() => { done = true; });
+    favorites[0].locName = 'Caller mutation';
+    await new Promise(setImmediate);
+    assert.equal(packing.started(), 1, 'the next same-owner encoding must wait for the actual prior receipt');
+    assert.equal(done, false); assert.equal(W.localStorage.getItem(key), before);
+    packing.release();
+    assert.equal(await first, true, 'presentation receipts join the latest same-owner intent');
+    assert.equal(await next, true);
+    assert.equal(writes, 1, 'only the latest composed record may allocate');
+    assert.deepEqual(readPersistedFixture(W, key), expected);
+    assert.deepEqual(app.state.errors, []);
+  } finally {
+    proto.setItem = set; packing.restore(); packing.release();
+    await Promise.allSettled([first, next].filter(Boolean)); await new Promise(setImmediate); W.close();
+  }
+});
+
+test('F247 personal choice intent rejects an early source replacement instead of adopting it as the save baseline', async () => {
+  const key = 'ebird_personal_choices_v1', record = personalChoicePersistenceFixture();
+  const app = await boot({ sample: false, nativeCompression: true, storage: { [key]: JSON.stringify(record) } });
+  const W = app.window, A = W.__app;
+  try {
+    const pending = A.setWatchlist(record.watch.slice(1));
+    W.localStorage.setItem(key, 'null');
+    assert.equal(await pending, false);
+    assert.equal(W.localStorage.getItem(key), 'null');
+    assert.deepEqual(app.state.errors, []);
+  } finally { await A.drainPersonalChoiceWrites(); W.close(); }
+});
+
+test('F247 personal choice saves reject malformed canonical fields without writing a different category', async () => {
+  for (const record of [
+    { version: 2, watch: [] }, { version: 1, watch: [], favorites: 'unreadable' },
+    { version: 1, watch: [], unsupported: true }
+  ]) {
+    const key = 'ebird_personal_choices_v1', raw = JSON.stringify(record);
+    const app = await boot({ sample: false, nativeCompression: true, storage: { [key]: raw } });
+    const W = app.window, A = W.__app;
+    try {
+      const before = W.localStorage.getItem(key);
+      assert.equal(await A.setWatchlist([{ code: 'newchoice', name: 'New choice' }]), false);
+      assert.equal(W.localStorage.getItem(key), before);
+      assert.deepEqual(app.state.errors, []);
+    } finally { await A.drainPersonalChoiceWrites(); W.close(); }
+  }
+});
+
+test('F247 personal choice acknowledged allocation rebases a newer intent but never approves a changed owner', async () => {
+  for (const action of ['intent', 'profile']) {
+    const key = 'ebird_personal_choices_v1', record = personalChoicePersistenceFixture();
+    const app = await boot({ sample: false, nativeCompression: true, storage: { [key]: JSON.stringify(record) } });
+    const W = app.window, A = W.__app, proto = W.Storage.prototype, set = proto.setItem;
+    const watch = record.watch.slice(1), favorites = record.favorites.slice(1);
+    let next, intercepted = false;
+    try {
+      proto.setItem = function (k, raw) {
+        const result = set.call(this, k, raw);
+        if (k === key && !intercepted) {
+          intercepted = true;
+          if (action === 'intent') next = A.setFavs(favorites);
+          else {
+            set.call(this, A.BC_PROFILE_PTR, 'F247-choice-receipt');
+            set.call(this, A.bcReal(key), raw);
+          }
+        }
+        return result;
+      };
+      const first = A.setWatchlist(watch);
+      assert.equal(await first, action === 'intent');
+      assert.equal(intercepted, true, 'the ownership transition must occur at actual allocation');
+      if (next) assert.equal(await next, true);
+      const expected = { ...record, watch, favorites: action === 'intent' ? favorites : record.favorites };
+      assert.deepEqual(readPersistedFixture(W, key), expected);
+      if (action === 'profile') assert.deepEqual(readPersistedFixture(W, A.bcReal(key)), expected);
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      proto.setItem = set; await Promise.allSettled([next].filter(Boolean)); await A.drainPersonalChoiceWrites();
+      await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 actual Watch removal waits for native acknowledgment and reports rejected storage without losing choices', async () => {
+  for (const action of ['save', 'noop']) {
+    const key = 'ebird_watchlist_v1', record = personalChoicePersistenceFixture();
+    const app = await boot({ sample: false, nativeCompression: true,
+      storage: { [key]: JSON.stringify(record.watch) } });
+    const W = app.window, A = W.__app, proto = W.Storage.prototype, set = proto.setItem;
+    const packing = holdPersonalSnapshotEncoding(W, candidate => Array.isArray(candidate) && candidate.length === 29);
+    let pending;
+    try {
+      A.renderWatch();
+      const control = app.$('nvResults').querySelector('.nvdel[data-i="0"]');
+      assert.ok(control, 'the actual saved Watch removal control must exist');
+      const before = W.localStorage.getItem(key);
+      app.click(control); pending = control._choiceReceipt;
+      assert.equal(typeof pending?.then, 'function');
+      await waitFor(packing.ready, 'actual Watch control native receipt');
+      assert.equal(control.disabled, true); assert.equal(control.getAttribute('aria-busy'), 'true');
+      assert.equal(W.localStorage.getItem(key), before);
+      assert.doesNotMatch(app.$('nvStatus').textContent, /were not saved/);
+      if (action === 'noop') proto.setItem = function (k, raw) {
+        if (k !== key) return set.call(this, k, raw);
+      };
+      packing.release(); const result = await pending;
+      await new Promise(setImmediate);
+      assert.equal(result.saved, action === 'save');
+      assert.deepEqual(readPersistedFixture(W, key), action === 'save' ? record.watch.slice(1) : record.watch);
+      if (action === 'noop') assert.match(app.$('nvStatus').textContent, /were not saved/);
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      proto.setItem = set; packing.restore(); packing.release();
+      await Promise.allSettled([pending].filter(Boolean)); await A.drainPersonalChoiceWrites();
+      await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 actual Watch search keeps its original busy control blocked until the latest native intent settles', async () => {
+  const key = 'ebird_watchlist_v1', record = personalChoicePersistenceFixture();
+  const app = await boot({ sample: false, nativeCompression: true,
+    storage: { [key]: JSON.stringify(record.watch) }, fetch(url) {
+      if (/product\/spplist/.test(url)) return ['amerob'];
+      if (/ref\/taxonomy\/ebird/.test(url)) return [{
+        speciesCode: 'amerob', comName: 'American Robin', sciName: 'Turdus migratorius', category: 'species'
+      }];
+      return [];
+    }
+  });
+  const W = app.window, A = W.__app;
+  const packing = holdPersonalSnapshotEncoding(W, candidate =>
+    Array.isArray(candidate) && candidate.some(row => row.code === 'amerob'));
+  let first, next;
+  try {
+    app.$('nvSearch').value = 'Robin'; A.runNvSearch();
+    await waitFor(() => app.$('nvFound').querySelector('.nvadd'), 'the actual native Watch search result');
+    const add = app.$('nvFound').querySelector('.nvadd'), before = W.localStorage.getItem(key);
+    app.click(add); first = add._choiceReceipt;
+    await waitFor(packing.ready, 'the actual pending Watch addition');
+    const remove = app.$('nvResults').querySelector('.nvdel[data-i="30"]');
+    assert.ok(remove);
+    app.click(remove); next = remove._choiceReceipt;
+    assert.equal(A.getWatchlist().some(row => row.code === 'amerob'), false);
+    assert.equal(add.getAttribute('aria-busy'), 'true');
+    assert.equal(add.disabled, true, 'a repaint cannot re-enable an original control whose receipt is still pending');
+    assert.equal(W.localStorage.getItem(key), before);
+    packing.release();
+    assert.equal((await first).saved, true); assert.equal((await next).saved, true);
+    await new Promise(setImmediate);
+    assert.equal(add.disabled, false); assert.equal(add.hasAttribute('aria-busy'), false);
+    assert.deepEqual(readPersistedFixture(W, key), record.watch);
+    assert.deepEqual(app.state.errors, []);
+  } finally {
+    packing.restore(); packing.release(); await Promise.allSettled([first, next].filter(Boolean));
+    await A.drainPersonalChoiceWrites(); await new Promise(setImmediate); W.close();
+  }
+});
+
+test('F247 acknowledged Watch retention preserves evidence computed for the same pending intent', async () => {
+  const app = await boot({ sample: false, nativeCompression: true, fetch: () => [] });
+  const W = app.window, A = W.__app, watch = personalChoicePersistenceFixture().watch;
+  const packing = holdPersonalSnapshotEncoding(W, candidate => Array.isArray(candidate) && candidate.length === 30);
+  let pending;
+  try {
+    const original = await A.getChaseRarity(false);
+    assert.equal(original.feedComplete, true, 'use actual acquired and acknowledged notable evidence');
+    pending = A.setWatchlist(watch);
+    await waitFor(packing.ready, 'the native Watch save');
+    A.seedChase(A.chaseProfile().slug, original);
+    const before = app.state.fetches.filter(url => /data\/obs\/.*notable/.test(url)).length;
+    packing.release(); assert.equal(await pending, true); await new Promise(setImmediate);
+    const retained = await A.getChaseRarity(false);
+    assert.equal(app.state.fetches.filter(url => /data\/obs\/.*notable/.test(url)).length, before,
+      'acknowledging unchanged live intent cannot discard newer evidence or buy another provider wave');
+    assert.deepEqual(JSON.parse(JSON.stringify(retained.feedTimes)), JSON.parse(JSON.stringify(original.feedTimes)));
+    assert.deepEqual(app.state.errors, []);
+  } finally {
+    packing.restore(); packing.release(); await Promise.allSettled([pending].filter(Boolean));
+    await A.drainPersonalChoiceWrites(); await new Promise(setImmediate); W.close();
+  }
+});
+
+test('F247 actual Settings native import hides pending data and preserves ownership, review and atomic rollback', async () => {
+  for (const action of ['save', 'replace', 'late', 'profile', 'erase', 'input', 'selection', 'mode', 'revision',
+    'silent-input', 'silent-selection', 'silent-mode', 'intent', 'legacy-intent', 'corrupt', 'noop', 'quota', 'source']) {
+    const key = 'ebird_personal_choices_v1', legacy = 'ebird_favs', record = personalChoicePersistenceFixture();
+    const initial = action === 'source' ? { version: 1, watch: record.watch } : record;
+    const storage = { [key]: JSON.stringify(initial), [legacy]: JSON.stringify(record.favorites) };
+    if (action === 'legacy-intent') {
+      delete storage[key];
+      storage.ebird_watchlist_v1 = JSON.stringify(record.watch);
+    }
+    const app = await boot({ sample: false, nativeCompression: true, storage });
+    const W = app.window, A = W.__app, proto = W.Storage.prototype, set = proto.setItem, get = proto.getItem;
+    const incoming = { ...record.favorites[0], id: 'L247999', locId: 'L247999', locName: 'Pending imported Favorite' };
+    const packing = holdPersonalSnapshotEncoding(W, candidate =>
+      candidate.favorites?.some(row => row.id === incoming.id));
+    let pending, writes = 0, corrupted = false;
+    try {
+      W.localStorage.removeItem(A.bcReal(A.IDENTITY_REV_KEY));
+      app.click(app.$('brandSettings'));
+      app.$('personalBackupWatch').checked = false;
+      app.$('personalBackupText').value = JSON.stringify({ format: 'birdchaser-personal-lists', version: 1, favorites: [incoming] });
+      app.click(app.$('personalBackupReview'));
+      await waitFor(() => !app.$('personalBackupSave').disabled, 'native Favorite import review');
+      const before = W.localStorage.getItem(key);
+      const legacyBefore = W.localStorage.getItem(legacy);
+      app.click(app.$('personalBackupSave'));
+      await waitFor(packing.ready, 'actual import compressed candidate');
+      pending = app.$('personalBackupSave')._choiceReceipt;
+      assert.equal(typeof pending?.then, 'function');
+      assert.equal(app.$('personalBackupSave').getAttribute('aria-busy'), 'true');
+      assert.equal(W.localStorage.getItem(key), before);
+      assert.deepEqual(JSON.parse(JSON.stringify(A.getFavs())), record.favorites,
+        'a pending import cannot become ordinary live intent');
+      if (action === 'replace') W.localStorage.setItem(key, 'null');
+      else if (action === 'late') {
+        let armed = true;
+        proto.getItem = function (k) {
+          const raw = get.call(this, k);
+          if (k === key && armed) { armed = false; set.call(this, k, 'null'); }
+          return raw;
+        };
+      }
+      else if (action === 'profile') {
+        W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-import-owner');
+        W.localStorage.setItem(A.bcReal(key), before);
+      } else if (action === 'erase') {
+        const persisted = Object.fromEntries(Object.keys(W.localStorage).map(k => [k, W.localStorage.getItem(k)]));
+        A.scrubPersonalData();
+        for (const [k, raw] of Object.entries(persisted)) W.localStorage.setItem(k, raw);
+      } else if (['input', 'selection', 'mode', 'revision', 'silent-input', 'silent-selection', 'silent-mode'].includes(action)) {
+        const type = action.replace('silent-', '');
+        const control = app.$(type === 'input' || type === 'revision' ? 'personalBackupText'
+          : type === 'selection' ? 'personalBackupFavorites' : 'personalBackupMode');
+        if (type === 'input') control.value += ' ';
+        else if (type === 'selection') control.checked = false;
+        else if (type === 'mode') control.value = 'replace';
+        if (!action.startsWith('silent-')) control.dispatchEvent(new W.Event('change', { bubbles: true }));
+      } else if (action === 'intent' || action === 'legacy-intent') {
+        A.setWatchlist(record.watch.slice(1));
+      } else if (action === 'source') W.localStorage.setItem(legacy, JSON.stringify(record.favorites.slice(1)));
+      proto.setItem = function (k, raw) {
+        if (k === key) {
+          writes++;
+          if (action === 'noop') return;
+          if (action === 'quota') throw new W.DOMException('Import quota', 'QuotaExceededError');
+          if (action === 'corrupt' && !corrupted) {
+            corrupted = true;
+            return set.call(this, k, JSON.stringify({ version: 1, watch: [], favorites: [] }));
+          }
+        }
+        return set.call(this, k, raw);
+      };
+      packing.release(); await pending; await A.drainPersonalChoiceWrites(); await new Promise(setImmediate);
+      if (action === 'save') {
+        assert.match(app.$('personalBackupStatus').textContent, /saved and read back successfully/);
+        assert.equal(writes, 1, 'the selected import must be one atomic canonical write');
+        assert.deepEqual(readPersistedFixture(W, key), { ...record, favorites: [...record.favorites, incoming] });
+      } else {
+        assert.doesNotMatch(app.$('personalBackupStatus').textContent, /saved and read back successfully/);
+        if (action === 'intent') {
+          assert.deepEqual(readPersistedFixture(W, key), { ...record, watch: record.watch.slice(1) });
+        } else if (action === 'legacy-intent') {
+          assert.equal(W.localStorage.getItem(key), before);
+          assert.deepEqual(readPersistedFixture(W, 'ebird_watchlist_v1'), record.watch.slice(1));
+        } else if (action === 'corrupt') {
+          assert.equal(corrupted, true); assert.equal(writes, 2);
+          assert.deepEqual(readPersistedFixture(W, key), record, 'rollback must restore both categories after actual corruption');
+          assert.match(app.$('personalBackupStatus').textContent, /existing choices were retained/);
+        } else assert.equal(W.localStorage.getItem(key), ['replace', 'late'].includes(action) ? 'null' : before);
+      }
+      assert.equal(W.localStorage.getItem(legacy), action === 'source'
+        ? JSON.stringify(record.favorites.slice(1)) : legacyBefore, 'non-target source bytes are never restored or overwritten');
+      if (action === 'profile') assert.equal(W.localStorage.getItem(A.bcReal(key)), before);
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      proto.setItem = set; proto.getItem = get; packing.restore(); packing.release();
+      await Promise.allSettled([pending].filter(Boolean)); await A.drainPersonalChoiceWrites();
+      await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 borrowed personal choice migrations advance receipts only for current admitted unchanged owners', async () => {
+  for (const action of ['save', 'replace', 'profile', 'erase', 'reject']) {
+    const key = 'ebird_personal_choices_v1', record = personalChoicePersistenceFixture();
+    const app = await boot({ sample: false, nativeCompression: true });
+    const W = app.window, A = W.__app;
+    const before = JSON.stringify(record), observed = {};
+    const packing = holdPersonalSnapshotEncoding(W, candidate => candidate.watch?.length === 30);
+    let pending, current = true;
+    try {
+      W.localStorage.setItem(key, before);
+      W.localStorage.removeItem(A.bcReal(A.IDENTITY_REV_KEY));
+      pending = A.readPersonalChoiceCache(key, observed, () => current);
+      await waitFor(packing.ready, 'the borrowed personal choice migration');
+      assert.equal(observed.raw, before);
+      if (action === 'replace') W.localStorage.setItem(key, 'null');
+      else if (action === 'profile') {
+        W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-choice-migration');
+        W.localStorage.setItem(A.bcReal(key), before);
+      } else if (action === 'erase') {
+        const persisted = Object.fromEntries(Object.keys(W.localStorage).map(k => [k, W.localStorage.getItem(k)]));
+        A.scrubPersonalData();
+        for (const [k, raw] of Object.entries(persisted)) W.localStorage.setItem(k, raw);
+      } else if (action === 'reject') current = false;
+      packing.release(); await pending;
+      if (action === 'save') {
+        assert.ok(W.localStorage.getItem(key).startsWith('z:'));
+        assert.equal(observed.raw, W.localStorage.getItem(key), 'only an acknowledged migration advances CAS');
+      } else {
+        assert.equal(observed.raw, before);
+        assert.equal(W.localStorage.getItem(key), action === 'replace' ? 'null' : before);
+      }
+      if (action === 'profile') assert.equal(W.localStorage.getItem(A.bcReal(key)), before);
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      packing.restore(); packing.release(); await Promise.allSettled([pending].filter(Boolean));
+      await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 actual setup Favorite native approval waits for receipt and rejects changed source, scope and intent', async () => {
+  for (const action of ['save', 'replace', 'profile', 'scope', 'selection', 'source', 'intent', 'legacy-intent', 'corrupt']) {
+    const { app, saved } = await setupFavoriteApp({ nativeCompression: true });
+    const W = app.window, A = W.__app, key = 'ebird_personal_choices_v1', legacy = 'ebird_favs';
+    const record = { version: 1, watch: personalChoicePersistenceFixture().watch };
+    const proto = W.Storage.prototype, set = proto.setItem;
+    const packing = holdPersonalSnapshotEncoding(W, candidate =>
+      (Array.isArray(candidate) ? candidate : candidate.favorites)?.some(row => row.id === 'L128001'));
+    let corrupted = false;
+    try {
+      if (action !== 'legacy-intent') W.localStorage.setItem(key, JSON.stringify(record));
+      const before = W.localStorage.getItem(key), legacyBefore = W.localStorage.getItem(legacy);
+      await searchSetupFavoriteFixture(app);
+      const selected = app.$('setupFavoriteOptions').querySelector('[data-setup-favorite="L128001"]');
+      selected.click();
+      app.click(app.$('setupFavoriteContinue'));
+      await waitFor(packing.ready, 'actual setup Favorite native approval');
+      assert.equal(app.$('setupSheetBody').dataset.setupStep, 'favorites');
+      assert.equal(W.localStorage.getItem(key), before);
+      assert.deepEqual(JSON.parse(JSON.stringify(A.getFavs())), saved, 'setup intent stays hidden until acknowledged');
+      if (action === 'replace') W.localStorage.setItem(key, 'null');
+      else if (action === 'profile') {
+        W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-setup-choice');
+        W.localStorage.setItem(A.bcReal(key), before);
+      } else if (action === 'scope') A.setCountyView('US-WA-061');
+      else if (action === 'selection') app.$('setupFavoriteOptions')
+        .querySelector('[data-setup-favorite="L128001"]').click();
+      else if (action === 'source') W.localStorage.setItem(legacy, 'null');
+      else if (action === 'intent' || action === 'legacy-intent') A.setWatchlist(record.watch.slice(1));
+      else if (action === 'corrupt') proto.setItem = function (k, raw) {
+        if (k === key && !corrupted) {
+          corrupted = true;
+          return set.call(this, k, JSON.stringify({ version: 1, watch: [], favorites: [] }));
+        }
+        return set.call(this, k, raw);
+      };
+      packing.release(); await A.drainPersonalChoiceWrites(); await new Promise(setImmediate);
+      if (action === 'save') {
+        assert.equal(app.$('setupSheetBody').dataset.setupStep, 'summary');
+        assert.deepEqual(readPersistedFixture(W, key).watch, record.watch);
+        assert.deepEqual(readPersistedFixture(W, key).favorites.map(row => row.id), [...saved.map(row => row.id), 'L128001']);
+      } else {
+        assert.notEqual(app.$('setupSheetBody').dataset.setupStep, 'summary', 'obsolete ' + action + ' approval cannot advance setup');
+        if (action === 'intent') assert.deepEqual(readPersistedFixture(W, key), { ...record, watch: record.watch.slice(1) });
+        else if (action === 'legacy-intent') {
+          assert.equal(W.localStorage.getItem(key), before);
+          assert.deepEqual(readPersistedFixture(W, 'ebird_watchlist_v1'), record.watch.slice(1));
+        }
+        else if (action === 'corrupt') {
+          assert.equal(corrupted, true);
+          assert.deepEqual(readPersistedFixture(W, key), record);
+          assert.match(app.$('setupActionStatus').textContent, /could not be saved and verified/);
+        } else assert.equal(W.localStorage.getItem(key), action === 'replace' ? 'null' : before);
+      }
+      assert.equal(W.localStorage.getItem(legacy), action === 'source' ? 'null' : legacyBefore);
+      if (action === 'profile') assert.equal(W.localStorage.getItem(A.bcReal(key)), before);
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      proto.setItem = set; packing.restore(); packing.release(); await A.drainPersonalChoiceWrites();
+      await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 actual Year List Watch rejection is acknowledged before its classified recovery notice', async () => {
+  const app = await nativePersonalSnapshotApp();
+  const W = app.window, A = W.__app, proto = W.Storage.prototype, set = proto.setItem;
+  let pending;
+  try {
+    await A.ensurePersonalList(A.activeScope(), true);
+    A.updateMyYear();
+    const control = app.$('myYearList').querySelector('.myYearWatchlist');
+    assert.ok(control);
+    const key = A.bcReal('ebird_watchlist_v1'), before = W.localStorage.getItem(key);
+    proto.setItem = function (k, raw) { if (k !== key) return set.call(this, k, raw); };
+    app.click(control); pending = control._choiceReceipt;
+    assert.equal(typeof pending?.then, 'function');
+    assert.equal(control.getAttribute('aria-busy'), 'true');
+    assert.doesNotMatch(app.$('appSheet')?.textContent || '', /Storage rejected/);
+    assert.equal((await pending).saved, false); await new Promise(setImmediate);
+    assert.equal(W.localStorage.getItem(key), before);
+    assert.ok(app.$('appSheet'), 'the rejected receipt must open its classified recovery notice');
+    assert.match(app.$('appSheet').textContent, /Storage rejected/);
+    assert.deepEqual(app.state.errors, []);
+  } finally {
+    proto.setItem = set; await Promise.allSettled([pending].filter(Boolean)); await A.drainPersonalChoiceWrites();
+    await new Promise(setImmediate); W.close();
+  }
+});
+
+test('F247 exact personal snapshots hydrate legacy and native restart with stable unpoisonable source identity', async () => {
+  const initial = await nativePersonalSnapshotApp();
+  let storage, key, original;
+  try {
+    const W = initial.window, A = W.__app;
+    await A.ensurePersonalList(A.activeScope(), true);
+    key = A.personalListKey(A.personalListOwner());
+    original = readPersistedFixture(W, key);
+    assert.ok(W.localStorage.getItem(key).startsWith('z:'), 'the actual acquisition must retain native gzip');
+    storage = Object.fromEntries(Object.keys(W.localStorage).map(k => [k, W.localStorage.getItem(k)]));
+  } finally { initial.window.close(); }
+  for (const dialect of ['legacy', 'gzip']) {
+    const app = await nativePersonalSnapshotApp({ ...storage,
+      [key]: dialect === 'legacy' ? JSON.stringify(original) : storage[key] });
+    const W = app.window, A = W.__app;
+    try {
+      assert.ok(W.localStorage.getItem(key).startsWith('z:'));
+      const snapshot = A.personalListRead(A.personalListOwner());
+      assert.ok(snapshot);
+      const prepared = A.setupPreparedInitialTasks(A.activeScope()).personal;
+      assert.ok(prepared, 'the actual prepared-resource consumer must recognize the restored exact source');
+      assert.equal(prepared.value, snapshot);
+      assert.equal(A.personalListRead(A.personalListOwner()), snapshot);
+      assert.throws(() => snapshot.codes.push('rename'), /extensible|read only|readonly/i);
+      assert.throws(() => { snapshot.owner.region = 'US-OR'; }, /read only|readonly/i);
+      assert.equal(prepared.current(), true, 'repeated evidence reads preserve the resource identity');
+      assert.equal(A.personalListEvidence().species.stable, 1);
+      const requests = app.state.fetches.filter(url => /ebird\.org\/lifelist\//.test(url)).length;
+      assert.equal(await A.ensurePersonalList(A.activeScope(), false), snapshot);
+      assert.equal(app.state.fetches.filter(url => /ebird\.org\/lifelist\//.test(url)).length, requests);
+      const changed = { ...original, codes: ['rename'], rows: original.rows.map(row => ({ ...row, code: 'rename' })) };
+      W.localStorage.setItem(key, 'z:' + zlib.gzipSync(JSON.stringify(changed)).toString('base64'));
+      assert.equal(A.personalListEvidence().complete, false, 'unknown changed gzip cannot lend old membership');
+      assert.equal(prepared.current(), false);
+      await A.readPersonalListCache(key);
+      assert.equal(A.personalListEvidence().species.rename, 1);
+      assert.equal(A.personalListEvidence().species.stable, undefined);
+      for (const invalid of ['null', 'z:unreadable']) {
+        W.localStorage.setItem(key, invalid);
+        assert.equal(A.personalListEvidence().complete, false, 'unreadable is not a verified empty list');
+      }
+      assert.deepEqual(app.state.errors, []);
+    } finally { W.close(); }
+  }
+});
+
+test('F247 borrowed exact personal migrations preserve replaced, erased, foreign and rejected records', async () => {
+  for (const action of ['replace', 'profile', 'erase', 'reject']) {
+    const app = await nativePersonalSnapshotApp();
+    const W = app.window, A = W.__app;
+    let packing, pending, current = true;
+    try {
+      await A.ensurePersonalList(A.activeScope(), true);
+      const key = A.personalListKey(A.personalListOwner()), raw = JSON.stringify(readPersistedFixture(W, key));
+      W.localStorage.setItem(key, raw);
+      W.localStorage.removeItem(A.bcReal(A.IDENTITY_REV_KEY));
+      packing = holdPersonalSnapshotEncoding(W, value => value.source && value.source.includes('/lifelist/'));
+      pending = A.readPersonalListCache(key, {}, () => current);
+      await waitFor(packing.ready, 'native exact personal migration');
+      if (action === 'replace') W.localStorage.setItem(key, 'null');
+      else if (action === 'profile') {
+        W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-personal-migration');
+        W.localStorage.setItem(A.bcReal(key), raw);
+      } else if (action === 'erase') {
+        const persisted = Object.fromEntries(Object.keys(W.localStorage).map(k => [k, W.localStorage.getItem(k)]));
+        A.scrubPersonalData();
+        for (const [k, value] of Object.entries(persisted)) W.localStorage.setItem(k, value);
+      } else current = false;
+      packing.release(); await pending;
+      assert.equal(W.localStorage.getItem(key), action === 'replace' ? 'null' : raw);
+      if (action === 'profile') assert.equal(W.localStorage.getItem(A.bcReal(key)), raw);
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      if (packing) { packing.release(); packing.restore(); }
+      await Promise.allSettled([pending].filter(Boolean));
+      await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 actual exact personal acquisition awaits native receipts and rejects replaced, erased or obsolete owners', async () => {
+  for (const action of ['save', 'replace', 'profile', 'erase', 'scope', 'quota', 'noop']) {
+    const app = await nativePersonalSnapshotApp();
+    const W = app.window, A = W.__app, proto = W.Storage.prototype, set = proto.setItem;
+    let packing, pending, done = false;
+    try {
+      await A.ensurePersonalList(A.activeScope(), true);
+      const key = A.personalListKey(A.personalListOwner()), original = readPersistedFixture(W, key);
+      W.localStorage.setItem(key, JSON.stringify(original));
+      const fetch = W.fetch;
+      W.fetch = (url, options) => /ebird\.org\/lifelist\//.test(url)
+        ? Promise.resolve({ ok: true, status: 200, text: async () => ownedPersonalListFixture({ codes: ['rename'] }) })
+        : fetch(url, options);
+      packing = holdPersonalSnapshotEncoding(W, value => value.source && value.source.includes('/lifelist/')
+        && value.codes && value.codes[0] === 'rename');
+      pending = A.ensurePersonalList(A.activeScope(), true, null, { allowBrowser: false })
+        .then(value => ({ value }), error => ({ error })).finally(() => { done = true; });
+      await waitFor(() => packing.ready() || done, 'actual native personal snapshot receipt');
+      assert.equal(packing.ready(), true);
+      assert.equal(done, false, 'a terminal success cannot precede the actual persistence receipt');
+      const before = W.localStorage.getItem(key);
+      assert.ok(before.startsWith('z:'), 'the legacy migration must advance the save baseline');
+      assert.equal(A.personalListEvidence().species.stable, 1);
+      if (action === 'replace') W.localStorage.setItem(key, 'null');
+      else if (action === 'profile') {
+        W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-personal-owner');
+        W.localStorage.setItem(A.bcReal(key), before);
+      } else if (action === 'erase') {
+        const persisted = Object.fromEntries(Object.keys(W.localStorage).map(k => [k, W.localStorage.getItem(k)]));
+        A.scrubPersonalData();
+        for (const [k, value] of Object.entries(persisted)) W.localStorage.setItem(k, value);
+      } else if (action === 'scope') { A.setCountyView('US-WA-033'); A.setCountyView(''); }
+      else if (action === 'quota' || action === 'noop') proto.setItem = function (k, value) {
+        if (k === key) {
+          if (action === 'quota') throw new W.DOMException('Personal snapshot quota', 'QuotaExceededError');
+          return;
+        }
+        return set.call(this, k, value);
+      };
+      packing.release();
+      const outcome = await pending;
+      if (action === 'save') {
+        assert.equal(outcome.error, undefined);
+        assert.equal(A.personalListEvidence().species.rename, 1);
+        assert.equal(A.personalListEvidence().species.stable, undefined);
+        assert.ok(W.localStorage.getItem(key).startsWith('z:'));
+      } else {
+        assert.ok(outcome.error);
+        assert.match(outcome.error.message, ['profile', 'erase', 'scope'].includes(action)
+          ? /superseded/ : /could not be saved/);
+        assert.equal(W.localStorage.getItem(key), action === 'replace' ? 'null' : before);
+        if (action === 'profile') assert.equal(W.localStorage.getItem(A.bcReal(key)), before);
+        if (action === 'quota' || action === 'noop') {
+          assert.equal(A.personalListEvidence().species.stable, 1);
+          assert.ok(A.personalListEvidence().failure, 'failed retention must not claim a refreshed exact source');
+        }
+      }
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      proto.setItem = set;
+      if (packing) {
+        if (pending && !packing.ready()) await waitFor(packing.ready, 'draining native personal packing');
+        packing.release(); packing.restore();
+      }
+      await Promise.allSettled([pending].filter(Boolean));
+      await new Promise(resolve => setTimeout(resolve, 20)); W.close();
+    }
+  }
+});
+
+function holdReportingEncoding(W, predicate) {
+  const PromiseType = W.Promise, resolve = PromiseType.resolve;
+  let release, held = false;
+  PromiseType.resolve = function (value) {
+    if (!held && typeof value === 'string' && value.startsWith('j:{"region":')
+        && predicate(JSON.parse(value.slice(2)))) {
+      held = true;
+      return new PromiseType(done => { release = () => done(value); });
+    }
+    return resolve.call(this, value);
+  };
+  return { ready: () => held, release: () => { if (release) release(); },
+    restore: () => { PromiseType.resolve = resolve; } };
+}
+
+function holdBadgePreferenceEncoding(W, choice) {
+  const PromiseType = W.Promise, resolve = PromiseType.resolve;
+  let release, held = false;
+  PromiseType.resolve = function (value) {
+    if (!held && value === 'j:' + JSON.stringify(choice)) {
+      held = true;
+      return new PromiseType(done => { release = () => done(value); });
+    }
+    return resolve.call(this, value);
+  };
+  return { ready: () => held, release: () => { if (release) release(); },
+    restore: () => { PromiseType.resolve = resolve; } };
+}
+
+test('F247 badge preferences hydrate bare and native restart with explicit choices and safe defaults', async () => {
+  for (const [key, id, choice, fallback] of [
+    ['bc_report_menu_badges_v1', 'reportMenuBadges', 'hide', 'show'],
+    ['bc_nemesis_menu_badge_v1', 'nemesisMenuBadge', 'show', 'hide'],
+  ]) {
+    for (const dialect of ['bare', 'gzip']) {
+      let saved = dialect === 'bare' ? choice
+        : 'z:' + require('node:zlib').gzipSync(JSON.stringify(choice)).toString('base64');
+      for (const restart of [false, true]) {
+        const app = await boot({ sample: false, nativeCompression: true, storage: { [key]: saved } });
+        const W = app.window, A = W.__app;
+        try {
+          saved = W.localStorage.getItem(key);
+          assert.ok(saved.startsWith(dialect === 'bare' ? 'j:' : 'z:'));
+          assert.equal(readPersistedFixture(W, key), choice);
+          assert.equal(A.menuBadgePreference(key), choice);
+          assert.equal(app.$(id).value, choice);
+          const changed = 'z:' + require('node:zlib').gzipSync(JSON.stringify(fallback)).toString('base64');
+          W.localStorage.setItem(key, changed);
+          assert.equal(A.menuBadgePreference(key), fallback, 'unknown changed gzip cannot retain the prior explicit choice');
+          assert.equal(await A.readMenuBadgePreference(key), fallback);
+          for (const invalid of ['unrecognized', '42', 'true', '{"value":"show"}', 'z:unreadable']) {
+            W.localStorage.setItem(key, invalid);
+            assert.equal(A.menuBadgePreference(key), fallback);
+          }
+          assert.deepEqual(app.state.errors, []);
+        } finally { W.close(); }
+      }
+    }
+  }
+});
+
+test('F247 badge preference native saves await migrated receipts and reject stale, foreign or failed writes', async () => {
+  const key = 'bc_report_menu_badges_v1';
+  for (const action of ['save', 'replace', 'profile', 'erase', 'reject', 'quota', 'noop']) {
+    const app = await boot({ sample: false, nativeCompression: true });
+    const W = app.window, A = W.__app;
+    assert.equal(await A.saveMenuBadgePreference(key, 'unrecognized'), false);
+    assert.equal(await A.saveMenuBadgePreference('unrecognized-key', 'hide'), false);
+    W.localStorage.setItem(key, 'show');
+    W.localStorage.removeItem(A.bcReal(A.IDENTITY_REV_KEY));
+    const packing = holdBadgePreferenceEncoding(W, 'hide');
+    const proto = W.Storage.prototype, set = proto.setItem;
+    let pending, done = false, current = true;
+    try {
+      pending = A.saveMenuBadgePreference(key, 'hide', () => current).finally(() => { done = true; });
+      await waitFor(() => packing.ready() || done, 'native short badge preference encoding');
+      assert.equal(packing.ready(), true); assert.equal(done, false);
+      const before = W.localStorage.getItem(key);
+      assert.equal(before, 'j:"show"', 'the acknowledged migration must advance the save CAS baseline');
+      assert.equal(A.menuBadgePreference(key), 'show');
+      if (action === 'replace') W.localStorage.setItem(key, 'null');
+      else if (action === 'profile') {
+        W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-badge-owner');
+        W.localStorage.setItem(A.bcReal(key), before);
+      } else if (action === 'erase') {
+        const persisted = Object.fromEntries(Object.keys(W.localStorage).map(k => [k, W.localStorage.getItem(k)]));
+        A.scrubPersonalData();
+        for (const [k, value] of Object.entries(persisted)) W.localStorage.setItem(k, value);
+      } else if (action === 'reject') current = false;
+      else if (action === 'quota' || action === 'noop') proto.setItem = function (k, value) {
+        if (k === key) {
+          if (action === 'quota') throw new W.DOMException('Badge preference quota', 'QuotaExceededError');
+          return;
+        }
+        return set.call(this, k, value);
+      };
+      packing.release();
+      assert.equal(await pending, action === 'save');
+      assert.equal(W.localStorage.getItem(key), action === 'save' ? 'j:"hide"' : action === 'replace' ? 'null' : before);
+      if (action === 'profile') assert.equal(W.localStorage.getItem(A.bcReal(key)), before);
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      proto.setItem = set; packing.restore(); packing.release();
+      await Promise.allSettled([pending].filter(Boolean));
+      await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 badge preference queues retire superseded choices without overlapping receipts', async () => {
+  const app = await boot({ sample: false, nativeCompression: true });
+  const W = app.window, A = W.__app, key = 'bc_report_menu_badges_v1';
+  const packing = holdBadgePreferenceEncoding(W, 'hide');
+  let first, next, nextDone = false;
+  try {
+    first = A.saveMenuBadgePreference(key, 'hide');
+    await waitFor(packing.ready, 'first badge choice receipt');
+    next = A.saveMenuBadgePreference(key, 'show').finally(() => { nextDone = true; });
+    await new Promise(resolve => setTimeout(resolve, 20));
+    assert.equal(nextDone, false);
+    packing.release();
+    assert.equal(await first, false); assert.equal(await next, true);
+    assert.equal(readPersistedFixture(W, key), 'show');
+    assert.deepEqual(app.state.errors, []);
+  } finally {
+    packing.restore(); packing.release();
+    await Promise.allSettled([first, next].filter(Boolean));
+    await new Promise(setImmediate); W.close();
+  }
+});
+
+test('F247 borrowed badge preference migration preserves replacements and restored or foreign bytes', async () => {
+  const key = 'bc_report_menu_badges_v1';
+  for (const action of ['replace', 'profile', 'erase', 'reject']) {
+    const app = await boot({ sample: false, nativeCompression: true });
+    const W = app.window, A = W.__app;
+    W.localStorage.setItem(key, 'hide');
+    W.localStorage.removeItem(A.bcReal(A.IDENTITY_REV_KEY));
+    const packing = holdBadgePreferenceEncoding(W, 'hide');
+    let pending, current = true;
+    try {
+      pending = A.readMenuBadgePreference(key, {}, () => current);
+      await waitFor(packing.ready, 'native bare-string badge migration');
+      if (action === 'replace') W.localStorage.setItem(key, 'null');
+      else if (action === 'profile') {
+        W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-badge-migration');
+        W.localStorage.setItem(A.bcReal(key), 'hide');
+      } else if (action === 'erase') {
+        const persisted = Object.fromEntries(Object.keys(W.localStorage).map(k => [k, W.localStorage.getItem(k)]));
+        A.scrubPersonalData();
+        for (const [k, value] of Object.entries(persisted)) W.localStorage.setItem(k, value);
+      } else current = false;
+      packing.release(); await pending;
+      assert.equal(W.localStorage.getItem(key), action === 'replace' ? 'null' : 'hide');
+      if (action === 'profile') assert.equal(W.localStorage.getItem(A.bcReal(key)), 'hide');
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      packing.restore(); packing.release(); if (pending) await pending;
+      await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 actual badge preference controls publish only retained choices and recover after optional failures', async () => {
+  for (const [key, id, previous, desired] of [
+    ['bc_report_menu_badges_v1', 'reportMenuBadges', 'show', 'hide'],
+    ['bc_nemesis_menu_badge_v1', 'nemesisMenuBadge', 'hide', 'show'],
+  ]) {
+    for (const action of ['save', 'noop', 'profile']) {
+      const app = await boot({ sample: false, nativeCompression: true });
+      const W = app.window, A = W.__app, control = app.$(id);
+      const packing = holdBadgePreferenceEncoding(W, desired);
+      const proto = W.Storage.prototype, set = proto.setItem;
+      let pending, done = false;
+      try {
+        control.value = desired;
+        control.dispatchEvent(new W.Event('change'));
+        pending = control._menuBadgePreferenceSave;
+        assert.equal(typeof pending.then, 'function');
+        pending.finally(() => { done = true; }).catch(() => {});
+        await waitFor(() => packing.ready() || done, 'actual badge preference control receipt');
+        assert.equal(packing.ready(), true); assert.equal(done, false);
+        assert.equal(control.disabled, true); assert.equal(control.getAttribute('aria-busy'), 'true');
+        assert.equal(control.value, previous, 'the selected choice must not pretend retention is already acknowledged');
+        assert.equal(A.menuBadgePreference(key), previous);
+        if (action === 'noop') proto.setItem = function (k, value) {
+          if (k === key) return;
+          return set.call(this, k, value);
+        };
+        else if (action === 'profile') W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-badge-control');
+        packing.release();
+        assert.equal(await pending, action === 'save');
+        assert.equal(control.disabled, false); assert.equal(control.hasAttribute('aria-busy'), false);
+        assert.equal(control.value, action === 'save' ? desired : previous);
+        if (action === 'noop' && id === 'nemesisMenuBadge')
+          assert.match(app.$('nemesisMenuBadgeStatus').textContent, /could not be saved/);
+        if (action === 'profile' && id === 'nemesisMenuBadge')
+          assert.equal(app.$('nemesisMenuBadgeStatus').textContent, '', 'an old-owner receipt cannot report failure on the new profile');
+        assert.deepEqual(app.state.errors, []);
+      } finally {
+        proto.setItem = set; packing.restore(); packing.release();
+        await Promise.allSettled([pending].filter(Boolean));
+        await new Promise(setImmediate); W.close();
+      }
+    }
+  }
+});
+
+function acquisitionOrderPersistenceFixture(A) {
+  const acquired = A.surgeAcquiredSources(), at = Date.now() - 60000;
+  acquired.times = Object.fromEntries([
+    'observations', 'leaderboard', 'hotspots', 'favorites', 'mass', 'ppte', 'foy', 'mega', 'birdcast'
+  ].map((name, index) => [name, at - index * 60000]));
+  return { acquired, record: { context: acquired.context, times: { ...acquired.times },
+    evidencePolicy: 'bounded-v1' } };
+}
+
+test('F247 Bird Gen acquisition order hydrates native restart with fresh copied success times', async () => {
+  let saved, key, record;
+  for (const restart of [false, true]) {
+    const app = await boot({ sample: false, nativeCompression: true,
+      storage: restart ? { [key]: saved } : {} });
+    const W = app.window, A = W.__app;
+    try {
+      if (!restart) {
+        const fixture = acquisitionOrderPersistenceFixture(A);
+        key = fixture.acquired.key; record = fixture.record;
+        W.localStorage.setItem(key, JSON.stringify(record));
+        await A.readSurgeAcquisitionOrder(key);
+      }
+      saved = W.localStorage.getItem(key);
+      assert.ok(saved.startsWith('z:'));
+      assert.deepEqual(readPersistedFixture(W, key), record);
+      assert.deepEqual(JSON.parse(JSON.stringify(A.surgeAcquiredSources().times)), record.times);
+      A.surgeAcquiredSources().times.mass = 0;
+      assert.equal(A.surgeAcquiredSources().times.mass, record.times.mass);
+      W.localStorage.setItem(key, JSON.stringify({ ...record, times: { mass: record.times.mass - 60000 } }));
+      assert.equal(A.surgeAcquiredSources().times.mass, record.times.mass - 60000);
+      const changed = await A.packJson({ ...record, times: { ...record.times, mass: 1 } });
+      assert.ok(changed.startsWith('z:'), 'the changed-byte control must actually exercise unknown native gzip');
+      W.localStorage.setItem(key, changed);
+      assert.equal(Object.keys(A.surgeAcquiredSources().times).length, 0,
+        'unknown changed gzip cannot borrow prior source success times');
+      await A.readSurgeAcquisitionOrder(key);
+      assert.equal(A.surgeAcquiredSources().times.mass, 1);
+      W.localStorage.setItem(key, JSON.stringify({ ...record,
+        times: { mass: Date.now() + 60000, favorites: -1, ppte: '123', foy: record.times.foy } }));
+      assert.deepEqual(JSON.parse(JSON.stringify(A.surgeAcquiredSources().times)), { foy: record.times.foy });
+      assert.deepEqual(app.state.errors, []);
+    } finally { W.close(); }
+  }
+});
+
+test('F247 Bird Gen acquisition order saves await copied native receipts and reject stale or failed owners', async () => {
+  for (const action of ['save', 'replace', 'profile', 'erase', 'reject', 'scope', 'quota', 'noop']) {
+    const app = await boot({ sample: false, nativeCompression: true });
+    const W = app.window, A = W.__app, fixture = acquisitionOrderPersistenceFixture(A);
+    const key = fixture.acquired.key, previous = { ...fixture.record, times: {} };
+    W.localStorage.setItem(key, JSON.stringify(previous));
+    W.localStorage.removeItem(A.bcReal(A.IDENTITY_REV_KEY));
+    const acquired = A.surgeAcquiredSources();
+    acquired.times = fixture.record.times;
+    const expected = JSON.parse(JSON.stringify(fixture.record));
+    const packing = holdScoutCompression(W, json => json.startsWith('{"context":')
+      && json.includes('"times":{"observations":' + expected.times.observations));
+    const proto = W.Storage.prototype, set = proto.setItem;
+    let pending, done = false, current = true;
+    try {
+      pending = A.saveSurgeAcquisitionOrder(acquired, () => current).finally(() => { done = true; });
+      acquired.times.observations = 0;
+      await waitFor(() => packing.ready() || done, 'native Bird Gen acquisition-order save');
+      assert.equal(packing.ready(), true); assert.equal(done, false);
+      const before = W.localStorage.getItem(key);
+      assert.deepEqual(readPersistedFixture(W, key), previous);
+      if (action === 'replace') W.localStorage.setItem(key, 'null');
+      else if (action === 'profile') {
+        W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-acquisition-owner');
+        W.localStorage.setItem(A.bcReal(key), before);
+      } else if (action === 'erase') {
+        const persisted = Object.fromEntries(Object.keys(W.localStorage).map(k => [k, W.localStorage.getItem(k)]));
+        A.scrubPersonalData();
+        for (const [k, value] of Object.entries(persisted)) W.localStorage.setItem(k, value);
+      } else if (action === 'reject') current = false;
+      else if (action === 'scope') { A.setCountyView('US-WA-033'); A.setCountyView(''); }
+      else if (action === 'quota' || action === 'noop') proto.setItem = function (k, value) {
+        if (k === key) {
+          if (action === 'quota') throw new W.DOMException('Acquisition order quota', 'QuotaExceededError');
+          return;
+        }
+        return set.call(this, k, value);
+      };
+      packing.release();
+      assert.equal(await pending, action === 'save');
+      if (action === 'save') {
+        assert.ok(W.localStorage.getItem(key).startsWith('z:'));
+        assert.deepEqual(readPersistedFixture(W, key), expected);
+      } else {
+        assert.equal(W.localStorage.getItem(key), action === 'replace' ? 'null' : before);
+        if (action === 'profile') assert.equal(W.localStorage.getItem(A.bcReal(key)), before);
+      }
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      proto.setItem = set; packing.release();
+      await Promise.allSettled([pending].filter(Boolean));
+      await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 Bird Gen acquisition order queues reject superseded saves and changed initial snapshots', async () => {
+  const app = await boot({ sample: false, nativeCompression: true });
+  const W = app.window, A = W.__app;
+  const first = acquisitionOrderPersistenceFixture(A), next = acquisitionOrderPersistenceFixture(A);
+  next.acquired.times.mass = 1;
+  const expected = { ...next.record, times: { ...next.acquired.times } };
+  let held = false, firstDone = false, nextDone = false, oldSave, nextSave;
+  const packing = holdScoutCompression(W, json => !held && json.startsWith('{"context":')
+    && json.includes('"times":{"observations":') && (held = true));
+  try {
+    oldSave = A.saveSurgeAcquisitionOrder(first.acquired).finally(() => { firstDone = true; });
+    await waitFor(() => packing.ready() || firstDone, 'first acquisition-order receipt');
+    assert.equal(packing.ready(), true);
+    nextSave = A.saveSurgeAcquisitionOrder(next.acquired).finally(() => { nextDone = true; });
+    next.acquired.times.mass = 0;
+    await new Promise(resolve => setTimeout(resolve, 20));
+    assert.equal(nextDone, false);
+    packing.release();
+    assert.equal(await oldSave, false); assert.equal(await nextSave, true);
+    assert.deepEqual(readPersistedFixture(W, next.acquired.key), expected);
+    const stale = acquisitionOrderPersistenceFixture(A);
+    W.localStorage.setItem(stale.acquired.key, 'null');
+    assert.equal(await A.saveSurgeAcquisitionOrder(stale.acquired), false);
+    assert.equal(W.localStorage.getItem(stale.acquired.key), 'null');
+    assert.deepEqual(app.state.errors, []);
+  } finally {
+    packing.release(); await Promise.allSettled([oldSave, nextSave].filter(Boolean));
+    await new Promise(setImmediate); W.close();
+  }
+});
+
+test('F247 Bird Gen acquisition order borrowed migration preserves replacements and restored or foreign bytes', async () => {
+  for (const action of ['replace', 'profile', 'erase', 'reject']) {
+    const app = await boot({ sample: false, nativeCompression: true });
+    const W = app.window, A = W.__app, { acquired, record } = acquisitionOrderPersistenceFixture(A);
+    const key = acquired.key, before = JSON.stringify(record);
+    W.localStorage.removeItem(A.bcReal(A.IDENTITY_REV_KEY));
+    W.localStorage.setItem(key, before);
+    const packing = holdScoutCompression(W, json => json.startsWith('{"context":') && json.includes('"times":{"observations":'));
+    let pending, current = true;
+    try {
+      pending = A.readSurgeAcquisitionOrder(key, {}, () => current);
+      await waitFor(packing.ready, 'borrowed acquisition-order migration');
+      if (action === 'replace') W.localStorage.setItem(key, 'null');
+      else if (action === 'profile') {
+        W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-acquisition-migration');
+        W.localStorage.setItem(A.bcReal(key), before);
+      } else if (action === 'erase') {
+        const persisted = Object.fromEntries(Object.keys(W.localStorage).map(k => [k, W.localStorage.getItem(k)]));
+        A.scrubPersonalData();
+        for (const [k, value] of Object.entries(persisted)) W.localStorage.setItem(k, value);
+      } else current = false;
+      packing.release(); await pending;
+      assert.equal(W.localStorage.getItem(key), action === 'replace' ? 'null' : before);
+      if (action === 'profile') assert.equal(W.localStorage.getItem(A.bcReal(key)), before);
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      packing.release(); if (pending) await pending;
+      await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 actual full Bird Gen terminal owns acquisition-order retention and compatible joins', async () => {
+  for (const action of ['save', 'scope']) {
+    const app = await boot({ sample: false, nativeCompression: true, fetch: () => [] });
+    const W = app.window, A = W.__app;
+    const PromiseType = W.Promise, resolve = PromiseType.resolve;
+    let releaseShort, shortReady = false, pending, joined, done = false;
+    const matches = json => json.startsWith('{"context":')
+      && json.includes('"times":') && json.includes('"evidencePolicy":"bounded-v1"');
+    const packing = holdScoutCompression(W, matches);
+    PromiseType.resolve = function (value) {
+      if (!shortReady && typeof value === 'string' && value.startsWith('j:') && matches(value.slice(2))) {
+        shortReady = true;
+        return new PromiseType(done => { releaseShort = () => done(value); });
+      }
+      return resolve.call(this, value);
+    };
+    try {
+      pending = A.loadSurge(undefined, false, { fullRefresh: true });
+      pending.finally(() => { done = true; }).catch(() => {});
+      await waitFor(() => packing.ready() || shortReady || done, 'actual full Bird Gen order receipt', 60000);
+      assert.equal(packing.ready() || shortReady, true);
+      assert.equal(done, false, 'the actual full terminal cannot finish before optional order retention settles');
+      if (action === 'save') {
+        joined = A.loadSurge(undefined, false, { fullRefresh: true });
+        assert.equal(joined, pending, 'the real full owner must survive its pending order receipt');
+      } else { A.setCountyView('US-WA-033'); A.setCountyView(''); }
+      packing.release(); if (releaseShort) releaseShort();
+      const result = await pending;
+      const acquired = A.surgeAcquiredSources();
+      const stored = readPersistedFixture(W, A.bcReal(acquired.key));
+      if (action === 'save') {
+        assert.ok(['ok', 'partial'].includes(result.state));
+        assert.equal(stored.context, acquired.context);
+        assert.equal(stored.evidencePolicy, 'bounded-v1');
+      } else {
+        assert.equal(result.state, 'cancelled', 'a scope A/B/A during retention cannot publish a successful terminal');
+        assert.equal(stored, null);
+      }
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      PromiseType.resolve = resolve;
+      packing.release(); if (releaseShort) releaseShort();
+      await Promise.allSettled([pending, joined].filter(Boolean));
+      await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+function reportingPersistenceFixture(A, counts = { numChecklists: 165, numContributors: 144, numSpecies: 117 }) {
+  const scope = A.activeScope(), day = A.reportingDates(new Date(), A.getReport(), 1)[0];
+  return { scope, day, key: 'bc_reporting_v1:' + scope.effectiveRegion + ':' + day.date,
+    record: { region: scope.effectiveRegion, date: day.date, at: Date.now() - 60000, counts } };
+}
+
+test('F247 reporting counts read legacy and native restart on demand without renewing dated evidence', async () => {
+  for (const dialect of ['legacy', 'gzip']) {
+    let saved, key, record;
+    for (const restart of [false, true]) {
+      const app = await boot({ sample: false, nativeCompression: true,
+        storage: restart ? { [key]: saved } : {}, fetch: () => null });
+      const W = app.window, A = W.__app;
+      try {
+        if (!restart) {
+          ({ key, record } = reportingPersistenceFixture(A));
+          W.localStorage.setItem(key, dialect === 'legacy' ? JSON.stringify(record)
+            : 'z:' + require('node:zlib').gzipSync(JSON.stringify(record)).toString('base64'));
+        }
+        const result = await A.loadReportingActivity(1);
+        assert.equal(result[0].cachedAt, record.at);
+        assert.equal(JSON.stringify(result[0].counts), JSON.stringify(record.counts));
+        assert.match(app.$('reportingRows').textContent, /165 checklists.*Dated cached counts/);
+        assert.equal(app.state.fetches.filter(url => /product\/stats\//.test(url)).length, 0);
+        saved = W.localStorage.getItem(key);
+        assert.ok(saved.startsWith(dialect === 'legacy' ? 'j:' : 'z:'));
+        assert.deepEqual(readPersistedFixture(W, key), record);
+        if (!restart) {
+          const changed = { ...record, counts: { numChecklists: 777, numContributors: 3, numSpecies: 4 } };
+          W.localStorage.setItem(key, 'z:' + require('node:zlib').gzipSync(JSON.stringify(changed)).toString('base64'));
+          const current = await A.loadReportingActivity(1);
+          assert.equal(current[0].counts.numChecklists, 777, 'on-demand decoding must observe changed native bytes');
+          W.localStorage.setItem(key, saved);
+        }
+        assert.deepEqual(app.state.errors, []);
+      } finally { W.close(); }
+    }
+  }
+});
+
+test('F247 reporting native saves await small encoded receipts and protect replaced, erased or foreign owners', async () => {
+  for (const action of ['save', 'replace', 'profile', 'erase', 'reject', 'quota', 'noop']) {
+    const counts = { numChecklists: 165, numContributors: 144, numSpecies: 117 };
+    const app = await boot({ sample: false, nativeCompression: true,
+      fetch: url => /product\/stats\//.test(url) ? counts : null });
+    const W = app.window, A = W.__app, { scope, day, key, record } = reportingPersistenceFixture(A);
+    record.counts = { numChecklists: 1, numContributors: 1, numSpecies: 1 };
+    W.localStorage.setItem(key, JSON.stringify(record));
+    W.localStorage.removeItem(A.bcReal(A.IDENTITY_REV_KEY));
+    const packing = holdReportingEncoding(W, value => value.counts.numChecklists === 165);
+    const proto = W.Storage.prototype, set = proto.setItem;
+    let pending, done = false, current = true;
+    try {
+      pending = A.reportingDay(scope, day, true, { current: () => current })
+        .finally(() => { done = true; });
+      await waitFor(() => packing.ready() || done, 'native short reporting encoding');
+      assert.equal(packing.ready(), true); assert.equal(done, false);
+      const before = W.localStorage.getItem(key);
+      assert.ok(before.startsWith('j:'), 'migration must advance the save CAS baseline');
+      assert.deepEqual(readPersistedFixture(W, key), record);
+      if (action === 'replace') W.localStorage.setItem(key, 'null');
+      else if (action === 'profile') {
+        W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-reporting-owner');
+        W.localStorage.setItem(A.bcReal(key), before);
+      } else if (action === 'erase') {
+        const persisted = Object.fromEntries(Object.keys(W.localStorage).map(k => [k, W.localStorage.getItem(k)]));
+        A.scrubPersonalData();
+        for (const [k, value] of Object.entries(persisted)) W.localStorage.setItem(k, value);
+      } else if (action === 'reject') current = false;
+      else if (action === 'quota' || action === 'noop') proto.setItem = function (k, value) {
+        if (k === key) {
+          if (action === 'quota') throw new W.DOMException('Reporting quota', 'QuotaExceededError');
+          return;
+        }
+        return set.call(this, k, value);
+      };
+      counts.numChecklists = 999;
+      packing.release();
+      if (['profile', 'erase', 'reject'].includes(action)) {
+        await assert.rejects(pending, error => error.queueCancelled === true);
+      } else {
+        const result = await pending;
+        assert.equal(result.retained, action === 'save');
+        assert.equal(result.counts.numChecklists, 165, 'the useful captured counts do not borrow caller mutations');
+      }
+      if (action === 'save') {
+        assert.ok(W.localStorage.getItem(key).startsWith('j:'), 'small counts must not manufacture gzip');
+        assert.equal(readPersistedFixture(W, key).counts.numChecklists, 165);
+      } else {
+        assert.equal(W.localStorage.getItem(key), action === 'replace' ? 'null' : before);
+        if (action === 'profile') assert.equal(W.localStorage.getItem(A.bcReal(key)), before);
+      }
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      proto.setItem = set; packing.restore(); packing.release();
+      await Promise.allSettled([pending].filter(Boolean));
+      await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 actual reporting consumer waits for retention but preserves useful counts on optional quota failure', async () => {
+  for (const action of ['save', 'quota', 'scope']) {
+    const app = await boot({ sample: false, nativeCompression: true,
+      fetch: url => /product\/stats\//.test(url)
+        ? { numChecklists: 165, numContributors: 144, numSpecies: 117 } : null });
+    const W = app.window, A = W.__app, { key } = reportingPersistenceFixture(A);
+    const packing = holdReportingEncoding(W, value => value.counts.numChecklists === 165);
+    const proto = W.Storage.prototype, set = proto.setItem;
+    let pending, done = false;
+    try {
+      pending = A.loadReportingActivity(1, true).finally(() => { done = true; });
+      await waitFor(() => packing.ready() || done, 'actual reporting consumer receipt');
+      assert.equal(packing.ready(), true); assert.equal(done, false);
+      assert.equal(app.$('reportingRows').getAttribute('aria-busy'), 'true');
+      assert.equal(app.$('reportingRows').textContent, '');
+      assert.equal(W.localStorage.getItem(key), null);
+      if (action === 'quota') proto.setItem = function (k, value) {
+        if (k === key) throw new W.DOMException('Reporting control quota', 'QuotaExceededError');
+        return set.call(this, k, value);
+      };
+      else if (action === 'scope') {
+        A.setCountyView('US-WA-033'); A.setCountyView('');
+      }
+      packing.release();
+      const result = await pending;
+      if (action === 'scope') {
+        assert.equal(result.length, 0);
+        assert.doesNotMatch(app.$('reportingRows').textContent, /165/);
+        assert.equal(W.localStorage.getItem(key), null);
+      } else {
+        assert.equal(result[0].retained, action === 'save');
+        assert.match(app.$('reportingRows').textContent, /165 checklists.*144 contributors.*117 species/);
+        assert.doesNotMatch(app.$('reportingRows').textContent, /Dated cached counts/);
+        assert.equal(app.$('reportingRows').hasAttribute('aria-busy'), false);
+        if (action === 'quota') assert.equal(W.localStorage.getItem(key), null);
+      }
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      proto.setItem = set; packing.restore(); packing.release();
+      await Promise.allSettled([pending].filter(Boolean));
+      await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 reporting direct save ownership rejects borrowed restored or foreign bytes', async () => {
+  for (const action of ['profile', 'erase']) {
+    const app = await boot({ sample: false, nativeCompression: true });
+    const W = app.window, A = W.__app, { key, record } = reportingPersistenceFixture(A);
+    W.localStorage.removeItem(A.bcReal(A.IDENTITY_REV_KEY));
+    W.localStorage.setItem(key, 'null');
+    const packing = holdReportingEncoding(W, value => value.counts.numChecklists === 165);
+    let pending;
+    try {
+      pending = A.saveReportingCounts(key, record, { raw: 'null' });
+      await waitFor(packing.ready, 'owned direct reporting receipt');
+      if (action === 'profile') {
+        W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-reporting-direct');
+        W.localStorage.setItem(A.bcReal(key), 'null');
+      } else {
+        const persisted = Object.fromEntries(Object.keys(W.localStorage).map(k => [k, W.localStorage.getItem(k)]));
+        A.scrubPersonalData();
+        for (const [k, value] of Object.entries(persisted)) W.localStorage.setItem(k, value);
+      }
+      packing.release();
+      assert.equal(await pending, false);
+      assert.equal(W.localStorage.getItem(key), 'null');
+      if (action === 'profile') assert.equal(W.localStorage.getItem(A.bcReal(key)), 'null');
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      packing.restore(); packing.release(); if (pending) await pending;
+      await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 reporting save queues copy pending counts and retire superseded intents', async () => {
+  const app = await boot({ sample: false, nativeCompression: true });
+  const W = app.window, A = W.__app, { key, record } = reportingPersistenceFixture(A);
+  W.localStorage.setItem(key, JSON.stringify({ ...record, counts: { numChecklists: 1, numContributors: 1, numSpecies: 1 } }));
+  const observed = {};
+  await A.readReportingCache(key, observed);
+  const packing = holdReportingEncoding(W, value => value.counts.numChecklists === 165);
+  let first, next, firstDone = false, nextDone = false;
+  try {
+    first = A.saveReportingCounts(key, record, observed).finally(() => { firstDone = true; });
+    record.counts.numChecklists = 999;
+    await waitFor(() => packing.ready() || firstDone, 'captured first reporting save');
+    assert.equal(packing.ready(), true);
+    const second = { ...record, counts: { numChecklists: 777, numContributors: 3, numSpecies: 4 } };
+    next = A.saveReportingCounts(key, second, observed).finally(() => { nextDone = true; });
+    second.counts.numChecklists = 999;
+    await new Promise(resolve => setTimeout(resolve, 20));
+    assert.equal(nextDone, false, 'same-key saves must remain ordered behind the active receipt');
+    packing.release();
+    assert.equal(await first, false); assert.equal(await next, true);
+    assert.equal(readPersistedFixture(W, key).counts.numChecklists, 777);
+    assert.deepEqual(app.state.errors, []);
+  } finally {
+    packing.restore(); packing.release();
+    await Promise.allSettled([first, next].filter(Boolean));
+    await new Promise(setImmediate); W.close();
+  }
+});
+
+test('F247 reporting borrowed migration cannot replace changed bytes or reinstall erased and foreign evidence', async () => {
+  for (const action of ['replace', 'profile', 'erase', 'reject']) {
+    const app = await boot({ sample: false, nativeCompression: true });
+    const W = app.window, A = W.__app, { key, record } = reportingPersistenceFixture(A);
+    const before = JSON.stringify(record);
+    W.localStorage.setItem(key, before);
+    W.localStorage.removeItem(A.bcReal(A.IDENTITY_REV_KEY));
+    const packing = holdReportingEncoding(W, value => value.counts.numChecklists === 165);
+    let pending, current = true;
+    try {
+      pending = A.readReportingCache(key, {}, () => current);
+      await waitFor(packing.ready, 'native short reporting migration');
+      if (action === 'replace') W.localStorage.setItem(key, 'null');
+      else if (action === 'profile') {
+        W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-reporting-migration');
+        W.localStorage.setItem(A.bcReal(key), before);
+      } else if (action === 'erase') {
+        const persisted = Object.fromEntries(Object.keys(W.localStorage).map(k => [k, W.localStorage.getItem(k)]));
+        A.scrubPersonalData();
+        for (const [k, value] of Object.entries(persisted)) W.localStorage.setItem(k, value);
+      } else current = false;
+      packing.release(); await pending;
+      assert.equal(W.localStorage.getItem(key), action === 'replace' ? 'null' : before);
+      if (action === 'profile') assert.equal(W.localStorage.getItem(A.bcReal(key)), before);
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      packing.restore(); packing.release(); if (pending) await pending;
+      await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
 test('F733 reporting uses completed regional dates and at most seven cached day calls', async () => {
   const counts = { numChecklists: 165, numContributors: 144, numSpecies: 117 };
   const app = await boot({ sample: false, fetch: (url) => /product\/stats\//.test(url) ? counts : null });
@@ -38065,7 +43894,10 @@ test('F906 legacy completed Mass cache remains reusable but invalid evidence and
       [{ state: 'notApplicable' }, 'incomplete state'],
       [{ source: 'unverified' }, 'different source'],
     ]) {
-      await A.saveSurgeRetainedPart('mass', { ...first, ...extra });
+      const key = Object.keys(app.window.localStorage).find(key => key.startsWith('ebird_surge_retained_v1:'));
+      const damaged = readPersistedFixture(app.window, key);
+      damaged.parts.mass = { at: extra.retainedAt || Date.now(), value: { ...first, ...extra } };
+      app.window.localStorage.setItem(key, 'j:' + JSON.stringify(damaged));
       const before = pages();
       await A.loadMassFlockAlertSource(false, A.activeScope());
       assert.equal(pages(), before + 1, reason + ' must force reacquisition');
@@ -39000,7 +44832,7 @@ test('F967 migration headlines emphasize only named birds and preserve the obser
     const page=A.parseFirstYearBirdList(foySourceFixture(1)),day=A.todayStr();
     page.rows=[{code:'trokin',name:'Tropical Kingbird',date:day,observedAt:day+' 08:00',
       locId:'L967',locName:'Example public marsh',subId:'S967',sensitive:false,isPrivate:false}];
-    A.firstYearWrite(ctx.region,ctx.year,page);
+    await A.firstYearWrite(ctx.region,ctx.year,page);
     let row=A.migrationSignificantRows(new Date(),null).find(r=>r.notificationKey.startsWith('migration-now:'));
     assert.ok(row);
     const host=app.document.createElement('ul');
@@ -39020,7 +44852,7 @@ test('F967 migration headlines emphasize only named birds and preserve the obser
     assert.equal(surgeEvidence(host).querySelector('.surgeexplainextra .hslink').dataset.loc,'L967');
     assert.match(surgeEvidence(host).querySelector('.surgeexplainextra').textContent,/eBird first report.*Observed on eBird/s);
     page.rows[0].isPrivate=true;
-    A.firstYearWrite(ctx.region,ctx.year,page);
+    await A.firstYearWrite(ctx.region,ctx.year,page);
     row=A.migrationSignificantRows(new Date(),null).find(r=>r.notificationKey.startsWith('migration-now:'));
     assert.ok(row);
     host.innerHTML=A.surgeAlertCard(row,0);
@@ -40651,7 +46483,9 @@ test('F274 every current load can subscribe to one in-flight mega refresh', asyn
   } });
   const A = app.window.__app;
   let resolveFetch, calls = 0;
-  app.window.fetch = () => {
+  const originalFetch = app.window.fetch;
+  app.window.fetch = (url, options) => {
+    if (!/alert\/summary/.test(String(url))) return originalFetch(url, options);
     calls++;
     return new Promise((resolve) => {
       resolveFetch = () => resolve({
@@ -40663,12 +46497,14 @@ test('F274 every current load can subscribe to one in-flight mega refresh', asyn
   let first = 0, second = 0;
   const p1 = A.lazyRefreshMegaSnapshot(() => { first++; });
   const p2 = A.lazyRefreshMegaSnapshot(() => { second++; });
+  await waitFor(() => calls === 1, 'shared alert begins after its durable baseline');
   assert.equal(calls, 1, 'two Bird Gen generations share one scrape');
+  await waitFor(() => resolveFetch, 'actual pending alert transport');
   resolveFetch();
   await Promise.all([p1, p2]);
   assert.equal(first, 1, 'the first subscriber is notified');
   assert.equal(second, 1, 'the newer subscriber is notified too');
-  const snap = JSON.parse(app.window.localStorage.getItem(A.MEGA_SNAP_KEY));
+  const snap = readPersistedFixture(app.window, A.MEGA_SNAP_KEY);
   assert.ok(Date.now() - snap.at < 1000, 'the shared refresh saved a current snapshot');
   app.window.close();
 });
@@ -40684,7 +46520,7 @@ test('F274 a failed mega refresh is named and an explicit reload retries it', as
   let calls = 0, rejectFirst;
   const realFetch = app.window.fetch;
   app.window.fetch = (url, options) => {
-    if (/section-docs\.json/.test(url)) return realFetch(url, options);
+    if (!/alert\/summary/.test(String(url))) return realFetch(url, options);
     calls++;
     if (calls === 1) {
       return new Promise((resolve, reject) => {
@@ -40700,6 +46536,7 @@ test('F274 a failed mega refresh is named and an explicit reload retries it', as
   let firstSettled = 0, secondSettled = 0;
   const first = A.lazyRefreshMegaSnapshot(() => { firstSettled++; });
   const second = A.lazyRefreshMegaSnapshot(() => { secondSettled++; });
+  await waitFor(() => rejectFirst, 'owned failing alert after baseline hydration');
   assert.equal(calls, 1, 'two current loads did not share the failing scrape');
   rejectFirst();
   assert.deepEqual(await Promise.all([first, second]), [false, false]);
@@ -40956,7 +46793,7 @@ test('F294 a fresh foreground snapshot supersedes an older in-flight failure', a
   });
 
   const lazy = A.lazyRefreshMegaSnapshot();
-  A.saveMegaSnapshot([], true, 'US-WA', 'SN10489');
+  await A.saveMegaSnapshot([], true, 'US-WA', 'SN10489');
   rejectLazy();
   assert.equal(await lazy, false);
   const mega = A.megaLane([{ name: 'home', lat: 47.75, lng: -122.16 }]);
@@ -40981,25 +46818,25 @@ test('F274 mega refresh ownership is keyed by region, not one global attempt', a
     });
   };
   assert.equal(await A.lazyRefreshMegaSnapshot(), true);
-  assert.equal(JSON.parse(app.window.localStorage.getItem(A.MEGA_SNAP_KEY)).region,
+  assert.equal(readPersistedFixture(app.window, A.MEGA_SNAP_KEY).region,
     'US-WA');
   A.setActiveReport('az');
   assert.equal(await A.lazyRefreshMegaSnapshot(), true);
   assert.equal(calls, 2, 'Arizona gets its own alert-page request');
-  assert.equal(JSON.parse(app.window.localStorage.getItem(A.MEGA_SNAP_KEY)).region,
+  assert.equal(readPersistedFixture(app.window, A.MEGA_SNAP_KEY).region,
     'US-AZ', 'the settled Washington promise is not replayed as Arizona data');
   A.setActiveReport('wa');
   assert.equal(await A.lazyRefreshMegaSnapshot(), true);
   assert.equal(calls, 3,
     'returning to Washington refetches after Arizona replaced the single snapshot');
-  let snap = JSON.parse(app.window.localStorage.getItem(A.MEGA_SNAP_KEY));
+  let snap = readPersistedFixture(app.window, A.MEGA_SNAP_KEY);
   assert.equal(snap.region, 'US-WA');
   assert.equal(snap.sid, 'SN10489');
 
   app.window.localStorage.setItem('ebird_aba_sid', 'SN99999');
   assert.equal(await A.lazyRefreshMegaSnapshot(), true);
   assert.equal(calls, 4, 'changing the alert SID gets a distinct request');
-  snap = JSON.parse(app.window.localStorage.getItem(A.MEGA_SNAP_KEY));
+  snap = readPersistedFixture(app.window, A.MEGA_SNAP_KEY);
   assert.equal(snap.sid, 'SN99999',
     'a same-region snapshot from the old subscription is not treated as fresh');
   app.window.close();
@@ -41009,13 +46846,15 @@ test('a foreground ABA response cannot be saved under a newer alert SID', async 
   const app = await boot();
   const A = app.window.__app;
   let resolveFetch;
-  app.window.fetch = () => new Promise((resolve) => {
+  const originalFetch = app.window.fetch;
+  app.window.fetch = (url, options) => /alert\/summary/.test(String(url)) ? new Promise((resolve) => {
     resolveFetch = () => resolve({
       ok: true, status: 200,
       text: () => Promise.resolve(otherStateMegaAlertHtml()),
     });
-  });
+  }) : originalFetch(url, options);
   const load = A.loadAbaAlert();
+  await waitFor(() => resolveFetch, 'actual old-SID alert transport');
   app.window.localStorage.setItem('ebird_aba_sid', 'SN99999');
   resolveFetch();
   await load;
@@ -41040,12 +46879,13 @@ test('F469 Mega rarities visibly loads while the alert request is pending', asyn
   const app = await boot();
   const A = app.window.__app;
   let resolveFetch;
-  app.window.fetch = () => new Promise((resolve) => {
+  const originalFetch = app.window.fetch;
+  app.window.fetch = (url, options) => /alert\/summary/.test(String(url)) ? new Promise((resolve) => {
     resolveFetch = () => resolve({
       ok: true, status: 200,
       text: () => Promise.resolve(f469AlertHtml()),
     });
-  });
+  }) : originalFetch(url, options);
 
   const load = A.loadAbaAlert();
   const status = app.$('abaStatus');
@@ -41053,6 +46893,7 @@ test('F469 Mega rarities visibly loads while the alert request is pending', asyn
     'the pending alert request is not identified in words');
   assert.ok(status.querySelector('.loadingdots'),
     'the pending alert request has no visible work-in-progress signal');
+  await waitFor(() => resolveFetch, 'actual visibly pending alert');
   resolveFetch();
   await load;
   app.window.close();
@@ -41308,6 +47149,29 @@ test('F274 keeps the newest nearby-need place, date and checklist in one tuple',
   app.window.close();
 });
 
+test('F247 chase erasure cancels a compressed save even without an explicit chase generation', async () => {
+  const app = await boot({ sample: false, nativeCompression: true });
+  let release;
+  try {
+    const A = app.window.__app;
+    let ready = false;
+    A.setChaseSnapshotStoreGate(() => {
+      ready = true;
+      return new Promise(resolve => { release = resolve; });
+    });
+    const pending = A.saveChaseSnapshot('wa', [], { observations: [{
+      speciesCode: 'amerob', comments: 'Retained original source '.repeat(100)
+    }] }, {});
+    await waitFor(() => ready, 'native-compressed chase snapshot awaiting its write boundary');
+    assert.equal(app.window.localStorage.getItem(A.bcReal(A.chaseKey('wa'))), null,
+      'compression must not provisionally allocate a raw snapshot');
+    A.scrubPersonalData();
+    release();
+    assert.equal(await pending, false);
+    assert.equal(app.window.localStorage.getItem(A.bcReal(A.chaseKey('wa'))), null);
+  } finally { if (release) release(); app.window.close(); }
+});
+
 test('a superseded asynchronous snapshot save cannot recreate a cleared key', async () => {
   const app = await boot();
   const A = app.window.__app;
@@ -41493,16 +47357,18 @@ test('F754 Mega progress hold settles after failure and scope cancellation', asy
   const cancelled = await boot();
   let resolveMega;
   let repaintCount = 0;
-  cancelled.window.fetch = () => new Promise((resolve) => {
+  const originalFetch = cancelled.window.fetch;
+  cancelled.window.fetch = (url, options) => /alert\/summary/.test(String(url)) ? new Promise((resolve) => {
     resolveMega = () => resolve({
       ok: true, status: 200,
       text: () => Promise.resolve(otherStateMegaAlertHtml()),
     });
-  });
+  }) : originalFetch(url, options);
   const cancelledRefresh = cancelled.window.__app.lazyRefreshMegaSnapshot(
     () => { repaintCount++; });
   assert.equal(cancelled.$('loadBar').hidden, false,
     'the app-wide bar did not appear while the cancellable read was pending');
+  await waitFor(() => resolveMega, 'actual cancellable Mega source');
   cancelled.window.__app.setActiveReport('aba');
   resolveMega();
   assert.equal(await cancelledRefresh, false,
@@ -42604,9 +48470,112 @@ test('a cached disambiguation blurb is discarded, not served forever', async () 
   assert.ok(A.usableInfo({ extract: 'The ruff is a medium-sized wader.' }), 'a real blurb still passes');
   const got = await A.birdInfo('Ruff');
   assert.match(got.extract, /medium-sized wader/, 'falls through to the real article instead of the stub');
-  const now = JSON.parse(app.window.localStorage.getItem('ebird_birdinfo_v2') || '{}');
+  const now = await A.unpackJson(app.window.localStorage.getItem('ebird_birdinfo_v2')) || {};
   assert.ok(!(now.Ruff && /may refer to/.test(now.Ruff.extract)),
     'and the poisoned entry is gone, so it cannot be served again');
+});
+
+test('F247 encyclopedia blurbs migrate automatically and survive a compressed restart without fetching', async () => {
+  const key = 'ebird_birdinfo_v2';
+  const legacy = { Ruff: { title: 'Ruff (bird)', extract: 'The ruff is a medium-sized wader. '.repeat(60) } };
+  let fetches = 0;
+  const fetch = url => { if (/wikipedia\.org/.test(url)) fetches++; return null; };
+  const first = await boot({ sample: false, nativeCompression: true, storage: { [key]: JSON.stringify(legacy) }, fetch });
+  let saved;
+  try {
+    assert.equal((await first.window.__app.birdInfo('Ruff')).extract, legacy.Ruff.extract);
+    saved = first.window.localStorage.getItem(key);
+    assert.ok(saved.startsWith('z:'));
+    assert.equal(JSON.stringify(await first.window.__app.unpackJson(saved)), JSON.stringify(legacy));
+  } finally { first.window.close(); }
+  const second = await boot({ sample: false, nativeCompression: true, storage: { [key]: saved }, fetch });
+  try {
+    assert.equal((await second.window.__app.birdInfo('Ruff')).extract, legacy.Ruff.extract);
+    assert.equal(fetches, 0, 'legacy and compressed cache hits must not require another article lookup');
+  } finally { second.window.close(); }
+});
+
+test('F247 encyclopedia saves await compression and serialize concurrent blurbs without losing an entry', async () => {
+  let fetched = 0, release;
+  const app = await boot({ sample: false, nativeCompression: true, fetch: url => {
+    if (!/wikipedia\.org/.test(url)) return null;
+    fetched++;
+    const title = decodeURIComponent(new URL(url).pathname.split('/').pop()).replace(/_/g, ' ');
+    return { title, extract: ('A species of bird called ' + title + '. ').repeat(60) };
+  } });
+  const W = app.window, A = W.__app, key = 'ebird_birdinfo_v2';
+  try {
+    const NativeResponse = W.Response;
+    W.Response = class {
+      constructor(value) {
+        if (typeof value === 'string' && value.includes('"F247 First":') && !value.includes('"F247 Second":')) {
+          this.body = { pipeThrough: () => ({ snapshot: value }) };
+        } else if (value && value.snapshot) {
+          this.arrayBuffer = () => new Promise(resolve => {
+            release = () => {
+              const bytes = require('node:zlib').gzipSync(value.snapshot);
+              resolve(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
+            };
+          });
+        } else return new NativeResponse(value);
+      }
+    };
+    let finished = false;
+    const first = A.birdInfo('F247 First').then(value => { finished = true; return value; });
+    await waitFor(() => release, 'held actual encyclopedia compression');
+    assert.equal(finished, false, 'a successful lookup must await its cache save');
+    assert.equal(W.localStorage.getItem(key), null, 'there must be no provisional raw JSON allocation');
+    const second = A.birdInfo('F247 Second');
+    await waitFor(() => fetched === 2, 'second article response');
+    release();
+    await Promise.all([first, second]);
+    const saved = W.localStorage.getItem(key);
+    assert.ok(saved.startsWith('z:'));
+    const decoded = await A.unpackJson(saved);
+    assert.deepEqual(Object.keys(decoded).sort(), ['F247 First', 'F247 Second'],
+      'a slower earlier save must not overwrite the second encyclopedia entry');
+    assert.match(decoded['F247 First'].extract, /F247 First/);
+    assert.match(decoded['F247 Second'].extract, /F247 Second/);
+  } finally { if (release) release(); W.close(); }
+});
+
+test('F247 encyclopedia compression cannot write into an erased or different profile', async () => {
+  for (const erase of [false, true]) {
+    let release;
+    const app = await boot({ sample: false, nativeCompression: true, fetch: url =>
+      /wikipedia\.org/.test(url) ? { title: 'Held bird', extract: 'held encyclopedia bird '.repeat(100) } : null });
+    const W = app.window, A = W.__app, key = 'ebird_birdinfo_v2', physical = A.bcReal(key);
+    try {
+      if (erase) W.localStorage.removeItem(A.bcReal('ebird_identity_rev_v1'));
+      const NativeResponse = W.Response;
+      W.Response = class {
+        constructor(value) {
+          if (typeof value === 'string' && value.includes('held encyclopedia bird')) {
+            this.body = { pipeThrough: () => ({ snapshot: value }) };
+          } else if (value && value.snapshot) {
+            this.arrayBuffer = () => new Promise(resolve => {
+              release = () => {
+                const bytes = require('node:zlib').gzipSync(value.snapshot);
+                resolve(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
+              };
+            });
+          } else return new NativeResponse(value);
+        }
+      };
+      const pending = A.birdInfo('Held bird');
+      await waitFor(() => release, 'held encyclopedia save before owner change');
+      if (erase) {
+        assert.equal(A.identityRevision(), 0, 'isolate the monotonic erasure barrier at revision zero');
+        A.scrubPersonalData();
+      }
+      else W.localStorage.setItem('bc_profile', 'F247-other');
+      release();
+      await pending;
+      assert.equal(W.localStorage.getItem(physical), null);
+      assert.equal(W.localStorage.getItem(A.bcReal(key)), null,
+        'a delayed save must not recreate erased data or follow the storage shim into another profile');
+    } finally { if (release) release(); W.close(); }
+  }
 });
 
 test('the caches that could hold a bad value are versioned past it', async () => {
@@ -42615,6 +48584,90 @@ test('the caches that could hold a bad value are versioned past it', async () =>
   // to move instead.
   assert.match(HTML, /PHOTO_KEY = 'ebird_photos_v2'/, 'photo cache versioned past the bad misses');
   assert.match(HTML, /INFO_KEY = 'ebird_birdinfo_v2'/, 'blurb cache versioned past the disambiguations');
+});
+
+test('F247 photo URL and negative caches migrate and survive compressed restarts without Wikipedia', async () => {
+  const positive = {}, negative = {};
+  for (let i = 0; i < 80; i++) {
+    positive['F247Photo' + i] = 'https://example.invalid/photo-' + i;
+    positive['F247Missing' + i] = '';
+    negative['F247Missing' + i] = Date.now();
+  }
+  let storage = { ebird_photos_v2: JSON.stringify(positive), ebird_photos_neg_v1: JSON.stringify(negative) };
+  for (let restart = 0; restart < 2; restart++) {
+    const app = await boot({ sample: false, nativeCompression: true, storage });
+    try {
+      const A = app.window.__app, before = app.state.fetches.length;
+      assert.equal(await A.photoLookup('F247Photo0'), positive.F247Photo0);
+      assert.equal(await A.photoLookup('F247Missing0'), '');
+      assert.equal(app.state.fetches.length, before, 'both positive and recent negative hits avoid Wikipedia');
+      storage = {};
+      for (const key of ['ebird_photos_v2', 'ebird_photos_neg_v1']) {
+        storage[key] = app.window.localStorage.getItem(A.bcReal(key));
+        assert.ok(storage[key].startsWith('z:'), 'migrate each legacy photo metadata family');
+        assert.equal(JSON.stringify(await A.unpackJson(storage[key])),
+          JSON.stringify(key === 'ebird_photos_v2' ? positive : negative));
+      }
+    } finally { app.window.close(); }
+  }
+});
+
+test('F247 photo metadata saves await compression, merge concurrent lookups and reject erased or changed owners', async () => {
+  for (const action of ['merge', 'erase', 'profile']) {
+    const app = await boot({ sample: false, nativeCompression: true, fetch: url => {
+      if (!/wikipedia\.org/.test(url)) return null;
+      const title = /F247PhotoB/.test(url) ? 'F247PhotoB' : 'F247PhotoA';
+      return { title, description: 'Bird species', thumbnail: {
+        source: 'https://example.invalid/F247-photo-' + title + '?padding=' + 'retained'.repeat(100)
+      } };
+    } });
+    const W = app.window, A = W.__app, key = A.bcReal('ebird_photos_v2');
+    let hold = true;
+    const packing = holdScoutCompression(W, json => {
+      if (!hold || !json.includes('F247-photo')) return false;
+      hold = false;
+      return true;
+    });
+    try {
+      if (action === 'erase') W.localStorage.removeItem(A.bcReal('ebird_identity_rev_v1'));
+      let finished = false;
+      const first = A.photoLookup('F247PhotoA').then(value => { finished = true; return value; });
+      await waitFor(packing.ready, 'held actual photo metadata compression');
+      assert.equal(finished, false);
+      assert.equal(W.localStorage.getItem(key), null, 'raw URL dictionaries must not be allocated first');
+      let second;
+      if (action === 'merge') {
+        let secondFinished = false;
+        second = A.photoLookup('F247PhotoB').then(value => { secondFinished = true; return value; });
+        await waitFor(() => app.state.fetches.some(url => /summary\/F247PhotoB/.test(url)),
+          'second photo response while the first save remains held');
+        assert.equal(secondFinished, false, 'a newer photo save must queue behind the held snapshot');
+        assert.equal(W.localStorage.getItem(key), null, 'the newer save cannot jump the persistence queue');
+      }
+      else if (action === 'erase') {
+        assert.equal(A.identityRevision(), 0, 'isolate the monotonic erasure barrier at revision zero');
+        A.scrubPersonalData();
+      }
+      else A.bcSetProfile('2');
+      packing.release();
+      const results = await Promise.all([first, second]);
+      if (action === 'merge') {
+        assert.match(results[0], /F247PhotoA/);
+        assert.match(results[1], /F247PhotoB/);
+        const raw = W.localStorage.getItem(key);
+        assert.ok(raw.startsWith('z:'));
+        const restored = await A.unpackJson(raw);
+        assert.match(restored.F247PhotoA, /F247PhotoA/);
+        assert.match(restored.F247PhotoB, /F247PhotoB/);
+      } else {
+        assert.equal(results[0], '', 'obsolete work cannot paint a successful old-owner lookup');
+        for (const family of ['ebird_photos_v2', 'ebird_photos_neg_v1']) {
+          assert.equal(W.localStorage.getItem(A.bcReal(family)), null);
+        }
+        assert.equal(W.localStorage.getItem(key), null);
+      }
+    } finally { packing.release(); W.close(); }
+  }
 });
 
 test('a photo miss expires so a bird can gain an article later', async () => {
@@ -42797,14 +48850,14 @@ test('F10: the navbar back control is icon-only but keeps its accessible name', 
     'shrinking the control must not unwire it - it still returns to Contents');
 });
 
-test('F10/F728/F1502: compact year-region link preserves chooser, context and main-menu year controls', async () => {
+test('F10/F728/F1502/F1536: shared year-region links preserve chooser and context', async () => {
   const app = await boot();
   try {
   const sel = app.$('navRegion');
   assert.ok(sel, 'the navbar still offers the region picker');
   assert.equal(sel.tagName, 'BUTTON',
     'the navbar must open the shared chooser rather than the undiscoverable native wheel');
-  const A=app.window.__app,period=app.$('hdrPeriod');
+  const A=app.window.__app;
   const context=()=>[A.bcProfile(),A.activeScope().cacheIdentity,A.personalPeriod()].join('|');
   const year=String(new app.window.Date().getFullYear());
   for (const [report,county,time] of [
@@ -42834,11 +48887,12 @@ test('F10/F728/F1502: compact year-region link preserves chooser, context and ma
   A.setActiveReport('wa');
   A.showMenu();
   const before=context();
-  assert.ok(period.classList.contains('hdrscope')&&app.$('hdrScope').classList.contains('hdrscope'),
-    'main-menu year and region controls are retained');
-  app.click(period);
-  assert.equal(app.$('menuPanel').hidden,false,'main-menu year retains the existing period picker');
-  assert.ok(app.document.activeElement.closest('.periodpick'),'selected existing period receives focus');
+  assert.equal(app.$('hdrPeriod'),null,'main menu has one combined year-region button');
+  assert.equal(app.$('hdrScope').textContent,sel.textContent);
+  app.click(app.$('hdrScope'));
+  assert.equal(app.$('regionChooser').hidden,false,'main menu opens the shared chooser');
+  assert.ok(app.$('regionChooserPeriod').querySelector('[aria-pressed="true"]'),
+    'the chooser retains its selected time period');
   assert.equal(context(),before,'opening the main-menu picker changes no account, area or period');
   } finally { app.window.close(); }
 });
@@ -44222,7 +50276,7 @@ test('F180 filters both twitch sections from one stored preference', async () =>
   assert.equal(doc.querySelector('#activeDistance [data-value="region"]').getAttribute('aria-pressed'),
     'true', 'the wide choice carries into the weekly list');
   assert.match(doc.getElementById('activeResults').textContent, /Far Bird/);
-  const saved = JSON.parse(app.window.localStorage.getItem(A.RARITY_FILTER_KEY));
+  const saved = readPersistedFixture(app.window, A.RARITY_FILTER_KEY);
   assert.deepEqual(saved, { year: 'all', distance: 'region' },
     'one stored object carries both filters for both time windows');
   app.window.close();
@@ -45091,6 +51145,1098 @@ test('F550 Busy Patches replaces the obsolete species-richness badge with its qu
 // F424 restores the checklist pulse as its own report. It still costs nothing
 // beyond Big days because both sections share recentLists(), but it now has the
 // distinct navigation and three orderings the owner asked for.
+function f1463Checklist(county, suffix = '') {
+  const king = county === 'US-WA-033';
+  return {
+    subId: 'SF1463' + (king ? 'KING' : 'SNO') + suffix,
+    locId: 'LF1463' + (king ? 'KING' : 'SNO') + suffix,
+    numSpecies: king ? 42 : 41, isoObsDate: recentObsStamp(0),
+    userDisplayName: 'Public audit birder',
+    loc: { locId: 'LF1463' + (king ? 'KING' : 'SNO') + suffix,
+      name: (king ? 'King' : 'Snohomish') + ' audit patch', isHotspot: true,
+      latitude: king ? 47.61 : 47.85, longitude: king ? -122.33 : -122.20,
+      subnational2Code: county, subnational1Code: 'US-WA' }
+  };
+}
+function f1464Observation(county, geo = false) {
+  const king = county === 'US-WA-033';
+  return {
+    speciesCode:'amerob', comName:'American Robin', howMany:1,
+    obsDt:recentObsStamp(0, 9), obsValid:true, obsReviewed:true,
+    locId:'LF1464' + (king ? 'KING' : 'SNO') + (geo ? 'GEO' : 'COUNTY'),
+    locName:(king ? 'King' : 'Snohomish') + (geo ? ' geo discovery' : ' county observation'),
+    subId:'SF1464' + county + (geo ? 'GEO' : 'COUNTY'),
+    lat:king ? 47.61 : 47.85, lng:king ? -122.33 : -122.20,
+    subnational2Code:county, subnational1Code:'US-WA'
+  };
+}
+function f1464FeedRows(url) {
+  const region = /data\/obs\/(US-WA-\d+)\/recent(?:\/notable)?(?:\?|$)/.exec(url);
+  if (region) return [f1464Observation(region[1])];
+  return /data\/obs\/geo\/recent(?:\/notable)?(?:\?|$)/.test(url)
+    ? ['US-WA-033', 'US-WA-061'].map(code => f1464Observation(code, true)) : [];
+}
+function f1464PhaseOneCalls(app) {
+  return app.state.fetches.filter(url => /data\/obs\/(?:US-WA-\d+|geo)\/recent(?:\/notable)?(?:\?|$)/.test(url)).length;
+}
+function f1465Rows(county, history = false, date = recentObsStamp(0, 8)) {
+  const base = f1464Observation(county);
+  return Array.from({length:5}, (_, index) => ({
+    ...base,speciesCode:'f1465bird' + index,comName:'F1465 fixture bird ' + index,
+    locId:'LF1465' + county + (history ? 'HISTORY' : 'RECENT'),
+    locName:(county === 'US-WA-033' ? 'King' : 'Snohomish') + (history ? ' history marsh' : ' recent park'),
+    subId:'SF1465' + county + (history ? 'HISTORY' : 'RECENT') + date,obsDt:date
+  }));
+}
+function f1465Metadata(county) {
+  return [false,true].map(history => {
+    const row = f1465Rows(county,history)[0];
+    return {locId:row.locId,locName:row.locName,lat:row.lat,lng:row.lng,
+      subnational2Code:county,subnational1Code:'US-WA',numSpeciesAllTime:200,
+      latestObsDt:recentObsStamp(history ? 8 : 0, 8)};
+  });
+}
+function f1465Response(url) {
+  const code = /(?:ref\/hotspot|data\/obs)\/(US-WA-\d+)/.exec(url)?.[1];
+  if (code && /ref\/hotspot\//.test(url)) return {kind:'hotspot',rows:f1465Metadata(code)};
+  if (code && /\/recent\?back=30.*hotspot=true/.test(url)) return {kind:'hotspot',rows:f1465Rows(code)};
+  const date = /\/historic\/(\d+)\/(\d+)\/(\d+)/.exec(url);
+  if (code && date) return {kind:'history',rows:f1465Rows(code,true,
+    [date[1],date[2].padStart(2,'0'),date[3].padStart(2,'0')].join('-') + ' 08:00')};
+  return {rows:[]};
+}
+for (const component of ['hotspot', 'history']) {
+  for (const county of ['', 'US-WA-033', 'US-WA-061']) {
+    test('F1465 actual ' + component + ' acquisition preserves scoped scores with bounded ' + (county || 'parent') + ' calls', async () => {
+      const measurements = {hotspot:{calls:0,bytes:0},history:{calls:0,bytes:0}};
+      const app = await boot({sample:false,fetch(url) {
+        const {kind,rows} = f1465Response(url);
+        if (kind) {
+          measurements[kind].calls++;
+          measurements[kind].bytes += Buffer.byteLength(JSON.stringify(rows));
+        }
+        return rows;
+      }});
+      try {
+        const A = app.window.__app;
+        await A.ensureActiveCountyCatalog();
+        if (county) A.setCountyView(county);
+        await seedSeen(app, [], [], f1465Rows('US-WA-033'));
+        let now = Date.now();
+        app.window.Date.now = () => (now += 3000);
+        A.fgWindowReset(); A.fgSchedReset(now);
+        A.showSection('sec-coldBtn', {load:false});
+        const started = performance.now();
+        const initial = await A.runHotspotScan({});
+        assert.ok(initial, app.$('coldStatus').textContent);
+        await waitFor(() => A.hotspotOwnershipState(A.activeScope()).done, 'owned seven-day sample');
+        const result = await A.runHotspotScan({});
+        const elapsedMs = performance.now() - started;
+        const codes = county ? [county] : ['US-WA-033','US-WA-061'];
+        assert.equal(A.hotspotContextKey(null,null,null,A.activeScope()),
+          A.hotspotContextKey(codes,null,null,A.activeScope()), 'derived context describes the actually supported county plan');
+        const expectedLocations = codes.map(code => f1465Rows(code,true)[0].locId).concat(codes.map(code => f1465Rows(code)[0].locId)).sort();
+        assert.deepEqual(Array.from(result.cold, row => row.locId).sort(), expectedLocations);
+        assert.ok(result.hot.some(row => row.locId === f1465Rows(codes[0],true)[0].locId),
+          'daily discovery remains additive to the collapsed recent source');
+        const dates = [...new Set(app.state.fetches.map(url => {
+          const date = /\/historic\/(\d+)\/(\d+)\/(\d+)/.exec(url);
+          return date && [date[1],date[2].padStart(2,'0'),date[3].padStart(2,'0')].join('-') + ' 08:00';
+        }).filter(Boolean))];
+        const fullCodes = ['US-WA-033','US-WA-061'], home = A.activeSavedBase();
+        const expected = A.computeHotspots(fullCodes.flatMap(code =>
+          f1465Rows(code).concat(dates.flatMap(date => f1465Rows(code,true,date)))),
+        fullCodes.flatMap(f1465Metadata), home, [{name:'home',lat:home.lat,lng:home.lng}], A.activeScope());
+        for (const kind of ['hot','cold']) {
+          const project = rows => Array.from(rows, row => ({
+            locId:row.locId,score:row.score,fresh:row.fresh,checklists:row.checklists,
+            birds:row.birds
+          }));
+          assert.deepEqual(JSON.parse(JSON.stringify(project(result[kind]))),
+            JSON.parse(JSON.stringify(project(expected[kind]))), 'unchanged bounded ' + kind + ' scores and member evidence');
+        }
+        const sample = A.hotspotOwnershipState(A.activeScope());
+        assert.equal(sample.failed, 0);
+        assert.equal(sample.days, 7);
+        console.log('F1465_BUDGET_MEASUREMENT ' + JSON.stringify({component,county:county || 'parent',
+          ...measurements[component],elapsedMs,locations:Array.from(result.cold,row => row.locId).sort()}));
+        assert.equal(measurements[component].calls,
+          codes.length * (component === 'hotspot' ? 2 : 7));
+        assert.deepEqual(app.state.errors, []);
+      } finally { app.window.close(); }
+    });
+  }
+}
+test('F1465 invalid selected directory cannot become a complete empty ranking and heals on retry', async () => {
+  let invalid = true;
+  const app = await boot({sample:false,fetch(url) {
+    return invalid && /ref\/hotspot\/US-WA-061/.test(url) ? {} : f1465Response(url).rows;
+  }});
+  try {
+    const A = app.window.__app;
+    await A.ensureActiveCountyCatalog();
+    A.setCountyView('US-WA-061');
+    await seedSeen(app, [], [], f1465Rows('US-WA-061'));
+    let now = Date.now();
+    app.window.Date.now = () => (now += 3000);
+    A.fgWindowReset(); A.fgSchedReset(now);
+    A.showSection('sec-coldBtn', {load:false});
+    const partial = await A.runHotspotScan({});
+    assert.equal(partial._feedIssue, true, 'a non-array source is missing coverage, not a successful empty directory');
+    assert.match(app.$('coldStatus').textContent, /partial.*some feeds unavailable/i);
+    invalid = false;
+    const repaired = await A.runHotspotScan({force:true});
+    assert.equal(repaired._feedIssue, false);
+    assert.ok(repaired.cold.some(row => row.locId === f1465Rows('US-WA-061')[0].locId));
+    assert.equal(app.state.fetches.filter(url => /ref\/hotspot\/US-WA-061/.test(url)).length, 2,
+      'the poisoned reference and memo must not suppress the actual replacement request');
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+test('F1465 sibling and parent scans reuse real-region references and complete dated history', async () => {
+  const network = [];
+  const app = await boot({sample:false,fetch(url) {
+    const response = f1465Response(url);
+    if (response.kind) network.push({kind:response.kind,rows:response.rows});
+    return response.rows;
+  }});
+  try {
+    const A = app.window.__app;
+    await A.ensureActiveCountyCatalog();
+    await seedSeen(app, [], [], f1465Rows('US-WA-033'));
+    let now = Date.now();
+    app.window.Date.now = () => (now += 3000);
+    A.fgWindowReset(); A.fgSchedReset(now);
+    A.showSection('sec-coldBtn', {load:false});
+    await A.runHotspotScan({});
+    await waitFor(() => A.hotspotOwnershipState(A.activeScope()).done, 'parent history acquisition');
+    const parent = await A.runHotspotScan({}), original = JSON.stringify(parent.cold);
+    const count = network.length;
+    for (const county of ['US-WA-061', 'US-WA-033', '']) {
+      A.setCountyView(county);
+      if (county) await seedCurrentSeen(app, []);
+      const before = network.length, started = performance.now();
+      await A.runHotspotScan({});
+      await waitFor(() => A.hotspotOwnershipState(A.activeScope()).done, 'reused complete history');
+      const result = await A.runHotspotScan({});
+      const actual = network.slice(before);
+      console.log('F1465_WARM_MEASUREMENT ' + JSON.stringify({county:county || 'parent',
+        calls:actual.length,bytes:actual.reduce((bytes,response) =>
+          bytes + Buffer.byteLength(JSON.stringify(response.rows)),0),elapsedMs:performance.now() - started}));
+      assert.equal(network.length, count, 'county selection must not re-request compatible region/day cache entries');
+      assert.equal(result.cold.length, county ? 2 : 4);
+      assert.equal(A.hotspotOwnershipState(A.activeScope()).failed, 0);
+      assert.equal(JSON.stringify(parent.cold), original, 'a child scan never replaces the complete parent pool');
+    }
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+test('F1465 Bird Gen Busy source shares one actual selected registry and checklist plan', async () => {
+  const app = await boot({sample:false,fetch:url => f1465Response(url).rows});
+  try {
+    const A = app.window.__app;
+    await A.ensureActiveCountyCatalog();
+    A.setCountyView('US-WA-061');
+    await seedSeen(app, [], [], f1465Rows('US-WA-061'));
+    let now = Date.now();
+    app.window.Date.now = () => (now += 3000);
+    A.fgWindowReset(); A.fgSchedReset(now);
+    A.showSection('sec-surgeBtn', {load:false});
+    const tasks = A.acquireInitialDatasetTasks(A.activeScope(), {current:() => true});
+    const [first,second] = await Promise.all([tasks.busy.acquire(),tasks.busy.acquire()]);
+    assert.equal(first.state, second.state);
+    assert.equal(first.value.busyState.partial, false);
+    assert.equal(first.value.busyState.pending, false);
+    assert.equal(app.state.fetches.filter(url => /ref\/hotspot\/US-WA-061/.test(url)).length, 1);
+    assert.equal(app.state.fetches.filter(url => /product\/lists\/US-WA-061/.test(url)).length, 1);
+    assert.equal(app.state.fetches.filter(url => /(?:ref\/hotspot|product\/lists)\/US-WA-033/.test(url)).length, 0);
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+test('F1465 native restart keeps real-region directory and day caches without relabelling a parent result', async () => {
+  let app = await boot({sample:false,fetch:url => f1465Response(url).rows});
+  try {
+    let A = app.window.__app;
+    await A.ensureActiveCountyCatalog();
+    await seedSeen(app, [], [], f1465Rows('US-WA-033'));
+    let now = Date.now();
+    app.window.Date.now = () => (now += 3000);
+    A.fgWindowReset(); A.fgSchedReset(now);
+    A.showSection('sec-coldBtn', {load:false});
+    await A.runHotspotScan({});
+    await waitFor(() => A.hotspotOwnershipState(A.activeScope()).done, 'persisted parent history');
+    A.setCountyView('US-WA-061');
+    const storage = Object.fromEntries(Object.keys(app.window.localStorage)
+      .map(key => [key, app.window.localStorage.getItem(key)]));
+    app.window.close();
+    app = await boot({sample:false,storage,fetch:url => f1465Response(url).rows});
+    A = app.window.__app;
+    await seedSeen(app, [], [], f1465Rows('US-WA-061'));
+    now = Date.now();
+    app.window.Date.now = () => (now += 3000);
+    A.fgWindowReset(); A.fgSchedReset(now);
+    A.showSection('sec-coldBtn', {load:false});
+    const result = await A.runHotspotScan({});
+    await waitFor(() => A.hotspotOwnershipState(A.activeScope()).done, 'restored selected history');
+    assert.equal(result.cold.length, 2);
+    assert.equal(app.state.fetches.filter(url => /ref\/hotspot\/US-WA-/.test(url)).length, 0);
+    assert.equal(app.state.fetches.filter(url => /data\/obs\/US-WA-\d+\/historic\//.test(url)).length, 0);
+    assert.equal(app.state.fetches.filter(url => /\/recent\?back=30.*hotspot=true/.test(url)).length, 1);
+    assert.equal(A.hotspotOwnershipState(A.activeScope()).cacheHits, 7);
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+test('F1465 interrupted history never completes or overwrites a replacement county sample', async () => {
+  let release;
+  const app = await boot({sample:false,fetch(url) {
+    const response = f1465Response(url);
+    if (!release && response.kind === 'history' && /US-WA-061/.test(url)) {
+      return new Promise(resolve => { release = () => resolve(response.rows.map((row,index) =>
+        ({...row,comName:'Retired history leak ' + index}))); });
+    }
+    return response.rows;
+  }});
+  try {
+    const A = app.window.__app;
+    await A.ensureActiveCountyCatalog();
+    A.setCountyView('US-WA-061');
+    await seedSeen(app, [], [], f1465Rows('US-WA-061'));
+    let now = Date.now();
+    app.window.Date.now = () => (now += 3000);
+    A.fgWindowReset(); A.fgSchedReset(now);
+    A.showSection('sec-coldBtn', {load:false});
+    await A.runHotspotScan({});
+    await waitFor(() => release, 'held first owned history day');
+    assert.equal(A.hotspotOwnershipState(A.activeScope()).done, false);
+    A.setCountyView('US-WA-033');
+    A.setCountyView('US-WA-061');
+    await seedCurrentSeen(app, []);
+    await A.runHotspotScan({});
+    release();
+    await waitFor(() => A.hotspotOwnershipState(A.activeScope()).done, 'replacement complete seven-day history');
+    await new Promise(resolve => setImmediate(resolve));
+    const result = await A.runHotspotScan({});
+    const sample = A.hotspotOwnershipState(A.activeScope());
+    assert.equal(sample.attempted, 7);
+    assert.equal(sample.fetched, 7, 'a held retired response cannot stand in for a completed current day');
+    assert.equal(sample.failed, 0);
+    assert.equal(app.state.fetches.filter(url => /data\/obs\/US-WA-061\/historic\//.test(url)).length, 8);
+    assert.doesNotMatch(JSON.stringify(result.hot), /Retired history leak/);
+    assert.deepEqual(app.state.errors, []);
+  } finally { if (release) release(); app.window.close(); }
+});
+for (const mode of ['full', 'notable']) {
+  test('F1464 ' + mode + ' sibling and parent warm reads preserve shared raw freshness', async () => {
+    const app = await boot({sample:false,fetch:f1464FeedRows});
+    try {
+      const A = app.window.__app;
+      await seedSeen(app, ['amerob'], ['American Robin']);
+      const acquire = () => mode === 'full' ? A.getChase(false) : A.getChaseRarity(false);
+      const parent = await acquire(), raw = JSON.stringify(parent.rows);
+      const calls = f1464PhaseOneCalls(app);
+      for (const county of ['US-WA-061', 'US-WA-033', '']) {
+        A.setCountyView(county);
+        if (county) await seedSeen(app, ['amerob'], ['American Robin']);
+        const before = f1464PhaseOneCalls(app), fetchAt = app.state.fetches.length, started = performance.now();
+        const result = await acquire();
+        const bytes = app.state.fetches.slice(fetchAt)
+          .filter(url => /data\/obs\/(?:US-WA-\d+|geo)\/recent(?:\/notable)?(?:\?|$)/.test(url))
+          .reduce((total, url) => total + Buffer.byteLength(JSON.stringify(f1464FeedRows(url))), 0);
+        console.log('F1464_WARM_MEASUREMENT ' + JSON.stringify({mode,county:county || 'parent',
+          calls:f1464PhaseOneCalls(app) - before,bytes,elapsedMs:performance.now() - started}));
+        assert.equal(f1464PhaseOneCalls(app), calls, 'compatible raw URLs need no new provider request');
+        assert.equal(result.profile.counties.length, county ? 1 : 2);
+        Object.keys(result.feedTimes).forEach(file => {
+          assert.equal(result.feedTimes[file], parent.feedTimes[file], 'reusing evidence never renews source age');
+        });
+        assert.equal(result.feedComplete, true);
+        assert.equal(JSON.stringify(parent.rows), raw, 'selected acquisition never overwrites the parent raw pool');
+      }
+      assert.deepEqual(app.state.errors, []);
+    } finally { app.window.close(); }
+  });
+  test('F1464 ' + mode + ' restores compatible parent raw sources for a cold county after restart', async () => {
+    let app = await boot({sample:false,fetch:f1464FeedRows});
+    try {
+      let A = app.window.__app;
+      await seedSeen(app, ['amerob'], ['American Robin']);
+      const parent = await (mode === 'full' ? A.getChase(false) : A.getChaseRarity(false));
+      A.setCountyView('US-WA-061');
+      const storage = Object.fromEntries(Object.keys(app.window.localStorage)
+        .map(key => [key, app.window.localStorage.getItem(key)]));
+      app.window.close();
+      app = await boot({sample:false,storage,fetch:f1464FeedRows});
+      A = app.window.__app;
+      await seedSeen(app, ['amerob'], ['American Robin']);
+      const result = await (mode === 'full' ? A.getChase(false) : A.getChaseRarity(false));
+      assert.equal(f1464PhaseOneCalls(app), 0, 'fresh parent snapshot retains its real source URLs and times');
+      assert.equal(result.profile.counties.length, 1);
+      assert.deepEqual([...new Set(result.cv.merged.map(row => row.locId))].sort(),
+        [f1464Observation('US-WA-061').locId, f1464Observation('US-WA-061', true).locId].sort());
+      Object.keys(result.feedTimes).forEach(file => {
+        assert.equal(result.feedTimes[file], parent.feedTimes[file]);
+      });
+      assert.deepEqual(app.state.errors, []);
+    } finally { app.window.close(); }
+  });
+}
+for (const county of ['', 'US-WA-061']) {
+  test('F1464 persisted notable-only sources remain reusable by a later full ' + (county || 'parent') + ' wave', async () => {
+    let app = await boot({sample:false,fetch:f1464FeedRows});
+    try {
+      let A = app.window.__app;
+      if (county) A.setCountyView(county);
+      await seedSeen(app, ['amerob'], ['American Robin']);
+      const notable = await A.getChaseRarity(false);
+      const storage = Object.fromEntries(Object.keys(app.window.localStorage)
+        .map(key => [key, app.window.localStorage.getItem(key)]));
+      app.window.close();
+      app = await boot({sample:false,storage,fetch:f1464FeedRows});
+      A = app.window.__app;
+      await seedSeen(app, ['amerob'], ['American Robin']);
+      await A.getChase(false);
+      const result = await waitFor(async () => {
+        const current = await A.getChase(false);
+        return current.feedComplete && current;
+      }, 'complete full plan after notable-only restoration');
+      assert.equal(f1464PhaseOneCalls(app), county ? 2 : 3,
+        'only missing recent URLs need actual requests; notable coverage is not a complete full result');
+      Object.keys(notable.feedTimes).forEach(file => {
+        assert.equal(result.feedTimes[file], notable.feedTimes[file], 'reusing notable sources retains their actual age');
+      });
+      assert.deepEqual(app.state.errors, []);
+    } finally { app.window.close(); }
+  });
+}
+for (const defect of ['future', 'invalid', 'missing-time', 'expired']) {
+  test('F1464 own snapshot ' + defect + ' part remains incomplete until its actual source is repaired', async () => {
+    const releases = [];
+    let app = await boot({sample:false,fetch:f1464FeedRows});
+    try {
+      let A = app.window.__app;
+      A.setCountyView('US-WA-061');
+      await seedSeen(app, ['amerob'], ['American Robin']);
+      const original = await A.getChase(false);
+      const record = await A.loadChaseSnapshot(original.profile.slug);
+      const feed = app.window.BirdLogic.planFeeds(original.profile).find(feed =>
+        feed.kind === 'notable' && app.window.BirdLogic.requestUrl(feed).includes('US-WA-061'));
+      const file = feed.file, requestPath = new URL(app.window.BirdLogic.requestUrl(feed),
+        'https://api.ebird.org/v2/').pathname;
+      if (defect === 'future') record.feedTimes[file] = Date.now() + 60000;
+      if (defect === 'invalid') record.rows[file] = {};
+      if (defect === 'missing-time') delete record.feedTimes[file];
+      if (defect === 'expired') record.feedTimes[file] = Date.now() - A.CHASE_TTL_MS - 1000;
+      app.window.localStorage.setItem(A.bcReal(A.chaseKey(original.profile.slug)), JSON.stringify(record));
+      const storage = Object.fromEntries(Object.keys(app.window.localStorage)
+        .map(key => [key, app.window.localStorage.getItem(key)]));
+      app.window.close();
+      app = await boot({sample:false,storage,fetch(url) {
+        if (new URL(url, 'https://localhost').pathname === requestPath) {
+          return new Promise(resolve => releases.push(() => resolve(f1464FeedRows(url))));
+        }
+        return f1464FeedRows(url);
+      }});
+      A = app.window.__app;
+      A.showSection('sec-settings', {load:false});
+      await seedSeen(app, ['amerob'], ['American Robin']);
+      const first = await A.getChase(false).catch(error => error);
+      assert.equal(first.feedComplete, false, 'an invalid source part cannot establish complete full coverage');
+      assert.equal(first.stale, true, 'unverified coverage must refresh rather than take the fresh full shortcut');
+      if (defect !== 'expired') assert.equal(first.rows[file], undefined, 'unverified raw parts cannot enter the merge');
+      else assert.equal(JSON.stringify(first.rows[file]), JSON.stringify(record.rows[file]),
+        'earlier valid rows remain available as disclosed stale evidence');
+      await waitFor(() => releases.length, 'actual replacement request for the own snapshot part');
+      const completion = A.getChase(true);
+      releases.forEach(release => release());
+      const result = await completion;
+      assert.equal(result.feedComplete, true, 'the joined replacement completes only after source validation and retention');
+      assert.equal(f1464PhaseOneCalls(app), 1);
+      assert.ok(result.feedTimes[file] <= Date.now());
+      Object.keys(result.feedTimes).filter(key => key !== file)
+        .forEach(key => assert.equal(result.feedTimes[key], record.feedTimes[key]));
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      releases.forEach(release => release());
+      app.window.close();
+    }
+  });
+}
+test('F1464 a selected county shares a compatible parent wave already in flight', async () => {
+  let release, holding = false;
+  const app = await boot({sample:false,fetch(url) {
+    if (holding && /data\/obs\/US-WA-033\/recent\/notable(?:\?|$)/.test(url)) {
+      return new Promise(resolve => { release = () => resolve(f1464FeedRows(url)); });
+    }
+    return f1464FeedRows(url);
+  }});
+  try {
+    const A = app.window.__app;
+    await seedSeen(app, ['amerob'], ['American Robin']);
+    const before = f1464PhaseOneCalls(app);
+    holding = true;
+    const parent = A.getChaseAll('obs');
+    await waitFor(() => release, 'held parent notable source');
+    A.setCountyView('US-WA-061');
+    await seedSeen(app, ['amerob'], ['American Robin']);
+    const selected = A.getChase(false);
+    release();
+    const [raw, county] = await Promise.all([parent, selected]);
+    assert.equal(f1464PhaseOneCalls(app) - before, 6, 'the subset must not duplicate the in-flight parent URLs: '
+      + JSON.stringify(app.state.fetches.filter(url => /data\/obs\//.test(url))));
+    assert.equal(raw.profile.counties.length, 2);
+    assert.equal(county.profile.counties.length, 1);
+    assert.equal(county.feedComplete, true);
+    assert.deepEqual([...new Set(county.cv.merged.map(row => row.locId))].sort(),
+      [f1464Observation('US-WA-061').locId, f1464Observation('US-WA-061', true).locId].sort());
+    assert.deepEqual(app.state.errors, []);
+  } finally { if (release) release(); app.window.close(); }
+});
+for (const defect of ['failed', 'missing', 'invalid', 'expired', 'future', 'missing-time',
+  'incompatible', 'missing-geo', 'insufficient-geo', 'wider-geo']) {
+  test('F1464 parent restart reuse reacquires ' + defect + ' evidence without claiming it complete', async () => {
+    let app = await boot({sample:false,fetch:f1464FeedRows});
+    try {
+      let A = app.window.__app;
+      await seedSeen(app, ['amerob'], ['American Robin']);
+      const parent = await A.getChase(false);
+      const record = await A.loadChaseSnapshot(parent.profile.slug);
+      const file = app.window.BirdLogic.planFeeds(parent.profile).find(feed =>
+        feed.kind === 'notable' && app.window.BirdLogic.requestUrl(feed).includes('US-WA-061')).file;
+      if (defect === 'failed') record.feedStates[file] = 'failed';
+      if (defect === 'missing') delete record.rows[file];
+      if (defect === 'invalid') record.rows[file] = {};
+      if (defect === 'expired') record.feedTimes[file] = Date.now() - 31 * 60 * 1000;
+      if (defect === 'future') record.feedTimes[file] = Date.now() + 60000;
+      if (defect === 'missing-time') delete record.feedTimes[file];
+      if (defect === 'incompatible') record.fetchBaseKey = 'incompatible-source';
+      if (defect === 'missing-geo') delete record.geoNotableKm;
+      if (defect === 'insufficient-geo') record.geoNotableKm--;
+      if (defect === 'wider-geo') record.geoNotableKm++;
+      app.window.localStorage.setItem(A.bcReal(A.chaseKey(parent.profile.slug)), JSON.stringify(record));
+      A.setCountyView('US-WA-061');
+      const storage = Object.fromEntries(Object.keys(app.window.localStorage)
+        .map(key => [key, app.window.localStorage.getItem(key)]));
+      app.window.close();
+      app = await boot({sample:false,storage,fetch:f1464FeedRows});
+      A = app.window.__app;
+      await seedSeen(app, ['amerob'], ['American Robin']);
+      const result = await A.getChase(false);
+      assert.equal(f1464PhaseOneCalls(app),
+        ['incompatible', 'missing-geo', 'insufficient-geo'].includes(defect) ? 4 : 1);
+      assert.equal(result.feedComplete, true, 'only the actual repaired sources make the subset complete');
+      assert.equal(result.profile.counties.length, 1);
+      assert.ok(result.feedTimes[file] <= Date.now());
+      if (!['incompatible', 'missing-geo', 'insufficient-geo'].includes(defect)) Object.keys(result.feedTimes)
+        .filter(key => key !== (defect === 'wider-geo' ? 'geo-notable.json' : file))
+        .forEach(key => assert.equal(result.feedTimes[key], record.feedTimes[key]));
+      const retained = await A.loadChaseSnapshot(parent.profile.slug);
+      assert.equal(JSON.stringify(retained), JSON.stringify(record), 'priming never repairs or overwrites parent evidence');
+      assert.deepEqual(app.state.errors, []);
+    } finally { app.window.close(); }
+  });
+}
+test('F1464 returning to a county does not join its retired acquisition owner', async () => {
+  let release;
+  const app = await boot({sample:false,fetch(url) {
+    if (!release && /data\/obs\/US-WA-061\/recent\/notable(?:\?|$)/.test(url)) {
+      return new Promise(resolve => { release = () => resolve(f1464FeedRows(url)); });
+    }
+    return f1464FeedRows(url);
+  }});
+  try {
+    const A = app.window.__app;
+    A.setCountyView('US-WA-061');
+    await seedSeen(app, ['amerob'], ['American Robin']);
+    const retired = A.getChase(false).catch(error => error);
+    await waitFor(() => release, 'held county source');
+    A.setCountyView('US-WA-033');
+    A.setCountyView('US-WA-061');
+    const current = A.getChase(false);
+    release();
+    const result = await current.catch(error => error);
+    await retired;
+    assert.equal(result.feedComplete, true, 'the replacement must acquire its own complete supported source plan');
+    assert.equal(result.profile.counties.length, 1);
+    const stored = await A.loadChaseSnapshot(result.profile.slug);
+    const file = app.window.BirdLogic.planFeeds(result.profile).find(feed =>
+      feed.kind === 'notable' && app.window.BirdLogic.requestUrl(feed).includes('US-WA-061')).file;
+    assert.equal(stored.feedStates[file], 'ok');
+    assert.deepEqual(app.state.errors, []);
+  } finally { if (release) release(); app.window.close(); }
+});
+test('F1464 a retired county cannot commit its delayed raw snapshot', async () => {
+  const app = await boot({sample:false,fetch:f1464FeedRows});
+  let release;
+  try {
+    const A = app.window.__app;
+    A.setCountyView('US-WA-061');
+    await seedSeen(app, ['amerob'], ['American Robin']);
+    const profile = A.chaseAcquisitionProfile();
+    A.setChaseSnapshotStoreGate(() => new Promise(resolve => { release = resolve; }));
+    const pending = A.getChase(false).catch(error => error);
+    await waitFor(() => release, 'county snapshot before storage acknowledgment');
+    A.setCountyView('US-WA-033');
+    A.setCountyView('US-WA-061');
+    A.setChaseSnapshotStoreGate(null);
+    release();
+    await pending;
+    assert.equal(await A.loadChaseSnapshot(profile.slug), null,
+      'same county after Back is a different write owner, not permission to commit retired bytes');
+    assert.deepEqual(app.state.errors, []);
+  } finally {
+    app.window.__app.setChaseSnapshotStoreGate(null);
+    if (release) release();
+    app.window.close();
+  }
+});
+test('F1464 compatible parent reuse still enriches current county targets at the unchanged state scope', async () => {
+  const app = await boot({sample:false,fetch(url) {
+    if (/data\/obs\/US-WA\/recent\/amerob(?:\?|$)/.test(url)) {
+      return [
+        {...f1464Observation('US-WA-061'),locId:'LF1464SNOSPECIES',subId:'SF1464SNOSPECIES'},
+        {...f1464Observation('US-WA-033'),locId:'LF1464KINGSPECIES',subId:'SF1464KINGSPECIES'}
+      ];
+    }
+    return f1464FeedRows(url);
+  }});
+  try {
+    const A = app.window.__app;
+    await seedSeen(app, ['amerob'], ['American Robin']);
+    const parent = await A.getChase(false);
+    const original = JSON.stringify(parent.rows), before = f1464PhaseOneCalls(app);
+    A.setCountyView('US-WA-061');
+    await seedSeen(app, [], []);
+    A.showSection('sec-surgeBtn', {load:false});
+    const first = await A.getChase(false);
+    assert.equal(first.feedComplete, true);
+    assert.ok(first.cv.unseenAll.some(row => row.code === 'amerob'),
+      'current county empty personal evidence must leave the fixture target unseen: '
+      + JSON.stringify({unseen:first.cv.unseenAll.map(row => row.code),state:A.personalListEvidence().state}));
+    await waitFor(() => app.state.fetches.some(url => /data\/obs\/US-WA\/recent\/amerob(?:\?|$)/.test(url)),
+      'state-scoped target request');
+    const result = await waitFor(async () => {
+      const current = await A.getChase(false);
+      return Array.isArray(current.rows['sp-amerob.json']) && current;
+    }, 'current county per-species enrichment');
+    assert.equal(f1464PhaseOneCalls(app), before, 'shared phase-one rows remain reusable');
+    assert.equal(app.state.fetches.filter(url => /data\/obs\/US-WA\/recent\/amerob(?:\?|$)/.test(url)).length, 1);
+    assert.equal(app.state.fetches.filter(url => /data\/obs\/US-WA-\d+\/recent\/amerob(?:\?|$)/.test(url)).length, 0);
+    assert.ok(result.cv.merged.some(row => row.locId === 'LF1464SNOSPECIES'),
+      'qualifying species discovery must survive merge: ' + JSON.stringify(result.cv.merged.map(row => row.locId)));
+    assert.ok(!result.cv.merged.some(row => row.locId === 'LF1464KINGSPECIES'));
+    assert.equal(JSON.stringify(parent.rows), original);
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+for (const mode of ['full', 'notable']) {
+  for (const county of ['', 'US-WA-033', 'US-WA-061']) {
+    test('F1464 actual ' + mode + ' acquisition preserves evidence while bounding ' + (county || 'parent') + ' cold calls', async () => {
+      let bytes = 0;
+      const app = await boot({sample:false,fetch(url) {
+        const region = /data\/obs\/(US-WA-\d+)\/recent(?:\/notable)?(?:\?|$)/.exec(url);
+        const geo = /data\/obs\/geo\/recent(?:\/notable)?(?:\?|$)/.test(url);
+        if (!region && !geo) return [];
+        const rows = region ? [f1464Observation(region[1])]
+          : ['US-WA-033', 'US-WA-061'].map(code => f1464Observation(code, true));
+        bytes += Buffer.byteLength(JSON.stringify(rows));
+        return rows;
+      }});
+      try {
+        const A = app.window.__app;
+        if (county) A.setCountyView(county);
+        await seedSeen(app, ['amerob'], ['American Robin']);
+        const before = JSON.stringify(A.chaseProfile());
+        const start = performance.now();
+        const result = await (mode === 'full' ? A.getChase(false) : A.getChaseRarity(false));
+        const calls = app.state.fetches.filter(url => /data\/obs\/(?:US-WA-\d+|geo)\/recent(?:\/notable)?(?:\?|$)/.test(url));
+        const locations = [...new Set(result.cv.merged.map(row => row.locId))].sort();
+        const codes = county ? [county] : ['US-WA-033', 'US-WA-061'];
+        const expected = codes.flatMap(code => [f1464Observation(code).locId, f1464Observation(code, true).locId]).sort();
+        console.error('F1464_BUDGET_MEASUREMENT', JSON.stringify({
+          mode,county:county || 'parent',calls:calls.length,bytes,elapsedMs:performance.now()-start,locations
+        }));
+        assert.deepEqual(locations, expected, 'geo-only eligible locations cannot disappear with the sibling lane');
+        assert.equal(calls.length, mode === 'full' ? (county ? 4 : 6) : (county ? 2 : 3));
+        assert.equal(result.feedComplete, true);
+        assert.equal(result.feedFailed, false);
+        assert.equal(JSON.stringify(A.chaseProfile()), before, 'the shared broad profile is unchanged');
+        assert.deepEqual(app.state.errors, []);
+      } finally { app.window.close(); }
+    });
+  }
+}
+function f1463ConvoyRows(county) {
+  return [0, 1].flatMap(stop => [0, 1].map(member => {
+    const row = f1463Checklist(county, 'STOP' + stop + 'MEMBER' + member);
+    row.locId = row.loc.locId = 'LF1463' + county + stop;
+    row.userDisplayName = county + ' public party ' + member;
+    row.isoObsDate = formatObsStamp(new Date()).slice(0, 10) + ' ' + (stop ? '10' : '09') + ':00';
+    row.groupId = 'group-' + county;
+    return row;
+  }));
+}
+for (const [at, host, selector] of [
+  ['recentBtn', 'recentResults', '[data-recent-sub]'],
+  ['cklBtn', 'cklResults', '.bigdaycard'],
+  ['convoyBtn', 'convoyResults', '.convoywrap']
+]) {
+  test('F1463 actual ' + at + ' retains exact county through Back, period, identity and restart', async () => {
+    function fetchRows(url) {
+      const code = /product\/lists\/(US-WA-\d+)/.exec(url);
+      return code ? (at === 'convoyBtn' ? f1463ConvoyRows(code[1]) : [f1463Checklist(code[1])]) : [];
+    }
+    let app = await boot({sample:false,fetch:fetchRows});
+    try {
+      let A = app.window.__app;
+      A.setCountyView('US-WA-033');
+      A.showSection('sec-' + at, {load:false});
+      await A.LOADERS[at].fn();
+      assert.equal(app.$(host).querySelectorAll(selector).length, 1);
+      A.showSection('sec-spLookupBtn', {load:false});
+      app.click(app.$('navBack'));
+      await waitFor(() => !app.$('sec-' + at).hidden && app.$(host).querySelector(selector),
+        'Back restores the matching county surface');
+      assert.doesNotMatch(app.$(host).textContent, /Snohomish audit patch/);
+      A.setCountyView('US-WA-061');
+      A.setPersonalPeriod('all');
+      A.applyCapturedIdentity({status:'ok',displayName:'F1463 synthetic account'}, true);
+      await A.LOADERS[at].fn();
+      assert.equal(app.$(host).querySelectorAll(selector).length, 1);
+      assert.match(app.$(host).textContent, /Snohomish audit patch/);
+      assert.doesNotMatch(app.$(host).textContent, /King audit patch/);
+      const storage = Object.fromEntries(Object.keys(app.window.localStorage)
+        .map(key => [key, app.window.localStorage.getItem(key)]));
+      assert.deepEqual(app.state.errors, []);
+      app.window.close();
+      app = await boot({sample:false,storage,fetch:fetchRows});
+      A = app.window.__app;
+      assert.equal(A.activeScope().effectiveRegion, 'US-WA-061');
+      assert.equal(A.personalPeriod(), 'all');
+      A.showSection('sec-' + at, {load:false});
+      await A.LOADERS[at].fn();
+      assert.equal(app.$(host).querySelectorAll(selector).length, 1);
+      assert.match(app.$(host).textContent, /Snohomish audit patch/);
+      assert.doesNotMatch(app.$(host).textContent, /King audit patch/);
+      assert.deepEqual(app.state.errors, []);
+    } finally { app.window.close(); }
+  });
+}
+for (const county of ['', 'US-WA-033', 'US-WA-061']) {
+  test('F1463 actual Convoys projects routes, member links and pins to ' + (county || 'parent'), async () => {
+    const source = ['US-WA-033', 'US-WA-061'].flatMap(f1463ConvoyRows);
+    const before = JSON.stringify(source);
+    const app = await boot({sample:false,fetch(url) {
+      const code = /product\/lists\/(US-WA-\d+)/.exec(url);
+      return code ? source.filter(row => row.loc.subnational2Code === code[1]) : [];
+    }});
+    try {
+      const A = app.window.__app;
+      if (county) A.setCountyView(county);
+      A.showSection('sec-convoyBtn', {load:false});
+      await A.LOADERS.convoyBtn.fn();
+      assert.equal(app.$('convoyResults').querySelectorAll('.convoywrap').length, county ? 1 : 2);
+      if (county) {
+        const foreign = county === 'US-WA-033' ? /Snohomish audit patch/ : /King audit patch/;
+        assert.doesNotMatch(app.$('convoyResults').textContent, foreign);
+        assert.doesNotMatch(app.$('convoyResults').innerHTML, foreign);
+        assert.equal(app.$('convoyResults').querySelectorAll('.convoystops a[data-href*="checklist/"]').length, 4);
+      }
+      assert.equal(new Set(app.state.fetches.filter(url => /product\/lists\//.test(url))).size, 2,
+        'selected output preserves the shared broad acquisition before F1465');
+      assert.equal(JSON.stringify(source), before);
+      assert.deepEqual(app.state.errors, []);
+    } finally { app.window.close(); }
+  });
+}
+test('F1463 actual Convoys admits proven source extent and labels conflicting evidence', async () => {
+  const source = f1463ConvoyRows('US-WA-033');
+  source.forEach(row => {
+    delete row.loc.subnational2Code;
+    delete row.loc.subnational1Code;
+  });
+  const conflict = f1463ConvoyRows('US-WA-033');
+  conflict.forEach(row => {
+    row.subId += 'CONFLICT';
+    row.sub2 = 'US-WA-061';
+    row.loc.name = 'Conflicting convoy patch';
+  });
+  const app = await boot({sample:false,boundaryFetch:unavailableFixtureBoundary,fetch(url) {
+    if (/product\/lists\/US-WA-033/.test(url)) return source.concat(conflict);
+    if (/product\/lists\/US-WA-061/.test(url)) return f1463ConvoyRows('US-WA-061');
+    return [];
+  }});
+  try {
+    const A = app.window.__app;
+    A.setCountyView('US-WA-033');
+    A.showSection('sec-convoyBtn', {load:false});
+    await A.LOADERS.convoyBtn.fn();
+    assert.equal(app.$('convoyResults').querySelectorAll('.convoywrap').length, 1);
+    assert.doesNotMatch(app.$('convoyResults').textContent, /Conflicting convoy patch|Snohomish audit patch/);
+    assert.match(app.$('convoyStatus').textContent, /coverage incomplete/);
+    assert.equal(source[0].loc.subnational2Code, undefined);
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+for (const failure of ['failed', 'invalid', 'capped']) {
+  test('F1463 actual Convoys does not label ' + failure + ' source coverage complete', async () => {
+    const cap = require(path.join(WWW, 'logic.js')).CONST.CONVOY_MAX_RESULTS;
+    const app = await boot({sample:false,fetch(url) {
+      if (/product\/lists\/US-WA-033/.test(url)) return [];
+      if (/product\/lists\/US-WA-061/.test(url)) {
+        if (failure === 'failed') return Promise.reject(new Error('Synthetic convoy source failure'));
+        if (failure === 'invalid') return {};
+        return Array.from({length:cap}, (_, i) => ({...f1463Checklist('US-WA-061', String(i)),
+          userDisplayName:'Public isolated birder ' + i}));
+      }
+      return [];
+    }});
+    try {
+      const A = app.window.__app;
+      A.setCountyView('US-WA-033');
+      A.showSection('sec-convoyBtn', {load:false});
+      await A.LOADERS.convoyBtn.fn();
+      assert.equal(app.$('convoyResults').querySelectorAll('.convoywrap').length, 0);
+      assert.match(app.$('convoyStatus').textContent, /coverage incomplete/);
+      assert.match(app.$('convoyResults').textContent, /coverage incomplete/);
+      assert.deepEqual(app.state.errors, []);
+    } finally { app.window.close(); }
+  });
+}
+test('F1463 actual Convoys retires delayed parent round trips and restores refresh ownership', async () => {
+  let release, hold = true;
+  const app = await boot({sample:false,fetch(url) {
+    const code = /product\/lists\/(US-WA-\d+)/.exec(url);
+    if (!code) return [];
+    if (hold && code[1] === 'US-WA-033') {
+      return new Promise(resolve => { release = () => resolve(f1463ConvoyRows(code[1])); });
+    }
+    return f1463ConvoyRows(code[1]);
+  }});
+  try {
+    const A = app.window.__app;
+    A.showSection('sec-convoyBtn', {load:false});
+    const pending = A.LOADERS.convoyBtn.fn();
+    await waitFor(() => release, 'held parent convoy acquisition');
+    A.setCountyView('US-WA-033');
+    A.setCountyView('');
+    const retained = app.$('convoyStatus').textContent;
+    assert.equal(app.$('convoyBtn').disabled, false, 'new scope owns a usable refresh before old completion');
+    hold = false;
+    release();
+    await pending;
+    assert.equal(app.$('convoyResults').querySelectorAll('.convoywrap').length, 0);
+    assert.equal(app.$('convoyStatus').textContent, retained);
+    A.setCountyView('US-WA-061');
+    await A.LOADERS.convoyBtn.fn();
+    assert.equal(app.$('convoyResults').querySelectorAll('.convoywrap').length, 1);
+    assert.match(app.$('convoyResults').textContent, /Snohomish audit patch/);
+    assert.doesNotMatch(app.$('convoyResults').textContent, /King audit patch/);
+    assert.deepEqual(app.state.errors, []);
+  } finally { if (release) release(); app.window.close(); }
+});
+test('F1463 actual Convoy detail never writes a replaced slot or retitles its replacement', async () => {
+  let release;
+  const app = await boot({sample:false,fetch(url) {
+    if (/product\/checklist\/view\/SF1463DETAIL/.test(url)) {
+      return new Promise(resolve => { release = () => resolve({obs:[{speciesCode:'amerob'}]}); });
+    }
+    return [];
+  }});
+  try {
+    const A = app.window.__app, root = app.$('convoyResults');
+    const box = app.document.createElement('div');
+    box.setAttribute('data-title', 'convoyTitle0');
+    root.append(box);
+    const pending = A.loadConvoySpecies('SF1463DETAIL', box);
+    await waitFor(() => release, 'held detail for a replaced route');
+    const retained = box.innerHTML;
+    root.innerHTML = '<div id="convoyTitle0">Current route title</div>';
+    release();
+    await pending;
+    assert.equal(box.innerHTML, retained, 'retired route detail stays unchanged');
+    assert.equal(app.$('convoyTitle0').textContent, 'Current route title');
+    assert.deepEqual(app.state.errors, []);
+  } finally { if (release) release(); app.window.close(); }
+});
+for (const mode of ['recent', 'big-days']) {
+  const at = mode === 'recent' ? 'recentBtn' : 'cklBtn';
+  const host = mode === 'recent' ? 'recentResults' : 'cklResults';
+  const selector = mode === 'recent' ? '[data-recent-sub]' : '.bigdaycard';
+  for (const county of ['', 'US-WA-033', 'US-WA-061']) {
+    test('F1463 actual ' + mode + ' bounds rows and pins to ' + (county || 'parent'), async () => {
+      const source = ['US-WA-033', 'US-WA-061'].map(code => f1463Checklist(code));
+      const before = JSON.stringify(source);
+      const app = await boot({sample:false,fetch(url) {
+        const code = /product\/lists\/(US-WA-\d+)/.exec(url);
+        return code ? source.filter(row => row.loc.subnational2Code === code[1]) : [];
+      }});
+      try {
+        const A = app.window.__app;
+        if (county) A.setCountyView(county);
+        A.showSection('sec-' + at, {load:false});
+        await A.LOADERS[at].fn();
+        await waitFor(() => !app.$(at).disabled && app.$(host).querySelector(selector),
+          'actual remaining menu source completion');
+        assert.equal(app.$(host).querySelectorAll(selector).length, county ? 1 : 2);
+        if (county) {
+          const foreign = county === 'US-WA-033' ? /Snohomish audit patch/ : /King audit patch/;
+          assert.doesNotMatch(app.$(host).textContent, foreign);
+          assert.doesNotMatch(app.$(mode === 'recent' ? 'recentMap' : 'cklMap').innerHTML, foreign);
+        }
+        assert.equal(new Set(app.state.fetches.filter(url => /product\/lists\//.test(url))).size, 2,
+          'projection preserves both shared raw county feeds before acquisition optimization');
+        assert.equal(JSON.stringify(source), before, 'consumer projection never edits provider rows');
+        assert.deepEqual(app.state.errors, []);
+      } finally { app.window.close(); }
+    });
+  }
+  test('F1463 actual ' + mode + ' never treats nearby foreign administration as parent-state evidence', async () => {
+    const foreign = f1463Checklist('US-WA-033', 'FOREIGN');
+    foreign.loc.subnational2Code = 'US-CA-001';
+    foreign.loc.subnational1Code = 'US-CA';
+    foreign.loc.name = 'Foreign administration patch';
+    const app = await boot({sample:false,fetch(url) {
+      return /product\/lists\/US-WA-033/.test(url) ? [f1463Checklist('US-WA-033'), foreign] : [];
+    }});
+    try {
+      const A = app.window.__app;
+      A.showSection('sec-' + at, {load:false});
+      await A.LOADERS[at].fn();
+      assert.equal(app.$(host).querySelectorAll(selector).length, 1);
+      assert.match(app.$(host).textContent, /King audit patch/);
+      assert.doesNotMatch(app.$(host).textContent, /Foreign administration patch/);
+      assert.deepEqual(app.state.errors, []);
+    } finally { app.window.close(); }
+  });
+  test('F1463 actual ' + mode + ' retires delayed scope round trips and reuses raw evidence', async () => {
+    let release;
+    const app = await boot({sample:false,fetch(url) {
+      const code = /product\/lists\/(US-WA-\d+)/.exec(url);
+      if (!code) return [];
+      const rows = [f1463Checklist(code[1])];
+      if (code[1] === 'US-WA-033') return new Promise(resolve => { release = () => resolve(rows); });
+      return rows;
+    }});
+    try {
+      const A = app.window.__app;
+      A.showSection('sec-' + at, {load:false});
+      const pending = A.LOADERS[at].fn();
+      await waitFor(() => release, 'held original parent feed');
+      A.setCountyView('US-WA-033');
+      A.setCountyView('');
+      const status = app.$(mode === 'recent' ? 'recentStatus' : 'cklStatus');
+      const retained = status.textContent;
+      release();
+      await pending;
+      await new Promise(resolve => setImmediate(resolve));
+      assert.equal(app.$(host).querySelectorAll(selector).length, 0,
+        'the original parent cannot regain ownership after a county round trip');
+      assert.equal(status.textContent, retained, 'retired completion cannot settle newer scope feedback');
+      assert.equal(app.$(at).disabled, false, 'retired requests cannot strand the new scope refresh');
+      A.setCountyView('US-WA-061');
+      await A.LOADERS[at].fn();
+      await waitFor(() => app.$(host).querySelector(selector), 'current county reuses shared raw evidence');
+      assert.equal(app.$(host).querySelectorAll(selector).length, 1);
+      assert.match(app.$(host).textContent, /Snohomish audit patch/);
+      assert.equal(app.state.fetches.filter(url => /product\/lists\//.test(url)).length, 2);
+      assert.deepEqual(app.state.errors, []);
+    } finally { if (release) release(); app.window.close(); }
+  });
+  test('F1463 actual ' + mode + ' uses proven feed extent without overriding conflicting county aliases', async () => {
+    const sourceOnly = f1463Checklist('US-WA-033', 'SOURCE');
+    delete sourceOnly.loc.subnational2Code;
+    delete sourceOnly.loc.subnational1Code;
+    sourceOnly.loc.name = 'Source-qualified public patch';
+    const conflict = f1463Checklist('US-WA-033', 'CONFLICT');
+    conflict.sub2 = 'US-WA-061';
+    conflict.numSpecies = 999;
+    conflict.loc.name = 'Conflicting county patch';
+    const app = await boot({sample:false,fetch(url) {
+      if (/product\/lists\/US-WA-033/.test(url)) return [sourceOnly, conflict];
+      if (/product\/lists\/US-WA-061/.test(url)) return [f1463Checklist('US-WA-061')];
+      return [];
+    }});
+    try {
+      const A = app.window.__app;
+      A.setCountyView('US-WA-033');
+      A.showSection('sec-' + at, {load:false});
+      await A.LOADERS[at].fn();
+      await waitFor(() => !app.$(at).disabled && app.$(host).querySelector(selector), 'qualified source completion');
+      assert.equal(app.$(host).querySelectorAll(selector).length, 1);
+      assert.match(app.$(host).textContent, /Source-qualified public patch/);
+      assert.doesNotMatch(app.$(host).textContent, /Conflicting county patch|Snohomish audit patch/);
+      assert.match(app.$(mode === 'recent' ? 'recentStatus' : 'cklStatus').textContent, /coverage incomplete/);
+      assert.equal(sourceOnly.subnational2Code, undefined, 'provenance must not be written into raw evidence');
+      assert.deepEqual(app.state.errors, []);
+    } finally { app.window.close(); }
+  });
+  test('F1463 actual ' + mode + ' labels failed and conflicting evidence instead of complete emptiness', async () => {
+    const conflicting = f1463Checklist('US-WA-033');
+    conflicting.subnational2Code = 'US-WA-061';
+    const app = await boot({sample:false,fetch(url) {
+      if (/product\/lists\/US-WA-033/.test(url)) return [conflicting];
+      if (/product\/lists\/US-WA-061/.test(url)) return Promise.reject(new Error('Synthetic county failure'));
+      return [];
+    }});
+    try {
+      const A = app.window.__app;
+      A.setCountyView('US-WA-033');
+      A.showSection('sec-' + at, {load:false});
+      await A.LOADERS[at].fn();
+      await waitFor(() => !app.$(at).disabled, 'partial source completion');
+      assert.equal(app.$(host).querySelectorAll(selector).length, 0);
+      assert.match(app.$(mode === 'recent' ? 'recentStatus' : 'cklStatus').textContent,
+        /incomplete|unverified|partial/i);
+      assert.deepEqual(app.state.errors, []);
+    } finally { app.window.close(); }
+  });
+}
+
+test('F1463 actual Big days does not call unlocated hotspot evidence a verified empty radius', async () => {
+  const row = f1463Checklist('US-WA-033');
+  row.loc.latitude = null;
+  const app = await boot({sample:false,fetch(url) {
+    return /product\/lists\/US-WA-033/.test(url) ? [row] : [];
+  }});
+  try {
+    const A = app.window.__app;
+    A.setCountyView('US-WA-033');
+    A.showSection('sec-cklBtn', {load:false});
+    await A.LOADERS.cklBtn.fn();
+    assert.equal(app.$('cklResults').querySelectorAll('.bigdaycard').length, 0);
+    assert.match(app.$('cklStatus').textContent, /coverage incomplete/);
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
+test('F1463 actual Recent refresh isolates progress from a retired raw acquisition', async () => {
+  const releases = [], history = [];
+  let snoReads = 0;
+  const app = await boot({sample:false,fetch(url) {
+    const code = /product\/lists\/(US-WA-\d+)/.exec(url);
+    if (!code) return [];
+    if (code[1] === 'US-WA-061' && ++snoReads === 1) return [f1463Checklist(code[1])];
+    return new Promise(resolve => {
+      releases.push(() => {
+        const row = f1463Checklist(code[1], 'OLD');
+        row.loc.name = code[1] === 'US-WA-033' ? 'Retired acquisition patch' : 'Shared Snohomish patch';
+        resolve([row]);
+      });
+    });
+  }});
+  let observer;
+  try {
+    const A = app.window.__app;
+    A.showSection('sec-recentBtn', {load:false});
+    const old = A.loadRecentChecklists();
+    await waitFor(() => releases.length === 1, 'held original county read');
+    A.clearChaseCache();
+    const latest = f1463Checklist('US-WA-033', 'NEW');
+    latest.loc.name = 'Current acquisition patch';
+    A.seedEbirdCache('product/lists/US-WA-033?maxResults=' + app.window.BirdLogic.CONST.CONVOY_MAX_RESULTS, [latest]);
+    observer = new app.window.MutationObserver(() => history.push(app.$('recentResults').textContent));
+    observer.observe(app.$('recentResults'), {childList:true,subtree:true});
+    const current = A.loadRecentChecklists();
+    await waitFor(() => app.$('recentResults').textContent.includes('Current acquisition patch'),
+      'replacement acquisition first batch');
+    releases[0]();
+    await old;
+    assert.ok(history.every(text => !text.includes('Retired acquisition patch')),
+      'retired raw progress must never run replacement acquisition listeners');
+    await waitFor(() => releases.length > 1 || !app.$('recentBtn').disabled, 'replacement feed admission');
+    releases.slice(1).forEach(release => release());
+    await current;
+    assert.match(app.$('recentResults').textContent, /Current acquisition patch/);
+    assert.deepEqual(app.state.errors, []);
+  } finally {
+    releases.forEach(release => release());
+    if (observer) observer.disconnect();
+    app.window.close();
+  }
+});
+
+test('F1463 Recent checklist projection never infers an unproven row from the active county', async () => {
+  const app = await boot();
+  try {
+    const A = app.window.__app, row = f1463Checklist('US-WA-033');
+    delete row.loc.subnational2Code;
+    delete row.loc.subnational1Code;
+    delete row.loc.latitude;
+    delete row.loc.longitude;
+    A.setCountyView('US-WA-033');
+    A.renderRecentChecklistBatch([row], 1, 1);
+    assert.equal(app.$('recentResults').querySelectorAll('[data-recent-sub]').length, 0);
+    assert.match(app.$('recentStatus').textContent, /coverage incomplete/);
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
+test('F1463 actual checklist detail hydration never writes to retired card slots', async () => {
+  let release;
+  const app = await boot({sample:false,fetch(url) {
+    const code = /product\/lists\/(US-WA-\d+)/.exec(url);
+    if (code) return [f1463Checklist(code[1])];
+    if (/product\/checklist\/view\/SF1463KING/.test(url)) {
+      return new Promise(resolve => { release = () => resolve({obs:[{speciesCode:'verfly'}]}); });
+    }
+    if (/product\/checklist\/view\//.test(url)) return {obs:[{speciesCode:'verfly'}]};
+    if (/ref\/taxonomy\/ebird/.test(url)) return [{speciesCode:'verfly',comName:'Vermilion Flycatcher'}];
+    return [];
+  }});
+  try {
+    const A = app.window.__app;
+    A.setCountyView('US-WA-033');
+    A.showSection('sec-recentBtn', {load:false});
+    await A.loadRecentChecklists();
+    const host = app.$('recentResults'), slot = host.querySelector('.cklneed');
+    const pending = A.markBirdiestUnseen(host);
+    await waitFor(() => release, 'held original checklist detail');
+    A.setCountyView('US-WA-061');
+    release();
+    await pending;
+    assert.equal(slot.innerHTML, '', 'retired detached checklist slots must not receive new personal projections');
+    await A.loadRecentChecklists();
+    await A.markBirdiestUnseen(host);
+    assert.match(host.textContent, /Vermilion Flycatcher/, 'matching current checklist detail still hydrates');
+    assert.deepEqual(app.state.errors, []);
+  } finally { if (release) release(); app.window.close(); }
+});
+
+test('F1463 actual Recent unseen filtering retires old filter intent and rechecks after refresh', async () => {
+  let release;
+  const app = await boot({sample:false,fetch(url) {
+    if (/product\/lists\/US-WA-033/.test(url)) return [f1463Checklist('US-WA-033')];
+    if (/product\/checklist\/view\/SF1463KING/.test(url)) {
+      return new Promise(resolve => { release = () => resolve({obs:[{speciesCode:'verfly'}]}); });
+    }
+    if (/ref\/taxonomy\/ebird/.test(url)) return [{speciesCode:'verfly',comName:'Vermilion Flycatcher'}];
+    return [];
+  }});
+  try {
+    const A = app.window.__app;
+    A.setCountyView('US-WA-033');
+    await seedSeen(app, ['amecro'], ['American Crow'], [{code:'verfly',name:'Vermilion Flycatcher'}]);
+    assert.equal(A.isSpeciesSeen('verfly', 'Vermilion Flycatcher'), false,
+      'the fixture must establish exact-county unseen evidence before filtering');
+    A.showSection('sec-recentBtn', {load:false});
+    await A.loadRecentChecklists();
+    const pending = A.recentChecklistFilter('unseen', null);
+    await waitFor(() => release, 'held unseen qualification');
+    await A.recentChecklistFilter('all', null);
+    const retained = app.$('recentStatus').textContent;
+    release();
+    await pending;
+    assert.equal(app.$('recentStatus').textContent, retained, 'old Unseen cannot settle the newer All intent');
+    assert.equal(app.$('recentResults').querySelectorAll('[data-recent-sub]').length, 1);
+    await A.recentChecklistFilter('unseen', null);
+    await A.loadRecentChecklists();
+    assert.equal(app.$('recentResults').querySelectorAll('[data-recent-sub]').length, 1,
+      'refresh must qualify its retained Unseen setting rather than leave an empty projection');
+    assert.match(app.$('recentStatus').textContent, /1 checklist with unseen birds/);
+    assert.deepEqual(app.state.errors, []);
+  } finally { if (release) release(); app.window.close(); }
+});
+
 test('Recent checklists is newest first and never collapsed per hotspot', async () => {
   const app = await boot();
   const A = app.window.__app;
@@ -45253,9 +52399,9 @@ test('F424 Recent checklists is a distinct, progressively updated report', async
   assert.equal(doc.getElementById('cklModeBest'), null,
     'Big days no longer keeps a redundant Newest mode');
   const first = [
-    { subId: 'S1', isoObsDate: '2026-09-18 08:00', numSpecies: 30,
+    { subId: 'S1', isoObsDate: '2026-09-18 08:00', numSpecies: 30, subnational1Code: 'US-WA',
       locId: 'L1', loc: { name: 'Near Park', latitude: 47.751, longitude: -122.16 } },
-    { subId: 'S2', isoObsDate: '2026-09-18 10:00', numSpecies: 10,
+    { subId: 'S2', isoObsDate: '2026-09-18 10:00', numSpecies: 10, subnational1Code: 'US-WA',
       locId: 'P2', loc: { name: 'No Coordinates' } },
   ];
   A.renderRecentChecklistBatch(first, 1, 2);
@@ -45271,8 +52417,8 @@ test('F424 Recent checklists is a distinct, progressively updated report', async
   assert.equal(list.children.length, 2, 'the first county paints immediately');
   assert.match(doc.getElementById('recentStatus').textContent, /1\/2 county feeds checked.*still checking/);
   const second = first.concat([
-    { subId: 'S3', isoObsDate: '2026-09-18 09:00', numSpecies: 50,
-      locId: 'L3', loc: { name: 'Far Park', latitude: 49.50, longitude: -122.30 } },
+    { subId: 'S3', isoObsDate: '2026-09-18 09:00', numSpecies: 50, subnational1Code: 'US-WA',
+      locId: 'L3', loc: { name: 'Far Park', latitude: 48.99, longitude: -122.30 } },
   ]);
   A.renderRecentChecklistBatch(second, 2, 2);
   assert.equal(list.children.length, 3, 'the second county appends instead of replacing the list');
@@ -45295,7 +52441,7 @@ test('F424 Recent checklists is a distinct, progressively updated report', async
   assert.equal(list.children.length, 3, 'All distances restores filtered rows');
   const many = Array.from({ length: 205 }, (_, i) => ({
     subId: 'S' + (100 + i), isoObsDate: '2026-09-18 10:00',
-    numSpecies: i, locId: 'L' + i,
+    numSpecies: i, locId: 'L' + i, subnational1Code: 'US-WA',
     loc: { name: 'Park ' + i, latitude: 47.75, longitude: -122.16 },
   }));
   A.renderRecentChecklistBatch(many, 2, 2);
@@ -45340,9 +52486,9 @@ test('F424 Recent checklists is a distinct, progressively updated report', async
   seenCode = Object.keys(FA.getReportSeen() || {})[0];
   assert.ok(seenCode, 'the active report supplies a seen species fixture');
   FA.renderRecentChecklistBatch([
-    { subId: 'S_UNSEEN', isoObsDate: '2026-09-18 08:00', numSpecies: 1,
+    { subId: 'S_UNSEEN', isoObsDate: '2026-09-18 08:00', numSpecies: 1, subnational1Code: 'US-WA',
       locId: 'L1', loc: { name: 'Need Park', latitude: 47.75, longitude: -122.16 } },
-    { subId: 'S_SEEN', isoObsDate: '2026-09-18 07:00', numSpecies: 1,
+    { subId: 'S_SEEN', isoObsDate: '2026-09-18 07:00', numSpecies: 1, subnational1Code: 'US-WA',
       locId: 'L2', loc: { name: 'Seen Park', latitude: 47.75, longitude: -122.16 } },
   ], 1, 1);
   const unseenView = await FA.checklistView('S_UNSEEN');
@@ -48299,7 +55445,7 @@ test('F784 Close Find sheet, Quick Cancel, Scout Clear and Home Cancel invalidat
     }
     await waitFor(() => release, `held ${surface} lookup`);
     const button = surface === 'anchor' ? app.document.querySelector('.sheetclose')
-      : app.$({ quick: 'quickFindCancel', scout: 'scoutClear', home: 'homeFindCancel' }[surface]);
+      : app.$({ quick: 'quickFindCancel', scout: 'scoutClear', home: 'clearHomeBtn' }[surface]);
     app.click(button); app.click(button);
     release({ features: [{ geometry: { coordinates: [-0.12, 51.49] },
       properties: { name: 'Cancelled overseas', state: 'England', countrycode: 'GB' } }] });
@@ -48633,7 +55779,7 @@ test(`F1426 failed Life refresh preserves ${savedLife == null ? 'unknown' : save
     installSpuhFixture(app);
     if(savedLife != null) {
       const owner=A.personalListOwner(Object.assign({},A.activeScope(),{targetPeriod:'all'}));
-      const source=JSON.parse(app.window.localStorage.getItem(A.bcReal(A.personalListKey(A.personalListOwner()))));
+      const source=readPersistedFixture(app.window, A.bcReal(A.personalListKey(A.personalListOwner())));
       const readAt=new Date(Date.now()-2*86400000).toISOString();
       app.window.localStorage.setItem(A.bcReal(A.personalListKey(owner)),JSON.stringify({
         ...source,owner,source:A.personalListUrl(owner),readAt,readDate:readAt.slice(0,10),
@@ -48754,6 +55900,8 @@ test('F384 My Ticks gives every bird the shared watchlist action and full-size o
   assert.deepEqual(arr(A.getWatchlist(), (item) => ({
     code: item.code, name: item.name,
   })), [{ code, name }], 'My Ticks bypassed the shared watchlist store');
+  await A.drainPersonalChoiceWrites();
+  await new Promise(setImmediate);
   rows = [...app.$('myYearList').querySelectorAll(':scope > li')];
   assert.equal(rows.length > 1, true,
     'adding a seen bird to the watchlist removed it from My Ticks');
@@ -48771,6 +55919,8 @@ test('F384 My Ticks gives every bird the shared watchlist action and full-size o
 
   app.click(button);
   assert.deepEqual(arr(A.getWatchlist()), []);
+  await A.drainPersonalChoiceWrites();
+  await new Promise(setImmediate);
   button = app.$('myYearList').querySelector(
     `.myYearWatchlist[data-code="${code}"]`,
   );
@@ -48781,8 +55931,7 @@ test('F384 My Ticks gives every bird the shared watchlist action and full-size o
   const lookupStart = HTML.indexOf('function renderSpeciesLookup');
   const lookupSource = HTML.slice(lookupStart,
     HTML.indexOf('// F291.', lookupStart));
-  const myYearSource = HTML.slice(HTML.indexOf('function updateMyYear()'),
-    HTML.indexOf('var MENU'));
+  const myYearSource = A.updateMyYear.toString();
   assert.match(lookupSource, /watchlistActionHtml\(/,
     'Stakeout keeps a separate watchlist button builder');
   assert.match(myYearSource, /watchlistActionHtml\(/,
@@ -48821,6 +55970,7 @@ test('F1224 F1265 Watch search retains labeled membership with approved colours 
     appearance(add, 'rgb(0, 158, 115)');
     for (let cycle = 0; cycle < 2; cycle++) {
       app.click(add);
+      assert.equal((await add._choiceReceipt).saved, true);
       assert.equal(add.textContent, 'Add Watch');
       assert.equal(add.disabled, true);
       assert.equal(add.getAttribute('aria-label'), 'Add Watch for American Robin (already watched)');
@@ -48829,6 +55979,7 @@ test('F1224 F1265 Watch search retains labeled membership with approved colours 
       assert.equal(remove.textContent, 'Remove Watch');
       appearance(remove, 'rgb(213, 94, 0)');
       app.click(remove);
+      assert.equal((await remove._choiceReceipt).saved, true);
       assert.equal(A.getWatchlist().length, 0);
       assert.equal(add.disabled, false);
       assert.equal(add.textContent, 'Add Watch', 'a retained search can add again after Remove');
@@ -48966,6 +56117,74 @@ test('broad Spuh browsing reports totals and pages every matching label', async 
   assert.equal(app.document.querySelectorAll('#spLookupFound [data-spuh]').length, 40);
   assert.match(app.$('spLookupStatus').textContent, /Showing 40 of 40 matches/);
   app.window.close();
+});
+
+for (const kind of ['taxonomy', 'spuh']) test('F247 ' + kind
+  + ' IndexedDB migrates legacy data and cannot resurrect an erased compressed save', async () => {
+  const indexedDB = new IDBFactory(), rows = monthlyTaxonomyRows();
+  let fetches = 0, release;
+  const app = await boot({ sample: false, nativeCompression: true, indexedDB, fetch: url => {
+    if (/ref\/taxonomy\/ebird/.test(url)) { fetches++; return rows; }
+    return [];
+  } });
+  const W = app.window, A = W.__app, spuh = kind === 'spuh';
+  const database = spuh ? 'birding-spuh-v1' : 'birding-taxonomy-v1';
+  const store = spuh ? 'models' : 'references';
+  const key = spuh ? 'taxonomy-en-v' + W.Spuh.SCHEMA : 'identity:F247';
+  const legacy = spuh ? { t: Date.now(), packed: W.Spuh.packTaxonomy(rows) }
+    : { edition: 'F247', codes: ['native taxonomy legacy '.repeat(100)] };
+  const db = await new Promise((resolve, reject) => {
+    const request = indexedDB.open(database, 1);
+    request.onupgradeneeded = () => request.result.createObjectStore(store);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+  const read = () => new Promise(resolve => {
+    const request = db.transaction(store).objectStore(store).get(key);
+    request.onsuccess = () => resolve(request.result);
+  });
+  try {
+    await new Promise(resolve => {
+      const tx = db.transaction(store, 'readwrite');
+      tx.objectStore(store).put(legacy, key);
+      tx.oncomplete = resolve;
+    });
+    const loaded = await (spuh ? A.loadSpuhModel() : A.taxonomyStore('get', key));
+    if (spuh) assert.equal(loaded.species.length, legacy.packed.species.length);
+    else assert.equal(JSON.stringify(loaded), JSON.stringify(legacy));
+    assert.equal(fetches, 0, 'a readable legacy record must not cause another taxonomy acquisition');
+    const saved = await read();
+    assert.equal(saved._persistence, 1);
+    assert.ok(saved.payload.startsWith('z:'), 'the actual legacy record must be migrated through native gzip');
+    assert.equal(JSON.stringify(await W.BirdPersistence.unpackJson(saved.payload)), JSON.stringify(legacy));
+    if (spuh) await A.spuhCacheClear();
+    const NativeResponse = W.Response;
+    W.Response = class {
+      constructor(value) {
+        if (typeof value === 'string'
+            && (spuh ? value.includes('"packed":') : value.includes('held taxonomy snapshot'))) {
+          this.body = { pipeThrough: () => ({ snapshot: value }) };
+        } else if (value && value.snapshot) {
+          this.arrayBuffer = () => new Promise(resolve => {
+            release = () => {
+              const bytes = require('node:zlib').gzipSync(value.snapshot);
+              resolve(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
+            };
+          });
+        } else return new NativeResponse(value);
+      }
+    };
+    const pending = spuh ? A.loadSpuhModel()
+      : A.taxonomyStore('put', key, { codes: ['held taxonomy snapshot '.repeat(100)] });
+    const cancelled = assert.rejects(pending, spuh ? /Spuh cache was cleared/ : /Taxonomy storage failed/);
+    await waitFor(() => release, 'held actual ' + kind + ' compression');
+    assert.deepEqual(await read(), spuh ? undefined : saved,
+      'compression must finish before the first replacement allocation');
+    assert.equal(await (spuh ? A.spuhCacheClear() : A.taxonomyCacheClear()), true);
+    release();
+    await cancelled;
+    assert.equal(await read(), undefined, 'late compression must not resurrect erased taxonomy data');
+  } finally { if (release) release(); db.close(); W.close(); }
 });
 
 test('the Spuh cache has one owner, survives routine refreshes, and erase-all awaits it', () => {
@@ -49285,7 +56504,7 @@ test('F434 likely finders rank overlapping checklists by earliest end time', asy
     app.window.Date.now = () => historical + Date.now() - started;
     const A = app.window.__app;
     A.fgWindowReset(); A.fgSchedReset(historical);
-    A.abaArchiveAdd('US-WA', stateMegaFixture(reports));
+    await A.abaArchiveAdd('US-WA', stateMegaFixture(reports));
     renderWashingtonMegaFixture(app, reports, 'https://ebird.org/alert/summary?sid=SN10489', true, false);
     await A.lookupSpecies('shtsan', 'Sharp-tailed Sandpiper');
     await waitFor(() => {
@@ -49360,7 +56579,7 @@ test('F434 a dawn seawatch with no defensible top three reports finder unknown',
   const started = Date.now(), historical = Date.parse('2026-09-21T12:00:00Z');
   app.window.Date.now = () => historical + Date.now() - started;
   A.fgWindowReset(); A.fgSchedReset(historical);
-  A.abaArchiveAdd('US-WA', stateMegaFixture(initial.concat([latest])));
+  await A.abaArchiveAdd('US-WA', stateMegaFixture(initial.concat([latest])));
   renderWashingtonMegaFixture(app, initial.concat([latest]),
     'https://ebird.org/alert/summary?sid=SN10489', true, false);
   await A.lookupSpecies('shtsan', 'Sharp-tailed Sandpiper');
@@ -49697,7 +56916,7 @@ test('deleting a region sweeps every per-region key it left behind', async () =>
   // A neighbour that must survive.
   w.localStorage.setItem('ebird_home_lat:wa', '47.75');
 
-  A.deleteCustomRegion('u-trip');
+  await A.deleteCustomRegion('u-trip');
 
   ['ebird_home_lat:u-trip', 'ebird_home_lng:u-trip', 'ebird_home_place:u-trip',
    'ebird_tide_station:u-trip', 'ebird_chase_v1:u-trip:2026-08-02',
@@ -49721,7 +56940,7 @@ test('deleting the region you are looking at returns to explicit region setup', 
   assert.equal(A.getReportSlug(), 'u-trip', 'the user region is selectable');
   assert.equal(A.getReport().label, 'A trip', 'and resolves to its own profile');
 
-  A.deleteCustomRegion('u-trip');
+  await A.deleteCustomRegion('u-trip');
   assert.equal(A.getReportSlug(), '',
     'deleting the active region must not silently choose Washington');
 
@@ -50052,7 +57271,7 @@ test('the section you are looking at is not queued behind the background wave', 
 // recent checklists…" and an otherwise empty section. Everything on the card
 // EXCEPT the checklists comes from one leaderboard read that has already
 // returned, so there was no reason to hold it back.
-test('Leader Board Ticks paints the board before the checklists arrive', () => {
+test('Leader Board Ticks paints the board before the checklists arrive', async () => {
   const load = HTML.slice(HTML.indexOf('function loadLastNew()'),
                           HTML.indexOf('function lastNewKey('));
   assert.match(load, /renderLastNew\(groups, \{\}, region, codeIdx\)/,
@@ -50082,9 +57301,10 @@ test('Leader Board Ticks paints the board before the checklists arrive', () => {
     'the row is found by species, not by index — the list must not be re-sorted');
 
   // A pending row still says something useful rather than looking broken.
-  const card = HTML.slice(HTML.indexOf('function lastNewCard('),
-                          HTML.indexOf('function loadAbaAlert('));
-  assert.doesNotMatch(card, /Finding recent checklists|var pending/);
+  const app = await boot();
+  try {
+    assert.doesNotMatch(app.window.__app.lastNewCard.toString(), /Finding recent checklists|var pending/);
+  } finally { app.window.close(); }
 });
 
 // "I would like the Leader Board Ticks to be split, showing the
@@ -50164,7 +57384,7 @@ test('F530 Fresh Ticks controls visibly repaint loaded rows through real clicks'
     .map((li) => li.getAttribute('data-sp')).filter(Boolean);
   assert.deepEqual(names(), ['Far New Bird', 'Near Old Bird']);
 
-  doc.querySelector('#lastNewSort [data-ticksort="count"]').click();
+  await clickLastNewControl(app, doc.querySelector('#lastNewSort [data-ticksort="count"]'));
   assert.deepEqual(names(), ['Far New Bird', 'Near Old Bird'],
     'Count ties break by source date, not distance');
   assert.equal(doc.querySelector('#lastNewSort [data-ticksort="count"]')
@@ -50202,7 +57422,7 @@ test('F377 the owner’s resolved Fresh tick retains annual capture without chan
       latest: '2026-09-11',
     },
   };
-  const learned = A.reconcileLastNewOwnerTicks(groups, {
+  const learned = await A.reconcileLastNewOwnerTicks(groups, {
     'hawaii amakihi': 'hawama',
     'other bird': 'othbir',
   });
@@ -50217,13 +57437,14 @@ test('F377 the owner’s resolved Fresh tick retains annual capture without chan
   assert.equal(A.personalListEvidence().count,0,'official totals remain owned by the exact source');
   assert.equal(app.window.localStorage.getItem(A.bcReal(A.personalListKey(A.personalListOwner()))),
     exactBefore,'annual capture must not rewrite the exact personal snapshot');
-  assert.ok(app.window.localStorage.getItem(
-    A.bcReal('ebird_own_seen:' + A.getReportSlug())),
+  assert.ok(readPersistedFixture(app.window,
+    A.bcReal('ebird_own_seen:' + A.getReportSlug() + ':meta')).codesSnapshot.codes.hawama,
   'the tick was not persisted under the active report key');
 
   const load = HTML.slice(HTML.indexOf('function loadLastNew()'),
     HTML.indexOf('function lastNewKey('));
-  assert.ok(load.indexOf('reconcileLastNewOwnerTicks(groups, codeIdx)')
+  assert.ok(load.indexOf('await reconcileLastNewOwnerTicks(groups, codeIdx, current)') >= 0);
+  assert.ok(load.indexOf('await reconcileLastNewOwnerTicks(groups, codeIdx, current)')
       < load.indexOf('renderLastNew(groups, {}, region, codeIdx)'),
   'Fresh ticks paints before reconciling the owner evidence');
   app.window.close();
@@ -50241,7 +57462,7 @@ test('F377 a watchlisted owner tick remains chaseable and says why', async () =>
       latest: '2026-09-11',
     },
   };
-  A.reconcileLastNewOwnerTicks(groups, { 'hawaii amakihi': 'hawama' });
+  await A.reconcileLastNewOwnerTicks(groups, { 'hawaii amakihi': 'hawama' });
   assert.ok(A.ownSeenCodes().hawama,
     'the underlying owner tick is still remembered while verification is pending');
   assert.equal(A.isSpeciesSeen('hawama', 'Hawaii Amakihi'), false,
@@ -51217,7 +58438,7 @@ test('the header rank repaints when the rank arrives, and jumps to Top 100 (F256
   // deleting the call still left the name in the comment above it, well
   // inside a 900-character window. That is the third character-distance trap
   // this session — a guard bounded by a distance is bounded by nothing.
-  assert.match(HTML, /rankCachePut\(ck, data\);/, 'the rank is still cached');
+  assert.match(HTML, /await rankCachePut\(ck, data,/, 'the rank is still cached before reporting durability');
   assert.match(HTML, /try \{ renderMenuIdentity\(\); \} catch/,
     'a fetched rank does not repaint the header — it will not appear until the '
       + 'next boot, which is the whole defect');
@@ -51348,15 +58569,108 @@ test('F1220 bounded detail enrichment heals poisoned cache and only attaches own
   } finally { app.window.close(); }
 });
 
+test('F247 checklist persistence compresses before quota allocation and migrates legacy payloads on read', async () => {
+  const sub = 'F247GZIP', key = 'bc_ckl2:' + sub;
+  const detail = { subId: sub, obsDt: recentObsStamp(), comments: 'Large checklist note '.repeat(400),
+    obs: [{ speciesCode: 'amerob', comments: 'Native compression '.repeat(400) }] };
+  const first = await boot({ sample: false, nativeCompression: true, fetch: url =>
+    /product\/checklist\/view\/F247GZIP/.test(url) ? detail : [] });
+  const W = first.window, A = W.__app, original = W.Storage.prototype.setItem;
+  let durable, acquired;
+  try {
+    let attempts = 0;
+    W.Storage.prototype.setItem = function (k, payload) {
+      if (k === A.bcReal(key)) {
+        attempts++;
+        assert.ok(JSON.parse(payload).v.startsWith('z:'),
+          'the first allocation must already contain the native-compressed payload');
+        if (payload.length > 2048) throw new W.DOMException('Measured fixture capacity', 'QuotaExceededError');
+      }
+      return original.call(this, k, payload);
+    };
+    acquired = await A.checklistView(sub);
+    assert.equal(acquired.comments, detail.comments);
+    durable = W.localStorage.getItem(A.bcReal(key));
+    assert.ok(durable && durable.length < 2048, 'only a compressed write can fit this fixture');
+    assert.equal(attempts, 1, 'there must be no provisional raw write or deferred repacking');
+    assert.equal(A.cklCached(sub), true, 'freshness remains synchronously available');
+  } finally { W.Storage.prototype.setItem = original; W.close(); }
+  for (const legacy of [false, true]) {
+    const stored = JSON.parse(durable);
+    if (legacy) stored.v = acquired;
+    const app = await boot({ sample: false, nativeCompression: true, storage: { [key]: JSON.stringify(stored) } });
+    try {
+      const R = app.window.__app;
+      assert.equal(R.cklCached(sub), true);
+      const downloads = () => app.state.fetches.filter(url => /product\/checklist\/view\/F247GZIP/.test(url)).length;
+      const before = downloads();
+      const read = await R.checklistView(sub);
+      assert.equal(read.comments, detail.comments);
+      assert.equal(downloads(), before, 'a persisted checklist must not be downloaded again');
+      const migrated = JSON.parse(app.window.localStorage.getItem(R.bcReal(key)));
+      assert.ok(migrated.v.startsWith('z:'));
+      for (const field of ['d', 'o', 'm']) assert.equal(migrated[field], stored[field]);
+    } finally { app.window.close(); }
+  }
+});
+
+test('F247 checklist replacement and erasure invalidate delayed compressed writes', async () => {
+  for (const erase of [false, true]) {
+    const app = await boot({ sample: false, nativeCompression: true });
+    const W = app.window, A = W.__app, sub = 'F247SLOW';
+    let release;
+    try {
+      const NativeResponse = W.Response;
+      W.Response = class {
+        constructor(value) {
+          if (typeof value === 'string' && value.includes('held old checklist')) {
+            this.body = { pipeThrough: () => ({ snapshot: value }) };
+          } else if (value && value.snapshot) {
+            this.arrayBuffer = () => new Promise(resolve => {
+              release = () => {
+                const bytes = require('node:zlib').gzipSync(value.snapshot);
+                resolve(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
+              };
+            });
+          } else return new NativeResponse(value);
+        }
+      };
+      const old = A.cklWrite(sub, { obsDt: recentObsStamp() }, false,
+        { comments: 'held old checklist '.repeat(100) });
+      const rejected = assert.rejects(old, /Checklist cache write failed/);
+      await waitFor(() => release, 'held actual checklist compression');
+      if (erase) A.scrubPersonalData();
+      else await A.cklWrite(sub, { obsDt: recentObsStamp() }, false, { comments: 'newer checklist' });
+      release();
+      await rejected;
+      const durable = W.localStorage.getItem(A.bcReal(A.CKL_NS + sub));
+      if (erase) assert.equal(durable, null);
+      else assert.equal((await A.checklistView(sub)).comments, 'newer checklist',
+        'slower compression must not overwrite the newer checklist');
+    } finally { if (release) release(); W.close(); }
+  }
+});
+
+test('F247 checklist responses completed after erasure cannot recreate persistent data', async () => {
+  let release;
+  const app = await boot({ sample: false, nativeCompression: true, fetch: url =>
+    /product\/checklist\/view\/F247ERASE/.test(url) ? new Promise(resolve => { release = resolve; }) : [] });
+  try {
+    const A = app.window.__app;
+    const pending = A.checklistView('F247ERASE');
+    await waitFor(() => release, 'held original-owner checklist response');
+    A.scrubPersonalData();
+    release({ subId: 'F247ERASE', comments: 'Original owner '.repeat(50), obs: [] });
+    assert.equal(await pending, null);
+    assert.equal(app.window.localStorage.getItem(A.bcReal(A.CKL_NS + 'F247ERASE')), null);
+  } finally { if (release) release({ obs: [] }); app.window.close(); }
+});
+
 test('the checklist cache packs its payload but keeps the envelope sync (F247)', async () => {
   // A checklist entry measures 4.0 KB plain / 1.1 KB gzipped (3.5x), so 200
   // cached is 0.78 MB -> 0.22 MB against a ~5 MB budget.
   //
-  // ⚠️ The property that constrains the DESIGN is not the saving: cklCached()
-  // reads freshness synchronously to gate the fetch budget, and both write
-  // sites rely on `catch` seeing the quota error to free space and retry. An
-  // async write would put that throw inside a promise where neither try block
-  // could see it — the eviction would stop working and nothing would say so.
+  // Freshness remains synchronous; the consumer awaits compressed durability.
   const app = await boot({
     storage: { ebird_report: 'wa' },
     fetch(url) {
@@ -51395,6 +58709,47 @@ test('the checklist cache packs its payload but keeps the envelope sync (F247)',
   app.window.close();
 });
 
+test('F247 native persistence never grows incompressible JSON to pay gzip and base64 overhead', async () => {
+  const app = await boot({ sample: false, nativeCompression: true });
+  try {
+    const A = app.window.__app;
+    const entropy = Buffer.concat(Array.from({ length: 64 }, (_, i) =>
+      crypto.createHash('sha256').update('incompressible fixture ' + i).digest())).toString('base64');
+    const value = { entropy };
+    const packed = await A.packJson(value);
+    assert.ok(packed.length <= JSON.stringify(value).length + 2,
+      'compression must include base64 overhead when deciding whether it saves storage');
+    assert.ok(packed.startsWith('j:'), 'incompressible structured data uses the smaller tagged representation');
+    assert.deepEqual(JSON.parse(JSON.stringify(await A.unpackJson(packed))), value);
+    const key = 'F247:incompressible', W = app.window, original = W.Storage.prototype.setItem;
+    W.localStorage.setItem(A.bcReal(key), packed);
+    let writes = 0;
+    W.Storage.prototype.setItem = function (name, payload) {
+      if (name === A.bcReal(key)) writes++;
+      return original.call(this, name, payload);
+    };
+    try {
+      await A.zcGet(key);
+      assert.equal(writes, 0, 'migration must not repeatedly rewrite an already optimal tagged payload');
+    } finally { W.Storage.prototype.setItem = original; }
+    const repeated = await A.packJson({ rows: ['repeated structured value '.repeat(200)] });
+    assert.ok(repeated.startsWith('z:'), 'compressible data still takes native gzip');
+  } finally { app.window.close(); }
+});
+
+test('F247 guarded shared-cache reads accept their own automatic legacy migration', async () => {
+  const app = await boot({ sample: false, nativeCompression: true });
+  try {
+    const A = app.window.__app, key = 'bc_surge_retained_v1:F247-migration';
+    const value = { rows: ['Legacy guarded source '.repeat(100)] };
+    app.window.localStorage.setItem(A.bcReal(key), JSON.stringify(value));
+    const read = await A.zcGet(key, raw => app.window.localStorage.getItem(A.bcReal(key)) === raw);
+    assert.deepEqual(JSON.parse(JSON.stringify(read)), value);
+    assert.ok(app.window.localStorage.getItem(A.bcReal(key)).startsWith('z:'));
+    assert.equal(await A.zcGet(key), read, 'a successful migration must not invalidate its own cache result');
+  } finally { app.window.close(); }
+});
+
 test('the compressed cache round-trips, and small values stay raw (F247)', async () => {
   // The gzip interface replaced three hand-wired callers, one of which stored
   // the string "[object Promise]" and read it back through a Promise — so
@@ -51424,19 +58779,22 @@ test('the compressed cache round-trips, and small values stay raw (F247)', async
   // 3. ⚠️ SMALL VALUES STAY RAW, AND THE FLOOR IS MEASURED. gzip's header plus
   //    base64's extra third makes an 86-byte payload 128 bytes (0.67x);
   //    break-even is ~170 bytes, so 256 has margin. Compressing a settings
-  //    flag would COST space. Pinned in source because the environment cannot
-  //    demonstrate it.
-  assert.match(HTML, /var ZC_MIN_BYTES = 256;/,
-    'the small-value floor is still declared');
-  assert.match(HTML, /if \(json\.length < ZC_MIN_BYTES\) return Promise\.resolve\(PACK_RAW \+ json\);/,
-    'and packJson still short-circuits below it — without this a tiny value '
-      + 'is stored LARGER than it started');
+  //    flag would COST space.
+  let compressionCalls = 0;
+  app.window.Response = Response;
+  app.window.CompressionStream = function (...args) {
+    compressionCalls++;
+    return new CompressionStream(...args);
+  };
   const small = { on: true };
   await A.zcPut('bc_test:small', small);
   assert.match(LS.getItem('bc_test:small'), /^j:/,
     'a tiny value is stored RAW — compressing it would make it bigger');
   assert.deepEqual(await A.zcGet('bc_test:small'), small,
     'and a raw-stored value reads back too');
+  assert.equal(compressionCalls, 0, 'tiny values must not enter the native compressor');
+  await A.packJson({ text: 'repeat '.repeat(100) });
+  assert.equal(compressionCalls, 1, 'larger structured values must enter the native compressor');
 
   // 4. ⚠️ A FALSY RESULT IS NOT CACHED AS AN ANSWER. F36: caching one null
   //    disabled a whole section for 30 days. A poisoned entry must read as a
@@ -52448,8 +59806,8 @@ test('F732/F851 Top 100 keeps compact rank columns and readable latest-bird icon
   const icon = rows[0].querySelector('.rankbirdline .rankbirdicon .thumb');
   assert.ok(icon, 'the latest species has no compact shared photo slot');
   assert.equal(icon.dataset.code, 'coripl');
-  assert.match(icon.parentElement.getAttribute('aria-label'), /Common Ringed Plover/);
-  const birdLink = rows[0].querySelector('.rankbirdline a.splink');
+  assert.match(icon.getAttribute('aria-label'), /Common Ringed Plover/);
+  const birdLink = rows[0].querySelector('.rankbirdline a.splink:not(.thumb)');
   assert.ok(birdLink && birdLink.getAttribute('data-sp') === 'coripl'
     && /Common Ringed Plover/.test(birdLink.textContent),
   'adding the image removed the linked bird identity');
@@ -52785,7 +60143,7 @@ test('F908 Twitches retains bounded rows, photos and expansion across append and
       unobserve() {}
       disconnect() {}
     };
-    A.setRarityFilter('year', 'all'); A.setRarityFilter('distance', 'near');
+    await A.setRarityFilter('year', 'all'); await A.setRarityFilter('distance', 'near');
     A.setRaritySort('date'); A.setTwitchView(mode === 'grouped' ? mode : 'list');
     const rows = Array.from({ length: 35 }, (_, i) => ({
       code: 'f908bird' + i, name: 'Synthetic rarity ' + i, distMi: 5,
@@ -52839,7 +60197,7 @@ test('F908 grouped Twitches keeps expanded hydrated evidence when a source adds 
   for (const mode of ['grouped', 'week']) {
     const app = await boot(), A = app.window.__app, week = mode === 'week';
     app.window.IntersectionObserver = class { observe() {} unobserve() {} disconnect() {} };
-    A.setRarityFilter('year', 'all'); A.setRarityFilter('distance', 'near');
+    await A.setRarityFilter('year', 'all'); await A.setRarityFilter('distance', 'near');
     A.setTwitchView('grouped'); A.setRaritySort('date');
     const rows = Array.from({ length: 32 }, (_, i) => ({
       code: i < 20 ? 'verfly' : 'f908bird' + i,
@@ -53784,10 +61142,10 @@ test('a GBIF facet failure is never cached, and a poisoned device heals', async 
     'an empty year list is what gbifBoxYears used to write down as an answer');
 
   // ---- WRITE: a failure must not be stored --------------------------------
-  A.gbifFacetPut('probe|poison', { all: 8032812, sp: {} });
+  await A.gbifFacetPut('probe|poison', { all: 8032812, sp: {} });
   assert.equal(A.gbifFacetGet('probe|poison'), undefined,
     'a broken read must never be written to the cache');
-  A.gbifFacetPut('probe|good', { all: 100, sp: { 7: 4 } });
+  await A.gbifFacetPut('probe|good', { all: 100, sp: { 7: 4 } });
   assert.ok(A.gbifFacetGet('probe|good'), 'a real answer still caches');
 
   // ---- READ: a device ALREADY carrying the poison must heal ---------------
@@ -53795,10 +61153,11 @@ test('a GBIF facet failure is never cached, and a poisoned device heals', async 
   // yet poisoned; the owner's has been poisoned for weeks. Written through the
   // app's own put, then corrupted in place, so the entry is indistinguishable
   // from one an older release left behind.
-  A.gbifFacetPut('probe|legacy', { all: 8032812, sp: { 1: 1 } });
+  await A.gbifFacetPut('probe|legacy', { all: 8032812, sp: { 1: 1 } });
   const store = A.gbifCache ? A.gbifCache() : null;
   assert.ok(store && store['probe|legacy'], 'seeded an entry to corrupt');
   store['probe|legacy'].v = { all: 8032812, sp: {} };
+  w.localStorage.setItem('ebird_gbif_v1', JSON.stringify(store));
   assert.equal(A.gbifFacetGet('probe|legacy'), undefined,
     'a stored poison entry reads as a MISS, so the next scan re-asks GBIF '
     + 'instead of waiting out a 30-day TTL');
@@ -54513,7 +61872,7 @@ test('F304 routes a complete Mega inventory into one Stakeout card', async () =>
   installSpuhFixture(app);
   const A = app.window.__app;
   const D = app.document;
-  A.abaArchiveAdd(f.region, [f.sentinelArchiveRow, ...f.stateRows]);
+  await A.abaArchiveAdd(f.region, [f.sentinelArchiveRow, ...f.stateRows]);
 
   let settleSightings;
   const baseFetch = app.window.fetch;
@@ -54550,9 +61909,9 @@ test('F304 routes a complete Mega inventory into one Stakeout card', async () =>
   // first species. Cache the first species' checklist rows so its unrelated
   // evidence hydration cannot occupy the production foreground limiter and
   // delay the second species beyond this guard's timeout.
-  f.stateRows.forEach((row) => {
-    A.cklWrite(row.subId, { obsDt: row.obsDt }, false, []);
-  });
+  await Promise.all(f.stateRows.map((row) =>
+    A.cklWrite(row.subId, { obsDt: row.obsDt }, false, [])));
+  await A.abaArchiveAdd(f.region, f.alertRows.concat([f.earliestHeld.rows[1]]));
   A.renderAbaAlert(f.alertRows.concat([f.earliestHeld.rows[1]]),
     `https://ebird.org/alert/summary?sid=${f.sid}`, true, false, {
       reportSlug: f.reportSlug,
@@ -54651,7 +62010,7 @@ test('F304 routes a complete Mega inventory into one Stakeout card', async () =>
     'an unopened Mega species does not fetch its Wikipedia extract');
 
   const oldView = megaRow.dataset.megaView;
-  A.cklWrite('S-OLD', { obsDt: f.earliestHeld.rows[0].obsDt }, true,
+  await A.cklWrite('S-OLD', { obsDt: f.earliestHeld.rows[0].obsDt }, true,
     f.earliestHeld.checklist);
   let heldChecklistCalls = 0;
   app.window.fetch = (url) => {
@@ -54667,6 +62026,7 @@ test('F304 routes a complete Mega inventory into one Stakeout card', async () =>
       json: () => Promise.resolve(body),
     });
   };
+  await A.abaArchiveAdd(f.region, f.earliestHeld.rows);
   A.renderAbaAlert(f.earliestHeld.rows,
     `https://ebird.org/alert/summary?sid=${f.sid}`, true, false, {
       reportSlug: f.reportSlug,
@@ -54745,7 +62105,7 @@ test('F429 Mega finder evidence is local to the latest report', async () => {
     locId: 'L-WALLA', subId: 'S-WALLA',
     lat: 46.065, lng: -118.34,
   };
-  A.abaArchiveAdd('US-WA', stateMegaFixture([
+  await A.abaArchiveAdd('US-WA', stateMegaFixture([
     { speciesCode: 'tersan', obsDt: '2026-07-01 05:00', locName: 'sentinel' },
     localFinder, distantFinder, outsideChaseWallaWalla,
   ]));
@@ -54828,8 +62188,8 @@ test('F304 duplicate Mega rows enrich one another in memory and in the archive',
     comments: 'A newer corrected report tuple.',
   }, 'a corrected newer tuple wins without erasing complementary evidence');
 
-  A.abaArchiveAdd('US-WA', [alert]);
-  A.abaArchiveAdd('US-WA', [detailed]);
+  await A.abaArchiveAdd('US-WA', [alert]);
+  await A.abaArchiveAdd('US-WA', [detailed]);
   const archived = A.abaArchiveFor('US-WA', 'whiwag');
   assert.equal(archived.length, 1, 'an archive enrichment does not duplicate the checklist');
   for (const field of ['userDisplayName', 'obsReviewed', 'locId',
@@ -55267,6 +62627,7 @@ test('F304 stale Mega state and ABA-wide callbacks cannot repaint a newer view',
     locName: 'CURRENT VIEW PLACE', locId: 'L-CURRENT', subId: 'S-CURRENT',
     lat: 48.1, lng: -124.1,
   }];
+  await A.abaArchiveAdd('US-WA', freshRows.map(row => ({ ...row, subnational1Code: 'US-WA' })));
   renderWashingtonMegaFixture(app, freshRows, 'https://ebird.org/alert/summary?sid=SNNEW',
     true, false, {
       reportSlug: 'wa', region: 'US-WA', sid: 'SNNEW', scope: 'state',
@@ -55747,7 +63108,7 @@ test('F794 Huge-text Twitches List uses large cards without changing its data or
   assert.ok(app.$('results').querySelector('.twitchcard > .name > .thumb'),
     'Standard List remains the shared medium species card');
   assert.equal(app.window.localStorage.getItem('ebird_twitch_view_v1'), 'list');
-  const filters = JSON.parse(app.window.localStorage.getItem('ebird_rarity_filters_v1'));
+  const filters = readPersistedFixture(app.window, 'ebird_rarity_filters_v1');
 
   A.setDisplayProfile('high-visibility');
   assert.ok(app.$('results').classList.contains('card-lg'));
@@ -55765,7 +63126,7 @@ test('F794 Huge-text Twitches List uses large cards without changing its data or
   assert.equal(hugeCards.filter((card) => /Terek Sandpiper/.test(card.textContent)).length, 2,
     'repeated species at separate observations are not grouped');
   assert.equal(A.twitchView(), 'list');
-  assert.deepEqual(JSON.parse(app.window.localStorage.getItem('ebird_rarity_filters_v1')), filters,
+  assert.deepEqual(readPersistedFixture(app.window, 'ebird_rarity_filters_v1'), filters,
     'profile switching preserves the shared year/distance filters');
 
   A.setDisplayProfile('large');
@@ -56259,7 +63620,7 @@ test('static reference feeds are cached across restarts, observation feeds are n
   // months, and a region's species list moves with taxonomy, once a year.
   for (const p of ['ref/hotspot/US-WA-033?fmt=json', 'product/spplist/US-WA',
                    'ref/taxonomy/ebird?fmt=json&locale=en&species=merlin']) {
-    A.ebRefPut(p, [{ x: 1 }]);
+    await A.ebRefPut(p, [{ x: 1 }]);
     assert.ok(A.ebRefGet(p), p + ' is held across restarts');
   }
   // A SIGHTING is not. A stale observation is a WRONG ANSWER — it sends you to
@@ -56268,7 +63629,7 @@ test('static reference feeds are cached across restarts, observation feeds are n
                    'data/obs/US-WA/recent/notable?back=7',
                    'ref/hotspot/geo?lat=47&lng=-122',
                    'product/lists/US-WA-033?maxResults=200']) {
-    A.ebRefPut(p, [{ x: 1 }]);
+    await A.ebRefPut(p, [{ x: 1 }]);
     assert.equal(A.ebRefGet(p), null, p + ' must NEVER be cached for a week');
   }
   // `ref/hotspot/geo` is the trap in that list: it starts with the same six
@@ -56281,7 +63642,7 @@ test('static reference feeds are cached across restarts, observation feeds are n
   // limiter while preventing the knowingly doomed durable write.
   assert.match(HTML, /var ref = noRefCache \? null : ebRefGet\(path\)/,
     'ebird can skip only its localStorage reference cache');
-  assert.match(HTML, /if \(v != null && !noRefCache\) ebRefPut\(path, v\)/,
+  assert.match(HTML, /if \(v != null && !noRefCache\) await ebRefPut\(path, v, refWrite\)/,
     'and the skip applies to the write as well as the read');
   const loadAt = HTML.indexOf('function loadSpuhModel()');
   const loadEnd = HTML.indexOf('function spuhStateHtml', loadAt);
@@ -56826,12 +64187,12 @@ test('F1525 monthly active refresh checks same-edition content once and preserve
     const A = app.window.__app, store = app.window.localStorage;
     assert.equal(await A.checkTaxonomyEdition(true), true);
     await A.loadSpeciesIndex('US-WA');
-    A.setWatchlist([{ code: 'eamwre1', name: 'Eastern Marsh Wren' }]);
-    const watch = store.getItem(A.WATCH_KEY), meta = JSON.parse(store.getItem('bc_taxonomy_v1'));
+    await A.setWatchlist([{ code: 'eamwre1', name: 'Eastern Marsh Wren' }]);
+    const watch = store.getItem(A.WATCH_KEY), meta = readPersistedFixture(app.window, 'bc_taxonomy_v1');
     const model = await A.loadSpuhModel(), regionalKey = A.speciesCacheKey('US-WA');
     const regional = store.getItem(regionalKey);
     assert.deepEqual([versions, canonical], [1, 1], 'canonical acquisition also supplies the packed hierarchy');
-    A.ebRefPut('ref/hotspot/US-WA?fmt=json', [{ locId: 'L-UNCHANGED' }]);
+    await A.ebRefPut('ref/hotspot/US-WA?fmt=json', [{ locId: 'L-UNCHANGED' }]);
     for (let i = 0; i < 3; i++) app.document.dispatchEvent(new app.window.Event('visibilitychange'));
     assert.equal(await A.maybeRefreshTaxonomy(), false);
     assert.deepEqual([versions, canonical], [1, 1], 'foreground is not a request while the reference is fresh');
@@ -56847,7 +64208,7 @@ test('F1525 monthly active refresh checks same-edition content once and preserve
     held();
     assert.equal(await pending, true);
     assert.deepEqual([versions, canonical], [2, 2]);
-    const unchanged = JSON.parse(store.getItem('bc_taxonomy_v1'));
+    const unchanged = readPersistedFixture(app.window, 'bc_taxonomy_v1');
     assert.equal(unchanged.referenceDigest, meta.referenceDigest, 'source row ordering is not a content change');
     assert.ok(unchanged.referenceAt > meta.referenceAt);
     assert.equal(unchanged.contentAt, meta.contentAt);
@@ -56856,9 +64217,9 @@ test('F1525 monthly active refresh checks same-edition content once and preserve
     hold = false;
     revision = 1;
     now += 31 * day;
-    A.ebRefPut('ref/hotspot/US-WA?fmt=json', [{ locId: 'L-UNCHANGED' }]);
+    await A.ebRefPut('ref/hotspot/US-WA?fmt=json', [{ locId: 'L-UNCHANGED' }]);
     assert.equal(await A.maybeRefreshTaxonomy(), true);
-    const changed = JSON.parse(store.getItem('bc_taxonomy_v1'));
+    const changed = readPersistedFixture(app.window, 'bc_taxonomy_v1');
     assert.notEqual(changed.referenceDigest, meta.referenceDigest);
     assert.equal(store.getItem(regionalKey), null);
     assert.notEqual(A.speciesCacheKey('US-WA'), regionalKey);
@@ -56871,7 +64232,7 @@ test('F1525 monthly active refresh checks same-edition content once and preserve
     assert.equal(store.getItem(A.WATCH_KEY), watch, 'target choices are not a derived reference cache');
     now += day;
     assert.equal(await A.checkTaxonomyEdition(false), true);
-    assert.equal(JSON.parse(store.getItem('bc_taxonomy_v1')).referenceAt, changed.referenceAt,
+    assert.equal(readPersistedFixture(app.window, 'bc_taxonomy_v1').referenceAt, changed.referenceAt,
       'an edition-only check cannot renew content freshness');
     const saved = Object.fromEntries(Array.from({ length: store.length }, (_, i) => {
       const key = store.key(i); return [key, store.getItem(key)];
@@ -56884,14 +64245,14 @@ test('F1525 monthly active refresh checks same-edition content once and preserve
       assert.deepEqual([versions, canonical], counts, 'validated current identity and hierarchy restore without another full download');
       now += 29 * day;
       assert.equal(await cold.window.__app.maybeRefreshTaxonomy(), true,
-        'the monthly deadline follows referenceAt, not a later edition-only checkedAt');
+        'the monthly deadline follows referenceAt, not a later edition-only checkedAt: ' + cold.$('taxonomyStatus').textContent);
       assert.deepEqual([versions, canonical], [counts[0] + 1, counts[1] + 1]);
       for (const next of [2, 3]) {
-        const before = JSON.parse(cold.window.localStorage.getItem('bc_taxonomy_v1')).referenceDigest;
+        const before = readPersistedFixture(cold.window, 'bc_taxonomy_v1').referenceDigest;
         revision = next;
         now += 31 * day;
-        assert.equal(await cold.window.__app.maybeRefreshTaxonomy(), true);
-        assert.notEqual(JSON.parse(cold.window.localStorage.getItem('bc_taxonomy_v1')).referenceDigest, before,
+        assert.equal(await cold.window.__app.maybeRefreshTaxonomy(), true, cold.$('taxonomyStatus').textContent);
+        assert.notEqual(readPersistedFixture(cold.window, 'bc_taxonomy_v1').referenceDigest, before,
           'family-only and alias-only corrections are independent reference changes');
         const latest = await cold.window.__app.loadSpuhModel();
         assert.equal(latest.speciesRow('marwre1').familySci, 'SyntheticWrens');
@@ -56929,7 +64290,7 @@ test('F1525 verified-key startup waits offline, reconnects without Settings and 
     assert.equal(await A.maybeRefreshTaxonomy(), false, 'incomplete source must not become a fresh reference');
     assert.deepEqual([versions, canonical], [1, 1]);
     assert.equal(store.getItem('bc_taxonomy_v1'), null);
-    assert.equal(store.getItem('ebird_seen'), '{"marwre":1}');
+    assert.deepEqual(readPersistedFixture(app.window, 'ebird_seen'), { marwre: 1 });
     const saved = Object.fromEntries(Array.from({ length: store.length }, (_, i) => {
       const key = store.key(i); return [key, store.getItem(key)];
     }));
@@ -56947,10 +64308,10 @@ test('F1525 verified-key startup waits offline, reconnects without Settings and 
     cold.window.dispatchEvent(new cold.window.Event('online'));
     assert.equal(await cold.window.__app.maybeRefreshTaxonomy(), true);
     assert.deepEqual([versions, canonical], [3, 3]);
-    const meta = JSON.parse(cold.window.localStorage.getItem('bc_taxonomy_v1'));
+    const meta = readPersistedFixture(cold.window, 'bc_taxonomy_v1');
     assert.ok(Math.abs(meta.referenceAt - Clock.now()) < 1000);
     assert.match(meta.referenceDigest, /^[a-f0-9]{64}$/);
-    assert.equal(cold.window.localStorage.getItem('ebird_seen'), '{"marwre":1}');
+    assert.deepEqual(readPersistedFixture(cold.window, 'ebird_seen'), { marwre: 1 });
     assert.equal(cold.window.__app.isSpeciesSeen('marwre1'), null, 'old slash evidence cannot become a daughter tick');
     assert.equal(cold.window.localStorage.getItem('bc_taxonomy_retry_v1:'), null);
   } finally { if (cold) cold.window.close(); app.window.close(); }
@@ -57004,13 +64365,13 @@ test('F1525 recent edition metadata does not hide a stale derived schema at auto
     const saved = Object.fromEntries(Array.from({ length: store.length }, (_, i) => {
       const key = store.key(i); return [key, store.getItem(key)];
     }));
-    const meta = JSON.parse(saved.bc_taxonomy_v1);
+    const meta = readPersistedFixture(app.window, 'bc_taxonomy_v1');
     meta.referenceSchema = 'obsolete-derived-schema';
     saved.bc_taxonomy_v1 = JSON.stringify(meta);
     cold = await boot({ sample: false, indexedDB, fetch, storage: saved });
     assert.equal(await cold.window.__app.maybeRefreshTaxonomy(), true);
     assert.equal(canonical, 2, 'recent checkedAt alone cannot bypass the reference/model repair');
-    assert.notEqual(JSON.parse(cold.window.localStorage.getItem('bc_taxonomy_v1')).referenceSchema,
+    assert.notEqual(readPersistedFixture(cold.window, 'bc_taxonomy_v1').referenceSchema,
       'obsolete-derived-schema');
   } finally { if (cold) cold.window.close(); app.window.close(); }
 });
@@ -57243,8 +64604,8 @@ test('F1139 deliberate same-edition refresh bypasses both identity caches and on
     const retained = store.getItem('ebird_seen'), watch = JSON.stringify(A.getWatchlist());
     const hotspot = 'ref/hotspot/US-WA?fmt=json';
     const historic = 'ref/taxonomy/ebird?fmt=json&locale=en&version=2025.0';
-    A.ebRefPut(hotspot, [{ locId: 'L-RETAINED' }]);
-    A.ebRefPut(historic, [{ speciesCode: 'old-reference' }]);
+    await A.ebRefPut(hotspot, [{ locId: 'L-RETAINED' }]);
+    await A.ebRefPut(historic, [{ speciesCode: 'old-reference' }]);
     await A.ebird(hotspot);
     assert.equal(await A.checkTaxonomyEdition(false), true);
     assert.deepEqual([canonicalCalls, lists, batches], before, 'ordinary check retains normal caching');
@@ -57447,7 +64808,7 @@ test('F735/F736 official editions and localized cards preserve evidence, quarant
   A.setWatchlist(JSON.parse(watch));
   await seedCurrentSeen(app, ['stable', 'rename', 'form']);
   const scope = A.activeScope();
-  A.firstYearWrite(scope.effectiveRegion, scope.year, {
+  await A.firstYearWrite(scope.effectiveRegion, scope.year, {
     declared: 1, evidenceComplete: true, rows: [{ code: 'form', name: 'Synthetic form' }],
   });
   assert.equal(A.isSpeciesSeen('form', 'Synthetic form'), true,
@@ -58339,23 +65700,25 @@ test('F317 erasing one profile removes only that profile identity label', async 
   const app = await boot({ sample: false });
   const A = app.window.__app;
   const raw = app.window.localStorage;
-  A.setProfileName('', 'Main Observer');
-  A.setProfileName('2', 'Second Observer');
+  await A.setProfileName('', 'Main Observer');
+  await A.setProfileName('2', 'Second Observer');
 
   raw.setItem(A.BC_PROFILE_PTR, '2');
   raw.setItem('bcp:2:ebird_display_name', 'Second Observer');
   raw.setItem('bcp:2:' + A.IDENTITY_META_KEY,
     JSON.stringify({ source: 'ebird-bird-list' }));
   A.scrubPersonalData();
+  await A.drainProfileNameWrites();
 
   assert.equal(raw.getItem('bcp:2:ebird_display_name'), null);
   assert.equal(raw.getItem('bcp:2:' + A.IDENTITY_META_KEY), null);
-  assert.deepEqual(JSON.parse(raw.getItem(A.PROFILE_NAME_KEY)), {
+  assert.deepEqual(readPersistedFixture(app.window, A.PROFILE_NAME_KEY), {
     '': 'Main Observer',
   }, 'the shared picker map loses only the active profile label');
 
   raw.setItem(A.BC_PROFILE_PTR, '');
   A.scrubPersonalData();
+  await A.drainProfileNameWrites();
   assert.equal(raw.getItem(A.PROFILE_NAME_KEY), null,
     'erasing Main removes its remaining label without reviving another profile');
   app.window.close();
@@ -59560,29 +66923,44 @@ test('the media pass is wired inside the card loop, where slot exists', () => {
 // The chase snapshot is the most expensive object the app owns — ~47 calls and
 // two minutes — and the device log caught it losing its place to single-call
 // checklist entries. The priority was exactly inverted.
-test('the expensive snapshot evicts cheap caches rather than giving up', () => {
+test('the expensive snapshot evicts cheap caches rather than giving up', async () => {
   const HTML = fs.readFileSync(path.join(__dirname, '..', 'www', 'index.html'), 'utf8');
-  const fn = HTML.slice(HTML.indexOf('function saveChaseSnapshot'),
-    HTML.indexOf('function loadChaseSnapshot'));
-
-  assert.match(fn, /freeCacheSpace\(/,
-    'a quota failure makes room instead of shrugging');
-  // Was `attempt < 3`. A device log showed three attempts freeing two
-  // checklists between them and failing anyway: the retry count was never the
-  // limit, the size of the drawer was. Retries are cheap (a failed setItem
-  // throws immediately) so the loop now runs until it fits or there is
-  // genuinely nothing disposable left.
-  assert.match(fn, /attempt < 12/, 'and retries until it fits, rather than dropping the wave');
-  assert.match(fn, /if \(!n\) \{/,
-    'giving up only when there is genuinely nothing cheap left to drop');
-  // Our own expired copies go BEFORE the write. pruneChaseSnapshots ran after
-  // it, so every attempt competed with yesterday's garbage — the one thing in
-  // the store guaranteed to be worthless.
-  assert.ok(fn.indexOf('pruneChaseSnapshots()') < fn.indexOf('localStorage.setItem(chaseKey'),
-    "yesterday's snapshots are dropped before the write, not after it");
-  // A failure now names what actually filled the store, so the next device log
-  // is evidence instead of inference.
-  assert.match(fn, /storeComposition\(\)/, 'and a failure says what the store is made of');
+  const app = await boot({ sample: false, nativeCompression: true, fetch: () => [] });
+  const W = app.window, A = W.__app, original = W.Storage.prototype.setItem;
+  try {
+    const key = A.chaseKey('wa'), yesterday = key.replace(A.todayStr(), '2000-01-01');
+    const cheap = [A.CKL_NS + 'F247CHEAP1', A.CKL_NS + 'F247CHEAP2', 'ebird_photos_v2'];
+    for (const name of cheap.slice(0, 2)) W.localStorage.setItem(name, JSON.stringify({
+      d: A.todayStr(), o: '2000-01-01', m: 1, v: 'j:[]'
+    }));
+    W.localStorage.setItem(cheap[2], 'x'.repeat(30000));
+    W.localStorage.setItem(yesterday, 'expired');
+    W.localStorage.setItem('ebird_watchlist_v1', 'preserve user birds');
+    function used(except) {
+      return Object.keys(W.localStorage).filter(name => name !== except)
+        .reduce((n, name) => n + name.length + W.localStorage.getItem(name).length, 0);
+    }
+    const limit = used(key) - yesterday.length - 'expired'.length;
+    let attempts = 0;
+    W.Storage.prototype.setItem = function (name, value) {
+      if (name === A.bcReal(key)) {
+        attempts++;
+        assert.equal(W.localStorage.getItem(yesterday), null, 'expired snapshots go before the first write');
+        assert.ok(value.startsWith('z:'), 'the chase snapshot is compressed before allocation');
+        if (used(name) + name.length + value.length > limit) {
+          throw new W.DOMException('Measured fixture capacity', 'QuotaExceededError');
+        }
+      }
+      return original.call(this, name, value);
+    };
+    const codes = Array.from({ length: 150 }, (_, i) =>
+      crypto.createHash('sha256').update('snapshot ' + i).digest('hex'));
+    assert.equal(await A.saveChaseSnapshot('wa', codes, {}, {}), true);
+    assert.ok(attempts >= 2 && attempts <= 12, 'reclaim must be bounded and actually exercised');
+    for (const name of cheap) assert.equal(W.localStorage.getItem(name), null, 'reclaim reaches ' + name);
+    assert.equal(W.localStorage.getItem('ebird_watchlist_v1'), 'preserve user birds');
+    assert.deepEqual(Array.from((await A.loadChaseSnapshot('wa')).codes), codes);
+  } finally { W.Storage.prototype.setItem = original; W.close(); }
 
   // The eviction can reach more than one namespace. "freed 2 cached
   // checklists to make room" followed by a failed write proved the drawer we
@@ -60169,15 +67547,15 @@ test('F532 quota recovery retries Fresh Ticks, Common Birds, and checklist write
     assert.ok(W.localStorage.getItem(targetKey), `${targetKey} was not retried durably`);
   }
 
-  await pressuredWrite('ebird_photos_v2', A.RANK_CACHE_KEY, () => {
-    A.rankCachePut('US-WA', { region: 'US-WA', rows: [{ name: 'A'.repeat(600) }] });
+  await pressuredWrite('ebird_photos_v2', A.RANK_CACHE_KEY, async () => {
+    await A.rankCachePut('US-WA', { region: 'US-WA', rows: [{ name: 'A'.repeat(600) }] });
   });
   await pressuredWrite('ebird_birdinfo_v2', 'easymiss_v1:f532', () =>
     A.zcPut('easymiss_v1:f532', { rows: Array.from({ length: 80 }, (_, i) => ({
       code: 'bird' + i, name: 'Common Bird ' + i,
     })) }));
-  await pressuredWrite('ebird_photos_neg_v1', 'bc_ckl2:F532', () => {
-    A.cklWrite('F532', { obsDt: '2026-09-24 08:00' }, false,
+  await pressuredWrite('ebird_photos_neg_v1', 'bc_ckl2:F532', async () => {
+    await A.cklWrite('F532', { obsDt: '2026-09-24 08:00' }, false,
       [{ speciesCode: 'amerob', comName: 'American Robin' }]);
   });
 
@@ -61408,7 +68786,7 @@ test('the menu names you, from cache, without spending a call', async () => {
   assert.doesNotMatch(txt, /#/, 'and no rank is invented when none is known');
 
   // With today's board cached for this region, the standing appears.
-  A.rankCachePut(key,board('US-WA',42));
+  await A.rankCachePut(key,board('US-WA',42));
   A.renderMenuIdentity();
   txt = D.getElementById('hdrId').textContent;
   assert.match(txt, /#42/, 'the cached rank is used');
@@ -61419,7 +68797,7 @@ test('the menu names you, from cache, without spending a call', async () => {
     'neither the board species total nor a device-wide ABA total replaces exact membership');
 
   // A board for ANOTHER region must not be borrowed.
-  A.rankCachePut(A.rankCacheOwnerKey({region:'US-MO',max:500,metric:'spp'},period,'Birder Wyatt'),
+  await A.rankCachePut(A.rankCacheOwnerKey({region:'US-MO',max:500,metric:'spp'},period,'Birder Wyatt'),
     board('US-MO',7));
   A.renderMenuIdentity();
   assert.doesNotMatch(D.getElementById('hdrId').textContent, /#7/,
@@ -61429,6 +68807,7 @@ test('the menu names you, from cache, without spending a call', async () => {
   W.localStorage.setItem(A.bcReal(A.RANK_CACHE_KEY),JSON.stringify({
     [key]:{date:'2001-01-01',data:board('US-WA',9)},
   }));
+  await A.loadRankCache(true);
   A.renderMenuIdentity();
   assert.doesNotMatch(D.getElementById('hdrId').textContent, /#9/,
     'a stale board is not shown as current');
@@ -63054,15 +70433,15 @@ test('F1459 actual Scout gates nearer outside, unknown and conflicting evidence 
       assert.ok(destinations.querySelector('[data-loc="LIN1459"]'));
       assert.doesNotMatch(destinations.textContent,/Closer Outside|Unknown Marsh|Conflicting Marsh/);
       assert.match(app.document.querySelector('.scoutinstatus').textContent,/1 top hotspot/);
-      const retained=A.loadScout();
+      const retained=await A.loadScout();
       assert.ok(retained,'matching raw retained source remains reusable');
       A.setCountyView(other);
-      assert.equal(A.loadScout(),null,'a different county cannot restore another scope-owned Scout slot');
+      assert.equal(await A.loadScout(),null,'a different county cannot restore another scope-owned Scout slot');
       A.renderScout(retained,false);
       assert.doesNotMatch(body.textContent,/Farther Inside Marsh|Closer Outside Marsh/,
         'Back cannot reproject a consumer result acquired for another county');
-      A.saveScout(retained);
-      assert.equal(A.loadScout(),null,'a retained source cannot be relabelled with the new selection');
+      await A.saveScout(retained);
+      assert.equal(await A.loadScout(),null,'a retained source cannot be relabelled with the new selection');
       assert.equal(JSON.stringify(A.getHome()),home);
     } finally {app.window.close();}
   }
@@ -63150,15 +70529,5574 @@ test('a scouted place is one slot, and survives a relaunch', async () => {
   // nothing — without pretending a storage limit forced it.
   const app = await boot({ fetch() { return null; } });
   const A = app.window.__app, W = app.window;
-  A.saveScout({ v: 1, at: Date.now(), label: 'First', lat: 1, lng: 2, rows: [], hotspots: [] });
-  A.saveScout({ v: 1, at: Date.now(), label: 'Second', lat: 3, lng: 4, rows: [], hotspots: [] });
+  await A.saveScout({ v: 1, at: Date.now(), label: 'First', lat: 1, lng: 2, rows: [], hotspots: [] });
+  await A.saveScout({ v: 1, at: Date.now(), label: 'Second', lat: 3, lng: 4, rows: [], hotspots: [] });
   const keys = Object.keys(W.localStorage).filter((k) => /scout/i.test(k));
   assert.strictEqual(keys.length, 1,
     'more than one scout slot exists: ' + JSON.stringify(keys));
-  assert.strictEqual(A.loadScout().label, 'Second', 'the newer scout did not replace the older');
+  assert.strictEqual((await A.loadScout()).label, 'Second', 'the newer scout did not replace the older');
 
   A.clearScout();
-  assert.strictEqual(A.loadScout(), null, 'clearing left the slot behind');
+  assert.strictEqual(await A.loadScout(), null, 'clearing left the slot behind');
+});
+
+function readPersistedFixture(window, key) {
+  const raw = window.localStorage.getItem(key);
+  if (raw == null) return null;
+  return JSON.parse(raw.startsWith('z:')
+    ? zlib.gunzipSync(Buffer.from(raw.slice(2), 'base64')).toString('utf8')
+    : raw.startsWith('j:') ? raw.slice(2) : raw);
+}
+
+function eBirderCountFixture() {
+  const date = formatObsStamp(new Date()).slice(0, 10);
+  return Object.fromEntries(Array.from({ length: 60 }, (_, i) =>
+    ['XX-F247-' + i, { date, n: i + 100 }]));
+}
+
+function regionalSpeciesFixture(prefix = 'Typed Regional Bird') {
+  const rows = Array.from({ length: 120 }, (_, i) => ({
+    code: 'f247sp' + i, name: prefix + ' ' + i,
+    sci: 'Persistens regionalis' + i, alpha: 'trbd'
+  }));
+  return { at: Date.now(), expected: rows.length, listedCodes: rows.map(row => row.code), rows };
+}
+
+function regionalSpeciesResponse(url, fixture) {
+  if (/product\/spplist\//.test(url)) return fixture.listedCodes;
+  if (/ref\/taxonomy\/ebird\?/.test(url)) {
+    const codes = new Set((new URL(url).searchParams.get('species') || '').split(','));
+    return fixture.rows.filter(row => codes.has(row.code)).map(row => ({
+      speciesCode: row.code, comName: row.name, sciName: row.sci, bandingCodes: [row.alpha]
+    }));
+  }
+  return [];
+}
+
+test('F247 regional species hydrate both namespaces and native restarts supply names, banding codes and Top 100 identity offline', async () => {
+  const fixture = regionalSpeciesFixture();
+  for (const edition of ['', '2026.0']) {
+    const key = edition ? 'ebird_species_v3:' + edition + ':US-WA' : 'ebird_species_v2:US-WA';
+    let saved = JSON.stringify(fixture);
+    for (const restart of [false, true]) {
+      const app = await boot({ sample: false, home: false, nativeCompression: true, storage: {
+        [key]: saved,
+        ...(edition ? { bc_taxonomy_v1: JSON.stringify({ edition, checkedAt: Date.now() }) } : {})
+      } });
+      const W = app.window, A = W.__app;
+      try {
+        saved = W.localStorage.getItem(key);
+        assert.ok(saved.startsWith('z:'));
+        assert.deepEqual(readPersistedFixture(W, key), fixture);
+        assert.equal(A.sciNameFor('f247sp0'), 'Persistens regionalis0');
+        assert.equal((await A.loadSpeciesIndex('US-WA', true)).length, 120);
+        A.setWatchlist([{ code: 'f247sp0', name: fixture.rows[0].name }]);
+        A.renderWatch();
+        assert.match(app.$('nvResults').textContent, /TRBD/);
+        const date = new W.Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+        const paint = () => A.renderRankings({ rows: [{
+          rank: 1, name: 'Regional identity control', species: 100, checklists: 200,
+          recent: fixture.rows[0].name + ' (' + date + ')'
+        }] }, 'US-WA', 'https://ebird.org/top100', '');
+        paint();
+        assert.ok(app.document.querySelector('.rankbirdline [data-sp="f247sp0"]'),
+          'actual Top 100 must recover a code from the compressed reference, not just print its name');
+        const replacement = { ...fixture, rows: fixture.rows.map(row => ({ ...row, code: row.code + 'x' })) };
+        W.localStorage.setItem(key, JSON.stringify(replacement));
+        paint();
+        assert.ok(app.document.querySelector('.rankbirdline [data-sp="f247sp0x"]'),
+          'a synchronous byte replacement must invalidate the memoized Top 100 index');
+        assert.equal(app.state.fetches.filter(url => /product\/spplist|ref\/taxonomy\/ebird/.test(url)).length, 0,
+          'hydrating and rendering cached reference data cannot acquire a regional or full taxonomy');
+      } finally { W.close(); }
+    }
+  }
+});
+
+test('F247 actual regional acquisition awaits native compression and retains last-good evidence after retirement or quota', async () => {
+  const fixture = regionalSpeciesFixture(), legacy = regionalSpeciesFixture('Offline Regional Bird');
+  legacy.at -= 8 * 86400000;
+  const key = 'ebird_species_v2:US-WA';
+  for (const action of ['save', 'replace', 'erase', 'profile', 'stop', 'edition', 'quota']) {
+    const app = await boot({ sample: false, home: false, nativeCompression: true,
+      storage: ['erase', 'profile'].includes(action) ? {} : { [key]: JSON.stringify(legacy) },
+      fetch: url => regionalSpeciesResponse(url, fixture) });
+    const W = app.window, A = W.__app, before = W.localStorage.getItem(key);
+    const packing = holdScoutCompression(W, json => json.includes('"name":"Typed Regional Bird 0"'));
+    const prototype = W.Storage.prototype, set = prototype.setItem;
+    try {
+      if (action === 'erase') W.localStorage.removeItem(A.bcReal('ebird_identity_rev_v1'));
+      let done = false;
+      const pending = A.loadSpeciesIndex('US-WA', true, A.navWork('Regional reference proof'))
+        .finally(() => { done = true; });
+      await waitFor(packing.ready, 'held actual regional species compression');
+      assert.equal(done, false);
+      assert.equal(W.localStorage.getItem(key), before, 'a regional index cannot allocate raw-first');
+      assert.equal(A.cachedSpeciesIndex('US-WA')?.rows[0].name,
+        ['erase', 'profile'].includes(action) ? undefined : 'Offline Regional Bird 0');
+      const newer = JSON.stringify(regionalSpeciesFixture('Newer Regional Bird'));
+      if (action === 'replace') W.localStorage.setItem(key, newer);
+      else if (action === 'erase') A.scrubPersonalData();
+      else if (action === 'profile') W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-species-owner');
+      else if (action === 'stop') A.cancelStalledWork();
+      else if (action === 'edition') await A.taxonomyCacheClear();
+      else if (action === 'quota') prototype.setItem = function (k, value) {
+        if (k === key) throw new W.DOMException('regional index quota', 'QuotaExceededError');
+        return set.call(this, k, value);
+      };
+      packing.release();
+      if (['erase', 'profile', 'stop', 'edition'].includes(action)) {
+        await assert.rejects(pending, /cancelled|changed/i, action + ' retires the held acquisition');
+      } else assert.equal((await pending).length, 120, 'optional metadata failure retains useful source rows');
+      if (action === 'save') {
+        assert.ok(W.localStorage.getItem(key).startsWith('z:'));
+        assert.deepEqual(readPersistedFixture(W, key).rows,
+          fixture.rows.slice().sort((a, b) => a.name.localeCompare(b.name)));
+        assert.equal(A.sciNameFor('f247sp0'), fixture.rows[0].sci);
+      } else {
+        assert.equal(W.localStorage.getItem(key), action === 'replace' ? newer : action === 'erase' ? null : before);
+        if (action === 'profile') assert.equal(W.localStorage.getItem(A.bcReal(key)), null,
+          'retired acquisition cannot allocate into the new profile');
+      }
+    } finally { prototype.setItem = set; packing.release(); W.close(); }
+  }
+});
+
+test('F247 regional recovery repairs expired, future, partial and unproven external legacy indexes', async () => {
+  const fixture = regionalSpeciesFixture(), key = 'ebird_species_v2:US-WA';
+  for (const action of ['expired', 'future', 'partial', 'unproven']) {
+    const app = await boot({ sample: false, home: false, nativeCompression: true,
+      fetch: url => regionalSpeciesResponse(url, fixture) });
+    const W = app.window, A = W.__app;
+    try {
+      const legacy = regionalSpeciesFixture('Offline Regional Bird');
+      if (action === 'expired') legacy.at -= 8 * 86400000;
+      else if (action === 'future') legacy.at += 86400000;
+      else if (action === 'partial') legacy.expected++;
+      else delete legacy.listedCodes;
+      W.localStorage.setItem(key, JSON.stringify(legacy));
+      const rows = await A.loadSpeciesIndex('US-WA', action !== 'future');
+      assert.equal(rows.find(row => row.code === 'f247sp0').name, fixture.rows[0].name, action);
+      assert.ok(W.localStorage.getItem(key).startsWith('z:'));
+      assert.equal(readPersistedFixture(W, key).rows.find(row => row.code === 'f247sp0').name,
+        fixture.rows[0].name, action + ': acquisition must compare against its own migrated baseline');
+      assert.equal(app.state.fetches.filter(url => /product\/spplist\//.test(url)).length, 1);
+    } finally { W.close(); }
+  }
+});
+
+test('F247 delayed regional acquisition compares pre-source bytes and a newer failed request retires old compression', async () => {
+  const fixture = regionalSpeciesFixture(), key = 'ebird_species_v2:US-WA';
+  let release;
+  const app = await boot({ sample: false, home: false, nativeCompression: true, fetch: url =>
+    /product\/spplist\//.test(url)
+      ? new Promise(resolve => { release = () => resolve(fixture.listedCodes); })
+      : regionalSpeciesResponse(url, fixture) });
+  const W = app.window, A = W.__app;
+  let packing;
+  try {
+    const pending = A.loadSpeciesIndex('US-WA', true);
+    await waitFor(() => release, 'held regional species list');
+    const newer = JSON.stringify(regionalSpeciesFixture('Newer Regional Bird'));
+    W.localStorage.setItem(key, newer);
+    release();
+    assert.equal((await pending).length, 120);
+    assert.equal(W.localStorage.getItem(key), newer, 'late acquisition cannot replace newer reference bytes');
+    W.localStorage.removeItem(key);
+    let held = false;
+    packing = holdScoutCompression(W, json => {
+      if (held || !json.includes('"name":"Typed Regional Bird 0"')) return false;
+      held = true; return true;
+    });
+    const old = A.loadSpeciesIndex('US-WA', true);
+    await waitFor(packing.ready, 'old regional index compression');
+    const path = 'ref/taxonomy/ebird?fmt=json&locale=en&species='
+      + encodeURIComponent(fixture.listedCodes.slice(0, 100).join(','));
+    A.seedEbirdCache(path, Promise.resolve([]));
+    await assert.rejects(A.loadSpeciesIndex('US-WA', true), /incomplete regional taxonomy/i);
+    packing.release();
+    assert.equal((await old).length, 120);
+    assert.equal(W.localStorage.getItem(key), null,
+      'an old request cannot save after a newer request failed, even when original bytes still match');
+  } finally { if (release) release(); if (packing) packing.release(); W.close(); }
+});
+
+test('F247 an empty delayed regional directory cannot publish across erasure or profile retirement', async () => {
+  for (const action of ['erase', 'profile']) {
+    let release;
+    const app = await boot({ sample: false, home: false, nativeCompression: true, fetch: url =>
+      /product\/spplist\//.test(url) ? new Promise(resolve => { release = () => resolve([]); }) : [] });
+    const W = app.window, A = W.__app;
+    try {
+      W.localStorage.removeItem(A.bcReal('ebird_identity_rev_v1'));
+      const pending = A.loadSpeciesIndex('US-WA', true);
+      await waitFor(() => release, 'held empty regional directory');
+      if (action === 'erase') A.scrubPersonalData();
+      else W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-delayed-species-owner');
+      release();
+      await assert.rejects(pending, /cancelled/i);
+      assert.equal(W.localStorage.getItem(A.bcReal('ebird_species_v2:US-WA')), null);
+    } finally { if (release) release(); W.close(); }
+  }
+});
+
+function namingCatalogFixture(prefix = 'Typed naming') {
+  return { at: Date.now(), rows: [
+    { code: 'en', name: prefix + ' English', lastUpdate: '' },
+    { code: 'fr', name: prefix + ' French', lastUpdate: '' },
+    ...Array.from({ length: 60 }, (_, i) => ({
+      code: 'xx_F247' + i, name: prefix + ' regional language ' + i, lastUpdate: ''
+    }))
+  ] };
+}
+
+test('F247 naming catalogs hydrate and restart compressed before the offline language chooser is restored', async () => {
+  const key = 'bc_taxa_locales_v1', fixture = namingCatalogFixture();
+  let saved = JSON.stringify(fixture);
+  for (const restart of [false, true]) {
+    const app = await boot({ sample: false, key: null, nativeCompression: true, storage: { [key]: saved } });
+    const W = app.window, A = W.__app;
+    try {
+      saved = W.localStorage.getItem(key);
+      assert.ok(saved.startsWith('z:'));
+      assert.deepEqual(readPersistedFixture(W, key), fixture);
+      assert.equal(app.$('namingLocale').querySelector('[value="fr"]')?.textContent, 'Typed naming French');
+      assert.equal((await A.loadNamingLocales()).length, fixture.rows.length);
+      assert.equal(W.localStorage.getItem(key), saved, 'a cache hit must not renew its timestamp or rewrite it');
+      assert.equal(app.state.fetches.filter(url => /ref\/taxa-locales/.test(url)).length, 0);
+    } finally { W.close(); }
+  }
+});
+
+test('F247 actual naming catalog refresh awaits native durability and preserves the chooser after retirement or quota', async () => {
+  const key = 'bc_taxa_locales_v1', fixture = namingCatalogFixture();
+  for (const action of ['save', 'replace', 'erase', 'profile', 'stop', 'clear', 'quota']) {
+    const app = await boot({ sample: false, home: false, nativeCompression: true,
+      storage: { [key]: JSON.stringify(namingCatalogFixture('Offline naming')) },
+      fetch: url => /ref\/taxa-locales/.test(url) ? fixture.rows : [] });
+    const W = app.window, A = W.__app, before = W.localStorage.getItem(key);
+    const packing = holdScoutCompression(W, json => json.startsWith('{"at":')
+      && json.includes('"rows":[') && json.includes('"name":"Typed naming English"'));
+    const prototype = W.Storage.prototype, set = prototype.setItem;
+    try {
+      if (action === 'erase') W.localStorage.removeItem(A.bcReal('ebird_identity_rev_v1'));
+      let done = false;
+      const pending = A.loadNamingLocales(true).finally(() => { done = true; });
+      await waitFor(() => packing.ready() || done, 'actual naming catalog compression or premature completion');
+      assert.ok(packing.ready(), 'the real catalog persistence must be reached');
+      await new Promise(resolve => setTimeout(resolve, 10));
+      assert.equal(done, false, 'catalog publication must await the durability attempt');
+      assert.equal(W.localStorage.getItem(key), before, 'a catalog cannot allocate raw-first');
+      assert.equal(app.$('namingLocale').querySelector('[value="fr"]').textContent, 'Offline naming French');
+      const newer = JSON.stringify(namingCatalogFixture('Newer naming'));
+      if (action === 'replace') W.localStorage.setItem(key, newer);
+      else if (action === 'erase') await A.scrubPersonalData();
+      else if (action === 'profile') W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-naming-owner');
+      else if (action === 'stop') A.cancelStalledWork();
+      else if (action === 'clear') await A.taxonomyCacheClear();
+      else if (action === 'quota') prototype.setItem = function (k, value) {
+        if (k === key) throw new W.DOMException('naming catalog quota', 'QuotaExceededError');
+        return set.call(this, k, value);
+      };
+      packing.release();
+      assert.equal((await pending).length, action === 'save' ? fixture.rows.length : 0, action);
+      if (action === 'save') {
+        assert.ok(W.localStorage.getItem(key).startsWith('z:'));
+        assert.deepEqual(readPersistedFixture(W, key).rows, fixture.rows);
+        assert.equal(app.$('namingLocale').querySelector('[value="fr"]').textContent, 'Typed naming French');
+      } else {
+        assert.equal(W.localStorage.getItem(key), action === 'replace' ? newer : before,
+          'public naming metadata survives erasure but retired work cannot overwrite it');
+        assert.equal(app.$('namingLocale').querySelector('[value="fr"]').textContent, 'Offline naming French');
+      }
+    } finally { prototype.setItem = set; packing.release(); W.close(); }
+  }
+});
+
+test('F247 naming catalog captures pre-source bytes and newer failed loads retire earlier compression', async () => {
+  const key = 'bc_taxa_locales_v1', fixture = namingCatalogFixture();
+  let release, packing;
+  const app = await boot({ sample: false, home: false, nativeCompression: true, fetch: url =>
+    /ref\/taxa-locales/.test(url) ? new Promise(resolve => { release = () => resolve(fixture.rows); }) : [] });
+  const W = app.window, A = W.__app;
+  try {
+    const pending = A.loadNamingLocales(true);
+    await waitFor(() => release, 'held actual naming catalog source');
+    const newer = JSON.stringify(namingCatalogFixture('Newer naming'));
+    W.localStorage.setItem(key, newer);
+    release();
+    assert.equal((await pending).length, 0);
+    assert.equal(W.localStorage.getItem(key), newer);
+    W.localStorage.removeItem(key);
+    let held = false;
+    packing = holdScoutCompression(W, json => {
+      if (held || !json.startsWith('{"at":') || !json.includes('"name":"Typed naming English"')) return false;
+      held = true; return true;
+    });
+    A.seedEbirdCache('ref/taxa-locales/ebird?fmt=json', Promise.resolve(fixture.rows));
+    const old = A.loadNamingLocales(true);
+    await waitFor(packing.ready, 'earlier naming catalog compression');
+    A.seedEbirdCache('ref/taxa-locales/ebird?fmt=json', Promise.resolve([]));
+    assert.equal((await A.loadNamingLocales(true)).length, 0);
+    const status = app.$('namingStatus').textContent;
+    packing.release();
+    assert.equal((await old).length, 0);
+    assert.equal(W.localStorage.getItem(key), null);
+    assert.equal(app.$('namingStatus').textContent, status, 'retired errors cannot overwrite the newest load status');
+  } finally { if (release) release(); if (packing) packing.release(); W.close(); }
+});
+
+test('F247 naming refresh repairs expired or future external legacy catalogs using the migrated baseline', async () => {
+  const key = 'bc_taxa_locales_v1', fixture = namingCatalogFixture();
+  for (const future of [false, true]) {
+    const app = await boot({ sample: false, home: false, nativeCompression: true,
+      fetch: url => /ref\/taxa-locales/.test(url) ? fixture.rows : [] });
+    const W = app.window, A = W.__app;
+    try {
+      const legacy = namingCatalogFixture('Offline naming');
+      legacy.at += future ? 86400000 : -8 * 86400000;
+      W.localStorage.setItem(key, JSON.stringify(legacy));
+      assert.equal((await A.loadNamingLocales()).length, fixture.rows.length);
+      assert.ok(W.localStorage.getItem(key).startsWith('z:'));
+      assert.deepEqual(readPersistedFixture(W, key).rows, fixture.rows);
+      assert.equal(app.$('namingLocale').querySelector('[value="fr"]').textContent, 'Typed naming French');
+      assert.equal(app.state.fetches.filter(url => /ref\/taxa-locales/.test(url)).length, 1);
+    } finally { W.close(); }
+  }
+});
+
+test('F247 malformed naming catalogs never remove the English fallback or overwrite a working catalog', async () => {
+  const key = 'bc_taxa_locales_v1';
+  for (const rows of [[{ code: 'fr', name: 'French' }], [], [{ code: 'en', name: 'English' }, { code: 'en', name: 'Duplicate' }]]) {
+    const app = await boot({ sample: false, home: false, nativeCompression: true,
+      storage: { [key]: JSON.stringify(namingCatalogFixture('Offline naming')) },
+      fetch: url => /ref\/taxa-locales/.test(url) ? rows : [] });
+    const W = app.window, A = W.__app, before = W.localStorage.getItem(key);
+    try {
+      assert.equal((await A.loadNamingLocales(true)).length, 0);
+      assert.equal(W.localStorage.getItem(key), before);
+      assert.equal(app.$('namingLocale').querySelector('[value="fr"]').textContent, 'Offline naming French');
+      W.localStorage.setItem(key, JSON.stringify({ at: Date.now(), rows }));
+      await A.restoreTaxonomyNames();
+      assert.equal(app.$('namingLocale').querySelector('[value="en"]').textContent, 'Offline naming English');
+    } finally { W.close(); }
+  }
+});
+
+function timeOfDayFixture() {
+  const state = { v: 4, seen: {}, hours: {}, names: {}, chk: {}, days: {} };
+  for (let i = 0; i < 120; i++) {
+    const code = 'f247sp' + i, sub = 'F247OLD' + i;
+    state.seen[sub + '|' + code] = 1;
+    state.hours[code] = [9];
+    state.names[code] = 'Temporal Reference Bird ' + i;
+    state.chk[sub] = 9;
+  }
+  return state;
+}
+
+function timeOfDaySource(date) {
+  const day = formatObsStamp(date).slice(0, 10);
+  return Array.from({ length: 120 }, (_, i) => ({
+    speciesCode: 'f247sp' + i, comName: 'Temporal Reference Bird ' + i,
+    subId: 'F247NEW' + i, obsDt: day + ' 10:00'
+  }));
+}
+
+test('F247 dawn and dusk samples migrate and compressed restarts retain the coherent accumulator offline', async () => {
+  const key = 'ebird_tod_wa:provisional', fixture = timeOfDayFixture();
+  let saved = JSON.stringify(fixture);
+  for (const restart of [false, true]) {
+    const app = await boot({ sample: false, home: false, nativeCompression: true, storage: { [key]: saved } });
+    const W = app.window, A = W.__app;
+    try {
+      saved = W.localStorage.getItem(key);
+      assert.ok(saved.startsWith('z:'));
+      assert.deepEqual(readPersistedFixture(W, key), fixture);
+      assert.equal(Object.keys(A.todLoad().hours).length, 120);
+      assert.equal(A.todSpecialists().n, 120);
+      assert.equal(await A.todAccumulate([{ speciesCode: 'f247sp0', subId: 'F247OLD0',
+        comName: fixture.names.f247sp0, obsDt: A.todayStr() + ' 09:00' }]), 0);
+      assert.equal(W.localStorage.getItem(key), saved, 'duplicate evidence cannot rewrite or inflate the sample');
+      assert.equal(app.state.fetches.filter(url => /\/historic\//.test(url)).length, 0);
+      W.localStorage.setItem(key, JSON.stringify({ ...fixture,
+        names: { ...fixture.names, f247sp0: 'Newer temporal identity' } }));
+      assert.equal(A.todLoad().names.f247sp0, 'Newer temporal identity',
+        'a decoded accumulator cannot outlive replacement of its backing bytes');
+    } finally { W.close(); }
+  }
+});
+
+test('F247 actual dawn and dusk acquisition commits observations and completed days together after native compression', async () => {
+  const key = 'ebird_tod_wa:provisional';
+  const day = new Date(); day.setDate(day.getDate() - 1); day.setHours(12, 0, 0, 0);
+  const source = timeOfDaySource(day), fixture = timeOfDayFixture();
+  for (const action of ['save', 'replace', 'erase', 'profile', 'stop', 'region', 'quota']) {
+    const app = await boot({ sample: false, home: false, nativeCompression: true,
+      storage: ['erase', 'profile'].includes(action) ? {} : { [key]: JSON.stringify(fixture) },
+      fetch: url => /\/historic\//.test(url) ? source : [] });
+    const W = app.window, A = W.__app, before = W.localStorage.getItem(key);
+    const packing = holdScoutCompression(W, json => json.includes('"F247NEW0|f247sp0"'));
+    const prototype = W.Storage.prototype, set = prototype.setItem;
+    try {
+      if (action === 'erase') W.localStorage.removeItem(A.bcReal('ebird_identity_rev_v1'));
+      let done = false;
+      const pending = A.todFetchCounties(['US-WA-033'], [new W.Date(day.getTime())], () => {},
+        A.navWork('Dawn and dusk persistence proof')).finally(() => { done = true; });
+      await waitFor(() => packing.ready() || done, 'actual time-of-day compression or premature completion');
+      assert.ok(packing.ready());
+      await new Promise(resolve => setTimeout(resolve, 10));
+      assert.equal(done, false, 'source completion must await the atomic accumulator/day write');
+      assert.equal(W.localStorage.getItem(key), before, 'no raw-first allocation or premature day marker');
+      assert.equal(A.todHasDay('US-WA-033', day), false);
+      const newer = JSON.stringify({ ...fixture, names: { ...fixture.names, control: 'Newer temporal source' } });
+      if (action === 'replace') W.localStorage.setItem(key, newer);
+      else if (action === 'erase') A.scrubPersonalData();
+      else if (action === 'profile') W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-temporal-owner');
+      else if (action === 'stop') A.cancelStalledWork();
+      else if (action === 'region') A.setActiveReport('hi');
+      else if (action === 'quota') prototype.setItem = function (k, value) {
+        if (k === key) throw new W.DOMException('temporal sample quota', 'QuotaExceededError');
+        return set.call(this, k, value);
+      };
+      packing.release();
+      if (action === 'save') {
+        assert.equal((await pending).length, source.length);
+        assert.ok(W.localStorage.getItem(key).startsWith('z:'));
+        const saved = readPersistedFixture(W, key);
+        assert.equal(saved.hours.f247sp0.length, 2);
+        assert.equal(saved.seen['F247NEW0|f247sp0'], 1);
+        assert.equal(A.todHasDay('US-WA-033', day), true);
+      } else {
+        await assert.rejects(pending, /cancelled|could not be saved/i);
+        assert.equal(W.localStorage.getItem(key), action === 'replace' ? newer : action === 'erase' ? null : before);
+        assert.equal(A.todHasDay('US-WA-033', day), false);
+        if (['profile', 'region'].includes(action)) {
+          assert.equal(W.localStorage.getItem(A.bcReal(A.todKey())), null, 'obsolete history cannot allocate into a new owner');
+        }
+      }
+    } finally { prototype.setItem = set; packing.release(); W.close(); }
+  }
+});
+
+test('F247 concurrent dawn and dusk accumulations serialize their merges without losing either source', async () => {
+  const key = 'ebird_tod_wa:provisional';
+  const app = await boot({ sample: false, home: false, nativeCompression: true,
+    storage: { [key]: JSON.stringify(timeOfDayFixture()) } });
+  const W = app.window, A = W.__app;
+  let held = false;
+  const packing = holdScoutCompression(W, json => {
+    if (held || !json.includes('"F247NEW0|f247sp0"')) return false;
+    held = true; return true;
+  });
+  try {
+    const first = A.todAccumulate(timeOfDaySource(new Date()).slice(0, 1));
+    await waitFor(packing.ready, 'first temporal merge compression');
+    const second = A.todAccumulate(timeOfDaySource(new Date()).slice(1, 2));
+    await new Promise(resolve => setTimeout(resolve, 10));
+    packing.release();
+    const outcomes = await Promise.allSettled([first, second]);
+    assert.deepEqual(outcomes.map(result => result.status), ['fulfilled', 'fulfilled']);
+    assert.deepEqual(outcomes.map(result => result.value), [1, 1]);
+    const saved = readPersistedFixture(W, key);
+    assert.equal(saved.hours.f247sp0.length, 2);
+    assert.equal(saved.hours.f247sp1.length, 2);
+  } finally { packing.release(); W.close(); }
+});
+
+test('F247 dawn and dusk updates compare against their own successfully migrated legacy baseline', async () => {
+  const app = await boot({ sample: false, home: false, nativeCompression: true });
+  const W = app.window, A = W.__app;
+  try {
+    W.localStorage.setItem(A.todKey(), JSON.stringify(timeOfDayFixture()));
+    const outcomes = await Promise.allSettled([A.todAccumulate(timeOfDaySource(new Date()).slice(0, 1))]);
+    assert.equal(outcomes[0].status, 'fulfilled');
+    assert.equal(outcomes[0].value, 1);
+    assert.ok(W.localStorage.getItem(A.todKey()).startsWith('z:'));
+    assert.equal(readPersistedFixture(W, A.todKey()).hours.f247sp0.length, 2);
+  } finally { W.close(); }
+});
+
+test('F247 delayed dawn and dusk source responses cannot persist after revision-zero erasure', async () => {
+  let release;
+  const day = new Date(); day.setDate(day.getDate() - 1);
+  const source = timeOfDaySource(day);
+  const app = await boot({ sample: false, home: false, nativeCompression: true, fetch: url =>
+    /\/historic\//.test(url) ? new Promise(resolve => { release = () => resolve(source); }) : [] });
+  const W = app.window, A = W.__app;
+  try {
+    W.localStorage.removeItem(A.bcReal('ebird_identity_rev_v1'));
+    const pending = A.todFetchCounties(['US-WA-033'], [new W.Date(day.getTime())], () => {});
+    await waitFor(() => release, 'held original temporal source owner');
+    const retired = assert.rejects(pending, /cancelled/i);
+    A.scrubPersonalData();
+    release();
+    await retired;
+    assert.equal(W.localStorage.getItem(A.bcReal(A.todKey())), null);
+  } finally { if (release) release(); W.close(); }
+});
+
+test('F247 actual dawn and dusk button awaits final notable accumulation before claiming a completed sample', async () => {
+  const source = timeOfDaySource(new Date()).map((row, i) => ({ ...row, subId: 'F247NOTABLE' + i }));
+  const app = await boot({ sample: false, home: false, nativeCompression: true,
+    fetch: url => /\/recent\/notable/.test(url) ? source : [] });
+  const W = app.window, A = W.__app, fixture = timeOfDayFixture();
+  const packing = holdScoutCompression(W, json => json.includes('"F247NOTABLE0|f247sp0"'));
+  try {
+    for (const county of A.getReport().counties) {
+      for (let i = 1; i <= 21; i++) {
+        const date = new Date(); date.setDate(date.getDate() - i);
+        fixture.days[county.code + '|' + formatObsStamp(date).slice(0, 10)] = 1;
+      }
+    }
+    W.localStorage.setItem(A.todKey(), JSON.stringify(fixture));
+    app.click(app.$('todBtn'));
+    await waitFor(() => packing.ready() || !app.$('todBtn').disabled, 'final notable write or premature completion');
+    assert.ok(packing.ready(), 'the real button must reach final notable persistence');
+    await new Promise(resolve => setTimeout(resolve, 10));
+    assert.equal(app.$('todBtn').disabled, true, 'the button cannot claim completion before durability');
+    assert.doesNotMatch(app.$('todStatus').textContent, /species in sample/);
+    packing.release();
+    await waitFor(() => !app.$('todBtn').disabled, 'durable dawn/dusk button completion');
+    assert.match(app.$('todStatus').textContent, /120 species in sample/);
+    assert.equal(readPersistedFixture(W, A.todKey()).seen['F247NOTABLE0|f247sp0'], 1);
+    assert.equal(app.state.fetches.filter(url => /\/historic\//.test(url)).length, 0,
+      'already completed county-days are not reacquired while refreshing notable hours');
+  } finally { packing.release(); W.close(); }
+});
+
+test('F247 retired dawn and dusk completion cannot release a newer autoload button or replace its sample', async () => {
+  const oldSource = timeOfDaySource(new Date()).map((row, i) => ({ ...row, subId: 'F247NOTABLEOLD' + i }));
+  const newSource = oldSource.map((row, i) => ({ ...row, subId: 'F247NOTABLENEW' + i }));
+  const app = await boot({ sample: false, home: false, nativeCompression: true,
+    fetch: url => /\/recent\/notable/.test(url) ? oldSource : [] });
+  const W = app.window, A = W.__app, fixture = timeOfDayFixture();
+  const oldPacking = holdScoutCompression(W, json => json.includes('"F247NOTABLEOLD0|f247sp0"'));
+  let newPacking;
+  try {
+    for (const county of A.getReport().counties) {
+      for (let i = 1; i <= 21; i++) {
+        const date = new Date(); date.setDate(date.getDate() - i);
+        fixture.days[county.code + '|' + formatObsStamp(date).slice(0, 10)] = 1;
+      }
+    }
+    W.localStorage.setItem(A.todKey(), JSON.stringify(fixture));
+    app.click(app.$('todBtn'));
+    await waitFor(oldPacking.ready, 'old button accumulation');
+    A.cancelStalledWork();
+    for (const county of A.getReport().counties) {
+      A.seedEbirdCache('data/obs/' + county.code + '/recent/notable?detail=full&back=30&maxResults=1000',
+        Promise.resolve(newSource));
+    }
+    newPacking = holdScoutCompression(W, json => json.includes('"F247NOTABLENEW0|f247sp0"'));
+    app.$('todStatus').textContent = '';
+    A.showSection('sec-todBtn');
+    await waitFor(() => /Using the cached sample/.test(app.$('todStatus').textContent), 'newer actual autoload');
+    oldPacking.release();
+    await waitFor(newPacking.ready, 'newer autoload accumulation');
+    await new Promise(resolve => setTimeout(resolve, 10));
+    assert.equal(app.$('todBtn').disabled, true, 'an old finalizer cannot clear a newer busy button');
+    assert.equal(readPersistedFixture(W, A.todKey()).seen['F247NOTABLEOLD0|f247sp0'], undefined);
+    newPacking.release();
+    await waitFor(() => !app.$('todBtn').disabled, 'newer owned sample completion');
+    const saved = readPersistedFixture(W, A.todKey());
+    assert.equal(saved.seen['F247NOTABLENEW0|f247sp0'], 1);
+    assert.equal(saved.seen['F247NOTABLEOLD0|f247sp0'], undefined);
+  } finally { oldPacking.release(); if (newPacking) newPacking.release(); W.close(); }
+});
+
+function weeklyMigrationRows(prefix = 'wm247n') {
+  return Array.from({ length: 120 }, (_, i) => ({
+    speciesCode: prefix + i, comName: 'Weekly migration reference ' + prefix + ' ' + i
+  }));
+}
+
+function weeklyMigrationFixture() {
+  const rows = weeklyMigrationRows('wm247o'), codes = rows.map(row => row.speciesCode);
+  return { samples: { 'wa|2025-04-06': codes, 'wa|2025-05-04': codes },
+    names: Object.fromEntries(rows.map(row => [row.speciesCode, row.comName])) };
+}
+
+async function prepareMigrationController(app, missing) {
+  const A = app.window.__app, fixture = weeklyMigrationFixture(), targets = arr(A.migTargets());
+  fixture.samples = Object.fromEntries(targets.map(date => [A.migSampleKey(date), ['wm247o0']]));
+  for (const date of targets.slice(0, missing)) delete fixture.samples[A.migSampleKey(date)];
+  app.window.localStorage.setItem(A.migKey(), JSON.stringify(fixture));
+  assert.equal(await A.migSave(A.migLoad()), true);
+  return targets.slice(0, missing);
+}
+
+test('F247 weekly migration history hydrates and survives compressed restart without acquiring county history', async () => {
+  const key = 'ebird_mig_wa:provisional', fixture = weeklyMigrationFixture();
+  let saved = JSON.stringify(fixture);
+  for (const restart of [false, true]) {
+    const app = await boot({ sample: false, home: false, nativeCompression: true, storage: { [key]: saved } });
+    const W = app.window, A = W.__app;
+    try {
+      saved = W.localStorage.getItem(key);
+      assert.ok(saved.startsWith('z:'));
+      assert.deepEqual(readPersistedFixture(W, key), fixture);
+      assert.equal(Object.keys(A.migLoad().samples).length, 2);
+      assert.equal(A.migLoad().names.wm247o0, fixture.names.wm247o0);
+      W.localStorage.setItem(key, JSON.stringify({ ...fixture,
+        names: { ...fixture.names, wm247o0: 'Newer weekly identity' } }));
+      assert.equal(A.migLoad().names.wm247o0, 'Newer weekly identity');
+      assert.equal(app.state.fetches.filter(url => /\/historic\//.test(url)).length, 0);
+    } finally { W.close(); }
+  }
+});
+
+test('F247 weekly readers reject malformed receipts and acquisition preserves valid completed weeks', async () => {
+  const key = 'ebird_mig_wa:provisional', fixture = weeklyMigrationFixture();
+  for (const malformed of [
+    { ...fixture, samples: { ...fixture.samples, 'wa|2024-01-07': 'unknown', 'wa|2024-01-14': null },
+      names: { ...fixture.names, wm247invalid: 7 } },
+    { samples: 'unknown', names: 'unknown' },
+    { samples: [], names: [] }
+  ]) {
+    const app = await boot({ sample: false, home: false, nativeCompression: true,
+      fetch: url => /\/historic\//.test(url) ? weeklyMigrationRows() : [] });
+    const W = app.window, A = W.__app;
+    try {
+      W.localStorage.setItem(key, JSON.stringify(malformed));
+      const cache = A.migLoad(), date = new W.Date(2024, 0, 7);
+      assert.equal(typeof cache.samples, 'object');
+      assert.equal(Array.isArray(cache.samples), false);
+      assert.equal(typeof cache.names, 'object');
+      assert.equal(Array.isArray(cache.names), false);
+      assert.equal(cache.samples[A.migSampleKey(date)], undefined, 'an unknown receipt is not a completed empty week');
+      assert.equal(cache.samples['wa|2024-01-14'], undefined);
+      assert.equal(cache.names.wm247invalid, undefined);
+      await A.migFetchDate(A.getReport().counties.map(county => county.code), date, cache);
+      assert.equal(await A.migSave(cache), true);
+      const saved = readPersistedFixture(W, key);
+      assert.equal(saved.samples[A.migSampleKey(date)].length, 120);
+      if (malformed.samples['wa|2025-04-06']) {
+        assert.deepEqual(saved.samples['wa|2025-04-06'], fixture.samples['wa|2025-04-06']);
+        assert.equal(saved.names.wm247o0, fixture.names.wm247o0);
+      }
+    } finally { W.close(); }
+  }
+});
+
+test('F247 actual weekly acquisition awaits native persistence and rejects obsolete owners or quota', async () => {
+  const key = 'ebird_mig_wa:provisional', rows = weeklyMigrationRows();
+  for (const action of ['save', 'replace', 'erase', 'profile', 'stop', 'region', 'quota']) {
+    const app = await boot({ sample: false, home: false, nativeCompression: true,
+      storage: ['erase', 'profile'].includes(action) ? {} : { [key]: JSON.stringify(weeklyMigrationFixture()) },
+      fetch: url => /\/historic\//.test(url) ? rows : [] });
+    const W = app.window, A = W.__app, before = W.localStorage.getItem(key);
+    const packing = holdScoutCompression(W, json => json.includes('"wm247n0"'));
+    const prototype = W.Storage.prototype, set = prototype.setItem;
+    try {
+      if (action === 'erase') W.localStorage.removeItem(A.bcReal('ebird_identity_rev_v1'));
+      const reportBefore = A.getReportSlug(), scopeBefore = A.activeScope().cacheIdentity;
+      const cache = A.migLoad(), day = new W.Date(); day.setDate(day.getDate() - 1);
+      const sample = A.migSampleKey(day), counties = A.getReport().counties.map(county => county.code);
+      await A.migFetchDate(counties, day, cache, A.navWork('Weekly migration persistence proof'));
+      let done = false;
+      const pending = A.migSave(cache).finally(() => { done = true; });
+      await waitFor(() => packing.ready() || done, 'actual weekly migration compression or premature completion');
+      assert.ok(packing.ready());
+      await new Promise(resolve => setTimeout(resolve, 10));
+      assert.equal(done, false);
+      assert.equal(W.localStorage.getItem(key), before, 'weekly history cannot allocate raw-first');
+      const replacement = { ...weeklyMigrationFixture() };
+      replacement.samples[sample] = ['wm247newer'];
+      const newer = JSON.stringify(replacement);
+      if (action === 'replace') W.localStorage.setItem(key, newer);
+      else if (action === 'erase') {
+        A.scrubPersonalData();
+        W.localStorage.setItem(A.bcReal('ebird_report'), reportBefore);
+        assert.equal(A.identityRevision(), 0);
+        assert.equal(A.activeScope().cacheIdentity, scopeBefore, 'isolate erasure from report and revision changes');
+      }
+      else if (action === 'profile') W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-weekly-owner');
+      else if (action === 'stop') A.cancelStalledWork();
+      else if (action === 'region') A.setActiveReport('hi');
+      else if (action === 'quota') prototype.setItem = function (k, value) {
+        if (k === key) throw new W.DOMException('weekly history quota', 'QuotaExceededError');
+        return set.call(this, k, value);
+      };
+      packing.release();
+      assert.equal(await pending, action === 'save');
+      if (action === 'save') {
+        assert.ok(W.localStorage.getItem(key).startsWith('z:'));
+        assert.deepEqual(readPersistedFixture(W, key).samples[sample], rows.map(row => row.speciesCode).sort());
+      } else {
+        assert.equal(W.localStorage.getItem(key), action === 'replace' ? newer : action === 'erase' ? null : before);
+        if (['profile', 'region'].includes(action)) assert.equal(W.localStorage.getItem(A.bcReal(A.migKey())), null);
+      }
+    } finally { prototype.setItem = set; packing.release(); W.close(); }
+  }
+});
+
+test('F247 weekly checkpoint merges retain independent completed weeks and reject conflicting older baselines', async () => {
+  const key = 'ebird_mig_wa:provisional';
+  const app = await boot({ sample: false, home: false, nativeCompression: true,
+    storage: { [key]: JSON.stringify(weeklyMigrationFixture()) },
+    fetch: url => /\/historic\//.test(url) ? weeklyMigrationRows() : [] });
+  const W = app.window, A = W.__app;
+  let held = false;
+  const packing = holdScoutCompression(W, json => {
+    if (held || !json.includes('"wm247n0"')) return false;
+    held = true; return true;
+  });
+  try {
+    const first = A.migLoad(), second = A.migLoad();
+    const day1 = new W.Date(2024, 1, 4), day2 = new W.Date(2024, 1, 11);
+    const counties = A.getReport().counties.map(county => county.code);
+    await A.migFetchDate(counties, day1, first);
+    await A.migFetchDate(counties, day2, second);
+    const firstSave = A.migSave(first);
+    await waitFor(packing.ready, 'first completed weekly checkpoint compression');
+    const secondSave = A.migSave(second);
+    await new Promise(resolve => setTimeout(resolve, 10));
+    packing.release();
+    assert.deepEqual(await Promise.all([firstSave, secondSave]), [true, true]);
+    const saved = readPersistedFixture(W, key);
+    assert.equal(saved.samples[A.migSampleKey(day1)].length, 120);
+    assert.equal(saved.samples[A.migSampleKey(day2)].length, 120);
+    const older = A.migLoad(), newer = A.migLoad(), same = new W.Date(2025, 3, 6);
+    older.samples[A.migSampleKey(same)] = ['wm247older'];
+    newer.samples[A.migSampleKey(same)] = ['wm247newer'];
+    assert.equal(await A.migSave(newer), true);
+    const before = W.localStorage.getItem(key);
+    assert.equal(await A.migSave(older), false);
+    assert.equal(W.localStorage.getItem(key), before, 'an older sampled baseline cannot replace a committed newer week');
+  } finally { packing.release(); W.close(); }
+});
+
+test('F247 weekly acquisition stamps its captured date despite a mutated caller date', async () => {
+  let release, held = false;
+  const app = await boot({ sample: false, home: false, nativeCompression: true, fetch: url =>
+    /\/historic\//.test(url) ? held ? weeklyMigrationRows() : (held = true,
+      new Promise(resolve => { release = () => resolve(weeklyMigrationRows()); })) : [] });
+  const W = app.window, A = W.__app;
+  try {
+    const cache = A.migLoad(), date = new W.Date(2024, 0, 7), original = A.migSampleKey(date);
+    const pending = A.migFetchDate(A.getReport().counties.map(county => county.code), date, cache);
+    await waitFor(() => release, 'captured weekly source date');
+    date.setDate(date.getDate() + 7);
+    release();
+    await pending;
+    assert.equal(cache.samples[original]?.length, 120);
+    assert.equal(cache.samples[A.migSampleKey(date)], undefined);
+    assert.equal(await A.migSave(cache), true);
+    assert.equal(readPersistedFixture(W, A.migKey()).samples[original].length, 120);
+  } finally { if (release) release(); W.close(); }
+});
+
+test('F247 weekly acquisition compares against its own migrated external legacy baseline', async () => {
+  const app = await boot({ sample: false, home: false, nativeCompression: true,
+    fetch: url => /\/historic\//.test(url) ? weeklyMigrationRows() : [] });
+  const W = app.window, A = W.__app;
+  try {
+    W.localStorage.setItem(A.migKey(), JSON.stringify(weeklyMigrationFixture()));
+    const cache = A.migLoad(), date = new W.Date(2024, 0, 7);
+    await A.migFetchDate(A.getReport().counties.map(county => county.code), date, cache);
+    assert.equal(await A.migSave(cache), true);
+    assert.ok(W.localStorage.getItem(A.migKey()).startsWith('z:'));
+    assert.equal(readPersistedFixture(W, A.migKey()).samples[A.migSampleKey(date)].length, 120);
+  } finally { W.close(); }
+});
+
+test('F247 actual migration button awaits final and five-week checkpoints and never claims unsaved completion', async () => {
+  for (const missing of [1, 6]) {
+    for (const action of ['save', 'quota', 'stop']) {
+      const app = await boot({ sample: false, home: false, nativeCompression: true,
+        fetch: url => /\/historic\//.test(url) ? weeklyMigrationRows() : [] });
+      const W = app.window, A = W.__app;
+      let held = false;
+      const packing = holdScoutCompression(W, json => {
+        if (held || !json.includes('"wm247n0"')) return false;
+        held = true; return true;
+      });
+      const prototype = W.Storage.prototype, set = prototype.setItem;
+      try {
+        const dates = await prepareMigrationController(app, missing), before = W.localStorage.getItem(A.migKey());
+        app.click(app.$('migBtn'));
+        await waitFor(() => packing.ready() || !app.$('migBtn').disabled, 'actual weekly button checkpoint or premature completion');
+        assert.ok(packing.ready());
+        await new Promise(resolve => setTimeout(resolve, 50));
+        assert.equal(app.$('migBtn').disabled, true);
+        const total = A.migTargets().length, progress = total - missing + Math.min(missing, 5);
+        assert.ok(app.$('migStatus').textContent.includes(progress + '/' + total + ' weeks'),
+          'progress cannot advance to the next week before its five-week checkpoint is durable');
+        assert.equal(app.state.fetches.filter(url => /\/historic\//.test(url)).length,
+          Math.min(missing, 5) * A.getReport().counties.length,
+          'later source acquisition cannot outrun the awaited five-week durability checkpoint');
+        assert.doesNotMatch(app.$('migStatus').textContent, /History built/);
+        assert.equal(W.localStorage.getItem(A.migKey()), before);
+        if (action === 'quota') {
+          const key = A.migKey();
+          prototype.setItem = function (k, value) {
+            if (k === key) throw new W.DOMException('weekly button quota', 'QuotaExceededError');
+            return set.call(this, k, value);
+          };
+        } else if (action === 'stop') A.cancelStalledWork();
+        packing.release();
+        await waitFor(() => !app.$('migBtn').disabled, 'weekly button completion');
+        if (action === 'save') {
+          assert.match(app.$('migStatus').textContent, /History built/);
+          for (const date of dates) assert.equal(A.migLoad().samples[A.migSampleKey(date)].length, 120);
+        } else {
+          assert.equal(W.localStorage.getItem(A.migKey()), before);
+          assert.doesNotMatch(app.$('migStatus').textContent, /History built/);
+          assert.match(app.$('migStatus').textContent, action === 'stop' ? /cancelled/i : /could not be saved/i);
+        }
+      } finally { prototype.setItem = set; packing.release(); W.close(); }
+    }
+  }
+});
+
+test('F247 actual migration source failure awaits partial-history persistence without completing the failed week', async () => {
+  let failed = '';
+  const app = await boot({ sample: false, home: false, nativeCompression: true,
+    fetch: url => /\/historic\//.test(url)
+      ? failed && url.includes(failed) ? { __status: 200, __body: null } : weeklyMigrationRows() : [] });
+  const W = app.window, A = W.__app;
+  const packing = holdScoutCompression(W, json => json.includes('"wm247n0"'));
+  try {
+    const dates = await prepareMigrationController(app, 3), before = W.localStorage.getItem(A.migKey());
+    const date = dates[2];
+    failed = '/historic/' + date.getFullYear() + '/' + (date.getMonth() + 1) + '/' + date.getDate() + '?';
+    app.click(app.$('migBtn'));
+    await waitFor(() => packing.ready() || !app.$('migBtn').disabled, 'partial-history error-path durability');
+    assert.ok(packing.ready());
+    await new Promise(resolve => setTimeout(resolve, 10));
+    assert.equal(app.$('migBtn').disabled, true);
+    assert.equal(W.localStorage.getItem(A.migKey()), before);
+    assert.doesNotMatch(app.$('migStatus').textContent, /History built/);
+    packing.release();
+    await waitFor(() => !app.$('migBtn').disabled, 'partial-history failure completion');
+    const saved = readPersistedFixture(W, A.migKey());
+    for (const completed of dates.slice(0, 2)) assert.equal(saved.samples[A.migSampleKey(completed)].length, 120);
+    assert.equal(saved.samples[A.migSampleKey(date)], undefined);
+    assert.doesNotMatch(app.$('migStatus').textContent, /History built|History complete/);
+  } finally { packing.release(); W.close(); }
+});
+
+test('F247 delayed weekly source ownership and retired cache objects cannot be rebound after erasure', async () => {
+  let release, held = false;
+  const app = await boot({ sample: false, home: false, nativeCompression: true, fetch: url =>
+    /\/historic\//.test(url) ? held ? weeklyMigrationRows() : (held = true,
+      new Promise(resolve => { release = () => resolve(weeklyMigrationRows()); })) : [] });
+  const W = app.window, A = W.__app;
+  try {
+    W.localStorage.removeItem(A.bcReal('ebird_identity_rev_v1'));
+    const key = W.localStorage.getItem(A.bcReal('ebird_api_key'));
+    const reportBefore = A.getReportSlug(), scopeBefore = A.activeScope().cacheIdentity;
+    const cache = A.migLoad(), date = new W.Date(2024, 0, 7);
+    const pending = A.migFetchDate(['US-WA-033'], date, cache);
+    await waitFor(() => release, 'held original weekly source owner');
+    const retired = assert.rejects(pending, /cancelled/i);
+    A.scrubPersonalData();
+    W.localStorage.setItem(A.bcReal('ebird_report'), reportBefore);
+    assert.equal(A.identityRevision(), 0);
+    assert.equal(A.activeScope().cacheIdentity, scopeBefore, 'same-scope reselection must not reauthorize an erased owner');
+    release();
+    await retired;
+    assert.equal(W.localStorage.getItem(A.migKey()), null);
+    cache.samples[A.migSampleKey(date)] = ['wm247retired'];
+    assert.equal(await A.migSave(cache), false);
+    W.localStorage.setItem(A.bcReal('ebird_api_key'), key);
+    await assert.rejects(A.migFetchDate(['US-WA-033'], date, cache, A.navWork('Newer attempted cache binding')), /cancelled/i);
+    assert.equal(W.localStorage.getItem(A.migKey()), null);
+  } finally { if (release) release(); W.close(); }
+});
+
+test('F247 an old migration finalizer cannot clear a newer manual request or publish its old sample', async () => {
+  const app = await boot({ sample: false, home: false, nativeCompression: true,
+    fetch: url => /\/historic\//.test(url) ? weeklyMigrationRows('wm247oldrun') : [] });
+  const W = app.window, A = W.__app;
+  const oldPacking = holdScoutCompression(W, json => json.includes('"wm247oldrun0"'));
+  let newPacking;
+  try {
+    const dates = await prepareMigrationController(app, 1);
+    const old = A.migBootstrap();
+    await waitFor(oldPacking.ready, 'old manual migration final checkpoint');
+    for (const county of A.getReport().counties) {
+      const date = dates[0];
+      A.seedEbirdCache('data/obs/' + county.code + '/historic/' + date.getFullYear() + '/'
+        + (date.getMonth() + 1) + '/' + date.getDate() + '?cat=species&detail=simple&maxResults=500',
+      Promise.resolve(weeklyMigrationRows('wm247newrun')));
+    }
+    newPacking = holdScoutCompression(W, json => json.includes('"wm247newrun0"'));
+    const newer = A.migBootstrap();
+    oldPacking.release();
+    await old;
+    await waitFor(newPacking.ready, 'new manual migration final checkpoint');
+    assert.equal(app.$('migBtn').disabled, true);
+    assert.doesNotMatch(app.$('migStatus').textContent, /cancelled/i, 'an old catch cannot replace newer progress');
+    newPacking.release();
+    await newer;
+    assert.equal(app.$('migBtn').disabled, false);
+    assert.match(app.$('migStatus').textContent, /History built/);
+    assert.ok(arr(A.migLoad().samples[A.migSampleKey(dates[0])]).includes('wm247newrun0'));
+    assert.equal(A.migLoad().names.wm247oldrun0, undefined);
+  } finally { oldPacking.release(); if (newPacking) newPacking.release(); W.close(); }
+});
+
+function bootTaxonomyPersistence(options = {}, rows = () => monthlyTaxonomyRows()) {
+  return boot({ sample: false, home: false, indexedDB: new IDBFactory(), nativeCompression: true,
+    fetch: url => /ref\/taxonomy\/versions/.test(url) ? [{ authorityVer: 2026, latest: true }]
+      : /ref\/taxonomy\/ebird/.test(url) ? rows() : [], ...options });
+}
+
+test('F247 taxonomy metadata and numeric retry receipts hydrate and restart without acquiring a reference', async () => {
+  const indexedDB = new IDBFactory(), first = await bootTaxonomyPersistence({ indexedDB });
+  let meta, saved;
+  try {
+    assert.equal(await first.window.__app.checkTaxonomyEdition(true), true);
+    meta = readPersistedFixture(first.window, 'bc_taxonomy_v1');
+    saved = JSON.stringify(meta);
+  } finally { first.window.close(); }
+  let retry = String(Date.now());
+  for (const restart of [false, true]) {
+    const app = await bootTaxonomyPersistence({ indexedDB,
+      storage: { bc_taxonomy_v1: saved, 'bc_taxonomy_retry_v1:': retry } });
+    const W = app.window, A = W.__app;
+    try {
+      assert.equal(await A.restoreTaxonomyNames(), true);
+      saved = W.localStorage.getItem('bc_taxonomy_v1');
+      retry = W.localStorage.getItem('bc_taxonomy_retry_v1:');
+      assert.ok(saved.startsWith('z:'));
+      assert.ok(retry.startsWith('j:'));
+      assert.deepEqual(readPersistedFixture(W, 'bc_taxonomy_v1'), meta);
+      assert.ok(Number.isFinite(readPersistedFixture(W, 'bc_taxonomy_retry_v1:')));
+      assert.equal(A.taxonomyEdition(), meta.edition);
+      assert.equal(app.state.fetches.filter(url => /ref\/taxonomy\/ebird/.test(url)).length, 0);
+      const changed = { ...meta, checkedAt: Date.now() - 86400000 };
+      W.localStorage.setItem('bc_taxonomy_v1', JSON.stringify(changed));
+      assert.equal(await A.restoreTaxonomyNames(), true);
+      assert.ok(app.$('taxonomyStatus').textContent.includes(new W.Date(changed.checkedAt).toLocaleDateString()));
+    } finally { W.close(); }
+  }
+});
+
+test('F247 actual taxonomy button awaits metadata encoding and rejects obsolete owners, replacement or quota', async () => {
+  for (const action of ['save', 'replace', 'quota', 'erase', 'profile', 'region', 'stop', 'clear']) {
+    const app = await bootTaxonomyPersistence(), W = app.window, A = W.__app;
+    const packing = holdScoutCompression(W, json => json.includes('"checkedAt":') && json.includes('"referenceSchema":'));
+    const prototype = W.Storage.prototype, set = prototype.setItem;
+    try {
+      if (action === 'erase') W.localStorage.removeItem(A.bcReal('ebird_identity_rev_v1'));
+      const report = A.getReportSlug(), scope = A.activeScope().cacheIdentity;
+      app.click(app.$('taxonomyCheckBtn'));
+      const pending = A.checkTaxonomyEdition(true);
+      await waitFor(() => packing.ready() || !app.$('taxonomyCheckBtn').disabled, 'actual taxonomy metadata save');
+      assert.ok(packing.ready());
+      assert.equal(app.$('taxonomyCheckBtn').disabled, true);
+      assert.equal(A.taxonomyEdition(), '');
+      assert.equal(W.localStorage.getItem('bc_taxonomy_v1'), null);
+      const newer = JSON.stringify({ edition: '2025.0', checkedAt: Date.now() });
+      if (action === 'replace') W.localStorage.setItem('bc_taxonomy_v1', newer);
+      else if (action === 'quota') prototype.setItem = function (key, value) {
+        if (key === 'bc_taxonomy_v1') throw new W.DOMException('taxonomy metadata quota', 'QuotaExceededError');
+        return set.call(this, key, value);
+      };
+      else if (action === 'erase') {
+        A.scrubPersonalData();
+        W.localStorage.setItem(A.bcReal('ebird_report'), report);
+        assert.equal(A.identityRevision(), 0);
+        assert.equal(A.activeScope().cacheIdentity, scope);
+      }
+      else if (action === 'profile') W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-taxonomy-owner');
+      else if (action === 'region') A.setActiveReport('hi');
+      else if (action === 'stop') A.cancelStalledWork();
+      else if (action === 'clear') await A.taxonomyCacheClear();
+      packing.release();
+      assert.equal(await pending, action === 'save');
+      if (action !== 'clear') assert.equal(app.$('taxonomyCheckBtn').disabled, false);
+      else assert.equal(await A.taxonomyStore('get', 'identity:2026.0'), null);
+      if (action === 'save') {
+        assert.equal(A.taxonomyEdition(), '2026.0');
+        assert.ok(W.localStorage.getItem('bc_taxonomy_v1').startsWith('z:'));
+        assert.match(app.$('taxonomyStatus').textContent, /Official edition/);
+      } else {
+        assert.equal(W.localStorage.getItem('bc_taxonomy_v1'), action === 'replace' ? newer : null);
+        assert.equal(A.taxonomyEdition(), '');
+      }
+    } finally { prototype.setItem = set; packing.release(); W.close(); }
+  }
+});
+
+test('F247 taxonomy acquisition compares its own migrated legacy or malformed metadata baseline', async () => {
+  for (const legacy of [
+    JSON.stringify({ edition: '2025.0', checkedAt: Date.now(), source: 'Older metadata source '.repeat(100) }),
+    '{unreadable-metadata'
+  ]) {
+    const app = await bootTaxonomyPersistence(), W = app.window, A = W.__app;
+    try {
+      W.localStorage.setItem('bc_taxonomy_v1', legacy);
+      assert.equal(await A.checkTaxonomyEdition(true), true);
+      assert.equal(readPersistedFixture(W, 'bc_taxonomy_v1').edition, '2026.0');
+      assert.ok(W.localStorage.getItem('bc_taxonomy_v1').startsWith('z:'));
+    } finally { W.close(); }
+  }
+});
+
+test('F247 taxonomy identity encoding rejects erased owners and independently newer canonical bytes', async () => {
+  for (const action of ['replace', 'erase']) {
+    let revision = 0;
+    const app = await bootTaxonomyPersistence({}, () => monthlyTaxonomyRows(revision));
+    const W = app.window, A = W.__app;
+    let packing;
+    try {
+      assert.equal(await A.checkTaxonomyEdition(true), true);
+      const meta = readPersistedFixture(W, 'bc_taxonomy_v1'), before = W.localStorage.getItem('bc_taxonomy_v1');
+      const original = await A.taxonomyStore('get', 'identity:2026.0');
+      W.localStorage.removeItem(A.bcReal('ebird_identity_rev_v1'));
+      const report = A.getReportSlug(), scope = A.activeScope().cacheIdentity;
+      packing = holdScoutCompression(W, json => json.includes('"byCode":')
+        && json.includes('"referenceDigest":') && !json.includes(meta.referenceDigest));
+      revision = 1;
+      const pending = A.checkTaxonomyEdition(true);
+      await waitFor(packing.ready, 'new canonical identity encoding');
+      let expected = original;
+      if (action === 'replace') {
+        expected = W.BirdTaxonomy.create(monthlyTaxonomyRows(2), '2026.0');
+        assert.equal(await A.taxonomyStore('put', 'identity:2026.0', expected), true);
+      } else {
+        A.scrubPersonalData();
+        W.localStorage.setItem(A.bcReal('ebird_report'), report);
+        assert.equal(A.activeScope().cacheIdentity, scope);
+      }
+      const retained = W.localStorage.getItem('bc_taxonomy_v1');
+      packing.release();
+      assert.equal(await pending, false);
+      assert.equal(JSON.stringify(await A.taxonomyStore('get', 'identity:2026.0')), JSON.stringify(expected));
+      assert.equal(W.localStorage.getItem('bc_taxonomy_v1'), action === 'replace' ? before : retained);
+    } finally { if (packing) packing.release(); W.close(); }
+  }
+});
+
+test('F247 taxonomy metadata rollback cannot replace an independently newer canonical identity', async () => {
+  let revision = 0;
+  const app = await bootTaxonomyPersistence({}, () => monthlyTaxonomyRows(revision));
+  const W = app.window, A = W.__app;
+  let packing;
+  const prototype = W.Storage.prototype, set = prototype.setItem;
+  try {
+    assert.equal(await A.checkTaxonomyEdition(true), true);
+    const before = W.localStorage.getItem('bc_taxonomy_v1');
+    packing = holdScoutCompression(W, json => json.includes('"checkedAt":') && json.includes('"referenceSchema":'));
+    revision = 1;
+    const pending = A.checkTaxonomyEdition(true);
+    await waitFor(packing.ready, 'metadata after staged identity');
+    const newer = W.BirdTaxonomy.create(monthlyTaxonomyRows(2), '2026.0');
+    assert.equal(await A.taxonomyStore('put', 'identity:2026.0', newer), true);
+    prototype.setItem = function (key, value) {
+      if (key === 'bc_taxonomy_v1') throw new W.DOMException('taxonomy rollback quota', 'QuotaExceededError');
+      return set.call(this, key, value);
+    };
+    packing.release();
+    assert.equal(await pending, false);
+    assert.equal(W.localStorage.getItem('bc_taxonomy_v1'), before);
+    assert.equal(JSON.stringify(await A.taxonomyStore('get', 'identity:2026.0')), JSON.stringify(newer));
+  } finally { prototype.setItem = set; if (packing) packing.release(); W.close(); }
+});
+
+test('F247 taxonomy typed storage rejects erased or cleared owners during native encoding', async () => {
+  for (const action of ['erase', 'clear']) {
+    const app = await bootTaxonomyPersistence(), W = app.window, A = W.__app;
+    let packing;
+    try {
+      assert.equal(await A.checkTaxonomyEdition(true), true);
+      const original = await A.taxonomyStore('get', 'identity:2026.0');
+      const replacement = W.BirdTaxonomy.create(monthlyTaxonomyRows(2), '2026.0');
+      W.localStorage.removeItem(A.bcReal('ebird_identity_rev_v1'));
+      const report = A.getReportSlug(), scope = A.activeScope().cacheIdentity;
+      packing = holdScoutCompression(W, json => json.includes('"byCode":'));
+      const pending = A.taxonomyStore('put', 'identity:2026.0', replacement);
+      const retired = assert.rejects(pending, /storage failed/i);
+      await waitFor(packing.ready, 'typed reference native encoding');
+      if (action === 'clear') await A.taxonomyCacheClear();
+      else {
+        A.scrubPersonalData();
+        W.localStorage.setItem(A.bcReal('ebird_report'), report);
+        assert.equal(A.identityRevision(), 0);
+        assert.equal(A.activeScope().cacheIdentity, scope);
+      }
+      packing.release();
+      await retired;
+      assert.equal(JSON.stringify(await A.taxonomyStore('get', 'identity:2026.0')),
+        JSON.stringify(action === 'clear' ? null : original));
+    } finally { if (packing) packing.release(); W.close(); }
+  }
+});
+
+test('F247 taxonomy retry receipts await encoding and retain replacement, erasure, Stop and quota barriers', async () => {
+  for (const action of ['save', 'replace', 'erase', 'stop', 'quota', 'clear']) {
+    const options = { sample: false, home: false, nativeCompression: true, indexedDB: new IDBFactory(),
+      online: false, storage: { 'bc_api_verified_v1:': 'TESTKEY' },
+      fetch: url => /ref\/taxonomy\/versions/.test(url) ? [{ authorityVer: 2026, latest: true }] : [] };
+    const app = await boot(options), W = app.window, A = W.__app;
+    const pack = W.BirdPersistence.packJson, prototype = W.Storage.prototype, set = prototype.setItem;
+    let release, stamp;
+    W.BirdPersistence.packJson = function (value) {
+      if (typeof value === 'number' && !release) {
+        stamp = value;
+        return new Promise(resolve => { release = () => resolve(pack.call(this, value)); });
+      }
+      return pack.call(this, value);
+    };
+    try {
+      W.localStorage.removeItem(A.bcReal('ebird_identity_rev_v1'));
+      const report = A.getReportSlug(), scope = A.activeScope().cacheIdentity;
+      options.online = true;
+      W.dispatchEvent(new W.Event('online'));
+      let done = false;
+      const pending = A.maybeRefreshTaxonomy().finally(() => { done = true; });
+      await waitFor(() => release || done, 'actual numeric taxonomy retry encoding');
+      assert.ok(release);
+      await new Promise(resolve => setTimeout(resolve, 10));
+      assert.equal(done, false);
+      assert.equal(W.localStorage.getItem('bc_taxonomy_retry_v1:'), null);
+      const newer = String(stamp + 1000);
+      if (action === 'replace') W.localStorage.setItem('bc_taxonomy_retry_v1:', newer);
+      else if (action === 'erase') {
+        A.scrubPersonalData();
+        W.localStorage.setItem(A.bcReal('ebird_report'), report);
+        assert.equal(A.activeScope().cacheIdentity, scope);
+      }
+      else if (action === 'stop') A.cancelStalledWork();
+      else if (action === 'clear') await A.taxonomyCacheClear();
+      else if (action === 'quota') prototype.setItem = function (key, value) {
+        if (key === 'bc_taxonomy_retry_v1:') throw new W.DOMException('retry receipt quota', 'QuotaExceededError');
+        return set.call(this, key, value);
+      };
+      release();
+      assert.equal(await pending, false);
+      if (action === 'save') {
+        assert.ok(W.localStorage.getItem('bc_taxonomy_retry_v1:').startsWith('j:'));
+        assert.equal(readPersistedFixture(W, 'bc_taxonomy_retry_v1:'), stamp);
+      } else assert.equal(W.localStorage.getItem('bc_taxonomy_retry_v1:'), action === 'replace' ? newer : null);
+    } finally { prototype.setItem = set; W.BirdPersistence.packJson = pack; if (release) release(); W.close(); }
+  }
+});
+
+test('F247 obsolete taxonomy checks cannot coalesce or finalize a newer same-scope request after erasure', async () => {
+  const app = await bootTaxonomyPersistence();
+  const W = app.window, A = W.__app;
+  let first = false, second = false, newPacking, old, newer, candidate, candidateDone = false;
+  const oldPacking = holdScoutCompression(W, json => {
+    if (first || !json.includes('"checkedAt":') || !json.includes('"referenceSchema":')) return false;
+    first = true; return true;
+  });
+  try {
+    W.localStorage.removeItem(A.bcReal('ebird_identity_rev_v1'));
+    const report = A.getReportSlug(), scope = A.activeScope().cacheIdentity;
+    const key = W.localStorage.getItem(A.bcReal('ebird_api_key'));
+    old = A.checkTaxonomyEdition(true);
+    assert.equal(A.checkTaxonomyEdition(true), old);
+    await waitFor(oldPacking.ready, 'old taxonomy metadata encoding');
+    A.scrubPersonalData();
+    W.localStorage.setItem(A.bcReal('ebird_report'), report);
+    W.localStorage.setItem(A.bcReal('ebird_api_key'), key);
+    assert.equal(A.activeScope().cacheIdentity, scope);
+    newPacking = holdScoutCompression(W, json => {
+      if (second || !json.includes('"checkedAt":') || !json.includes('"referenceSchema":')) return false;
+      second = true; return true;
+    });
+    newer = A.checkTaxonomyEdition(true);
+    assert.notEqual(newer, old);
+    await waitFor(newPacking.ready, 'new taxonomy metadata compression');
+    oldPacking.release();
+    assert.equal(await old, false);
+    assert.equal(app.$('taxonomyCheckBtn').disabled, true);
+    candidate = A.checkTaxonomyEdition(true);
+    candidate.then(() => { candidateDone = true; }, () => { candidateDone = true; });
+    assert.equal(candidate, newer, 'an old finalizer must not retire newer in-flight ownership');
+    newPacking.release();
+    assert.equal(await newer, true);
+    assert.equal(A.taxonomyEdition(), '2026.0');
+  } finally {
+    oldPacking.release();
+    if (candidate && candidate !== newer) await waitFor(() => newPacking.ready() || candidateDone, 'mutated request cleanup');
+    if (newPacking) newPacking.release();
+    await Promise.allSettled([old, newer, candidate].filter(Boolean));
+    W.close();
+  }
+});
+
+test('F247 explicit taxonomy refresh waits for held cached restoration without blocking startup or claiming empty evidence', async () => {
+  const indexedDB = new IDBFactory(), first = await bootTaxonomyPersistence({ indexedDB });
+  let meta;
+  try {
+    assert.equal(await first.window.__app.checkTaxonomyEdition(true), true);
+    meta = readPersistedFixture(first.window, 'bc_taxonomy_v1');
+  } finally { first.window.close(); }
+  meta.referenceAt = Date.now() - 31 * 86400000;
+  let hold = true;
+  const opens = [];
+  const delayed = { open(...args) {
+    if (!hold) return indexedDB.open(...args);
+    const pending = {};
+    opens.push(() => {
+      const request = indexedDB.open(...args);
+      request.onsuccess = () => { pending.result = request.result; pending.onsuccess(); };
+      request.onerror = () => { pending.error = request.error; pending.onerror(); };
+    });
+    return pending;
+  } };
+  const app = await bootTaxonomyPersistence({ indexedDB: delayed, storage: { bc_taxonomy_v1: JSON.stringify(meta) } });
+  const W = app.window, A = W.__app;
+  try {
+    assert.ok(opens.length);
+    assert.equal(A.isSpeciesSeen('marwre1'), null);
+    let done = false;
+    const pending = A.maybeRefreshTaxonomy().finally(() => { done = true; });
+    await new Promise(resolve => setTimeout(resolve, 20));
+    assert.equal(done, false, 'an explicit refresh must wait for cached restoration, not report a false completed result');
+    assert.equal(app.state.fetches.filter(url => /ref\/taxonomy\/ebird/.test(url)).length, 0);
+    hold = false; opens.splice(0).forEach(release => release());
+    assert.equal(await pending, true);
+    assert.equal(app.state.fetches.filter(url => /ref\/taxonomy\/ebird/.test(url)).length, 1);
+  } finally {
+    hold = false; opens.splice(0).forEach(release => release());
+    await A.restoreTaxonomyNames();
+    await A.maybeRefreshTaxonomy();
+    W.close();
+  }
+});
+
+test('F247 a successful automatic taxonomy refresh clears only its own unchanged retry receipt', async () => {
+  for (const replace of [false, true]) {
+    const options = { sample: false, home: false, nativeCompression: true, indexedDB: new IDBFactory(),
+      online: false, storage: { 'bc_api_verified_v1:': 'TESTKEY',
+        'bc_taxonomy_retry_v1:': String(Date.now() - 16 * 60000) },
+      fetch: url => /ref\/taxonomy\/versions/.test(url) ? [{ authorityVer: 2026, latest: true }]
+        : /ref\/taxonomy\/ebird/.test(url) ? monthlyTaxonomyRows() : [] };
+    const app = await boot(options), W = app.window, A = W.__app;
+    const packing = holdScoutCompression(W, json => json.includes('"checkedAt":') && json.includes('"referenceSchema":'));
+    try {
+      await A.maybeRefreshTaxonomy();
+      options.online = true;
+      const pending = A.maybeRefreshTaxonomy();
+      await waitFor(packing.ready, 'automatic reference metadata compression');
+      const newer = String(Date.now());
+      if (replace) W.localStorage.setItem('bc_taxonomy_retry_v1:', newer);
+      packing.release();
+      assert.equal(await pending, true);
+      assert.equal(W.localStorage.getItem('bc_taxonomy_retry_v1:'), replace ? newer : null);
+    } finally { packing.release(); W.close(); }
+  }
+});
+
+test('F247 an obsolete automatic taxonomy finalizer cannot retire a newer same-owner refresh after erasure', async () => {
+  const options = { sample: false, home: false, nativeCompression: true, indexedDB: new IDBFactory(),
+    online: false, storage: { 'bc_api_verified_v1:': 'TESTKEY' },
+    fetch: url => /ref\/taxonomy\/versions/.test(url) ? [{ authorityVer: 2026, latest: true }]
+      : /ref\/taxonomy\/ebird/.test(url) ? monthlyTaxonomyRows() : [] };
+  const app = await boot(options), W = app.window, A = W.__app;
+  let first = false, second = false, newPacking, old, newer, candidate;
+  const oldPacking = holdScoutCompression(W, json => {
+    if (first || !json.includes('"checkedAt":') || !json.includes('"referenceSchema":')) return false;
+    first = true; return true;
+  });
+  try {
+    await A.maybeRefreshTaxonomy();
+    W.localStorage.removeItem(A.bcReal('ebird_identity_rev_v1'));
+    const report = A.getReportSlug(), scope = A.activeScope().cacheIdentity;
+    const key = W.localStorage.getItem(A.bcReal('ebird_api_key'));
+    options.online = true;
+    old = A.maybeRefreshTaxonomy();
+    assert.equal(A.maybeRefreshTaxonomy(), old);
+    await waitFor(oldPacking.ready, 'old automatic reference metadata');
+    A.scrubPersonalData();
+    W.localStorage.setItem(A.bcReal('ebird_report'), report);
+    W.localStorage.setItem(A.bcReal('ebird_api_key'), key);
+    W.localStorage.setItem(A.bcReal('bc_api_verified_v1:' + A.bcProfile()), key);
+    assert.equal(A.activeScope().cacheIdentity, scope);
+    newPacking = holdScoutCompression(W, json => {
+      if (second || !json.includes('"checkedAt":') || !json.includes('"referenceSchema":')) return false;
+      second = true; return true;
+    });
+    newer = A.maybeRefreshTaxonomy();
+    assert.notEqual(newer, old);
+    await waitFor(newPacking.ready, 'new automatic reference metadata');
+    oldPacking.release();
+    assert.equal(await old, false);
+    candidate = A.maybeRefreshTaxonomy();
+    assert.equal(candidate, newer);
+    assert.equal(W.localStorage.getItem('bc_taxonomy_retry_v1:'), null);
+    newPacking.release();
+    assert.equal(await newer, true);
+    assert.equal(A.taxonomyEdition(), '2026.0');
+  } finally {
+    oldPacking.release(); if (newPacking) newPacking.release();
+    await Promise.allSettled([old, newer, candidate].filter(Boolean));
+    W.close();
+  }
+});
+
+test('F247 daily regional counts migrate and compressed restart reuses positive and explicit-negative results', async () => {
+  const key = 'ebird_ebirders_count_v1', values = eBirderCountFixture();
+  const date = values['XX-F247-0'].date;
+  values['US-WA'] = { date, n: 16870 };
+  values['US-KS'] = { date, n: null };
+  let saved = JSON.stringify(values);
+  for (const restart of [false, true]) {
+    const app = await boot({ sample: false, nativeCompression: true, storage: { [key]: saved } });
+    const W = app.window, A = W.__app;
+    try {
+      saved = W.localStorage.getItem(key);
+      assert.ok(saved.startsWith('z:'));
+      assert.equal(A.cachedEbirderCount('US-WA'), 16870);
+      assert.equal(await A.ebirderCount('US-WA'), 16870);
+      assert.equal(await A.ebirderCount('US-KS'), null);
+      assert.deepEqual(readPersistedFixture(W, key), values);
+      assert.equal(app.state.fetches.filter(url => /\/ebirders\/count\?/.test(url)).length, 0,
+        'neither a known count nor a daily unknown may be reacquired after restart');
+    } finally { W.close(); }
+  }
+});
+
+test('F247 daily count acquisition awaits compression without timeout replacement or obsolete-owner allocation', async () => {
+  const key = 'ebird_ebirders_count_v1';
+  for (const action of ['save', 'timeout', 'replace', 'erase', 'profile', 'day', 'quota']) {
+    const app = await boot({ sample: false, nativeCompression: true,
+      storage: { [key]: JSON.stringify(eBirderCountFixture()) },
+      fetch: url => /\/ebirders\/count\?/.test(url) ? { value: 16870 } : [] });
+    const W = app.window, A = W.__app, before = W.localStorage.getItem(key);
+    const packing = holdScoutCompression(W, json => json.includes('"US-WA":'));
+    const prototype = W.Storage.prototype, set = prototype.setItem, timeout = W.setTimeout;
+    const deadlines = [];
+    W.setTimeout = function (callback, ms, ...args) {
+      if (ms === 12000) { deadlines.push(callback); return 0; }
+      return timeout.call(this, callback, ms, ...args);
+    };
+    try {
+      if (action === 'erase') W.localStorage.removeItem(A.bcReal('ebird_identity_rev_v1'));
+      let done = false;
+      const pending = A.ebirderCount('US-WA').finally(() => { done = true; });
+      await waitFor(packing.ready, 'held actual regional count compression');
+      assert.equal(done, false, 'the acquisition must await its optional persistence attempt');
+      assert.equal(W.localStorage.getItem(key), before, 'no raw-first allocation or replacement');
+      const newer = JSON.stringify({ 'US-WA': { date: A.todayStr(), n: 18000 } });
+      if (action === 'timeout') {
+        assert.equal(deadlines.length, 1);
+        deadlines[0]();
+      } else if (action === 'replace') W.localStorage.setItem(key, newer);
+      else if (action === 'erase') A.scrubPersonalData();
+      else if (action === 'profile') W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-count-owner');
+      else if (action === 'day') {
+        const NativeDate = W.Date, tomorrow = new NativeDate();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        W.Date = class extends NativeDate {
+          constructor(...args) { super(...(args.length ? args : [tomorrow.getTime()])); }
+        };
+      }
+      else if (action === 'quota') prototype.setItem = function (k, value) {
+        if (k === key) throw new W.DOMException('count quota', 'QuotaExceededError');
+        return set.call(this, k, value);
+      };
+      packing.release();
+      assert.equal(await pending, ['erase', 'profile', 'day'].includes(action) ? null : 16870);
+      if (action === 'save' || action === 'timeout') {
+        assert.ok(W.localStorage.getItem(key).startsWith('z:'));
+        assert.equal(A.cachedEbirderCount('US-WA'), 16870,
+          'a source winner cannot become a negative result while its compression is pending');
+      } else assert.equal(W.localStorage.getItem(key), action === 'replace' ? newer : action === 'erase' ? null : before,
+        'optional metadata must preserve last-good bytes after replacement, erasure, profile change or quota');
+    } finally {
+      prototype.setItem = set; W.setTimeout = timeout; packing.release(); W.close();
+    }
+  }
+});
+
+test('F247 independent regional counts serialize durable merges instead of losing simultaneous completions', async () => {
+  const key = 'ebird_ebirders_count_v1';
+  const app = await boot({ sample: false, nativeCompression: true,
+    storage: { [key]: JSON.stringify(eBirderCountFixture()) },
+    fetch: url => /\/ebirders\/count\?/.test(url)
+      ? { value: url.includes('US-WA') ? 16870 : 3000 } : [] });
+  const W = app.window, A = W.__app;
+  let held = false;
+  const packing = holdScoutCompression(W, json => !held && json.includes('"US-WA":') && (held = true));
+  try {
+    const first = A.ebirderCount('US-WA');
+    await waitFor(packing.ready, 'first regional count compression');
+    let done = false;
+    const second = A.ebirderCount('US-KS').finally(() => { done = true; });
+    await waitFor(() => app.state.fetches.filter(url => /\/ebirders\/count\?/.test(url)).length === 2,
+      'second independent regional source');
+    await new Promise(resolve => setTimeout(resolve, 20));
+    assert.equal(done, false, 'independent completions must merge behind the held encoded predecessor');
+    packing.release();
+    assert.deepEqual(await Promise.all([first, second]), [16870, 3000]);
+    assert.equal(A.cachedEbirderCount('US-WA'), 16870);
+    assert.equal(A.cachedEbirderCount('US-KS'), 3000);
+    assert.equal(Object.keys(readPersistedFixture(W, key)).length, 62);
+  } finally { packing.release(); W.close(); }
+});
+
+test('F247 delayed count responses retain pre-acquisition ownership and preserve newer regional evidence', async () => {
+  const key = 'ebird_ebirders_count_v1';
+  for (const action of ['replace', 'erase', 'profile']) {
+    let release;
+    const app = await boot({ sample: false, nativeCompression: true,
+      storage: { [key]: JSON.stringify(eBirderCountFixture()) },
+      fetch: url => /\/ebirders\/count\?/.test(url)
+        ? new Promise(resolve => { release = resolve; }) : [] });
+    const W = app.window, A = W.__app, before = W.localStorage.getItem(key);
+    try {
+      if (action === 'erase') W.localStorage.removeItem(A.bcReal('ebird_identity_rev_v1'));
+      const pending = A.ebirderCount('US-WA');
+      await waitFor(() => release, 'delayed regional count source');
+      const newer = JSON.stringify({ 'US-WA': { date: A.todayStr(), n: 18000 } });
+      if (action === 'replace') W.localStorage.setItem(key, newer);
+      else if (action === 'erase') A.scrubPersonalData();
+      else W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-delayed-count-owner');
+      release({ value: 16870 });
+      assert.equal(await pending, action === 'replace' ? 16870 : null);
+      assert.equal(W.localStorage.getItem(key), action === 'replace' ? newer : action === 'erase' ? null : before);
+    } finally { W.close(); }
+  }
+});
+
+function jurisdictionNameFixture(suffix) {
+  return Object.fromEntries(require('../www/aba-regions.js').regions.map(region =>
+    [region.code, region.label + suffix]));
+}
+
+function jurisdictionNameResponse(url, suffix) {
+  const country = /ref\/region\/list\/subnational1\/(US|CA)/.exec(url);
+  return country ? Object.entries(jurisdictionNameFixture(suffix))
+    .filter(([code]) => code.startsWith(country[1] + '-'))
+    .map(([code, name]) => ({ code, name })) : [];
+}
+
+test('F247 jurisdiction names hydrate migrated and compressed catalogs before offline chooser rendering', async () => {
+  const key = 'bc_region_names_v1', values = jurisdictionNameFixture(' F247 offline');
+  let saved = JSON.stringify(values);
+  for (const restart of [false, true]) {
+    const app = await boot({ sample: false, home: false, nativeCompression: true, storage: { [key]: saved } });
+    const W = app.window, A = W.__app;
+    try {
+      saved = W.localStorage.getItem(key);
+      assert.ok(saved.startsWith('z:'));
+      A.renderRegionChooser();
+      assert.match(app.$('regionChooserAll').textContent, /Oregon F247 offline/);
+      assert.deepEqual(readPersistedFixture(W, key), values);
+      assert.equal(app.state.fetches.filter(url => /ref\/region\/list\/subnational1\//.test(url)).length, 0,
+        'reading a durable catalog must not acquire names merely to prime its projection');
+    } finally { W.close(); }
+  }
+});
+
+test('F247 jurisdiction refresh awaits native durability and preserves last-good catalogs under retirement or quota', async () => {
+  const key = 'bc_region_names_v1';
+  for (const action of ['save', 'replace', 'erase', 'profile', 'stop', 'quota']) {
+    const app = await boot({ sample: false, home: false, nativeCompression: true,
+      storage: { [key]: JSON.stringify(jurisdictionNameFixture(' F247 offline')) },
+      fetch: url => jurisdictionNameResponse(url, ' F247 refreshed') });
+    const W = app.window, A = W.__app, before = W.localStorage.getItem(key);
+    const packing = holdScoutCompression(W, json => json.includes('"US-OR":"Oregon F247 refreshed"'));
+    const prototype = W.Storage.prototype, set = prototype.setItem;
+    try {
+      if (action === 'erase') W.localStorage.removeItem(A.bcReal('ebird_identity_rev_v1'));
+      let done = false;
+      const pending = A.refreshRegionNames().finally(() => { done = true; });
+      await waitFor(packing.ready, 'held actual jurisdiction catalog compression');
+      assert.equal(done, false);
+      assert.equal(W.localStorage.getItem(key), before, 'names cannot allocate raw-first');
+      A.renderRegionChooser();
+      assert.match(app.$('regionChooserAll').textContent, /Oregon F247 offline/);
+      assert.doesNotMatch(app.$('regionCatalogStatus').textContent, /names refreshed/);
+      const newer = JSON.stringify({ 'US-OR': 'Oregon newer' });
+      if (action === 'replace') W.localStorage.setItem(key, newer);
+      else if (action === 'erase') A.scrubPersonalData();
+      else if (action === 'profile') W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-catalog-owner');
+      else if (action === 'stop') A.cancelStalledWork();
+      else if (action === 'quota') prototype.setItem = function (k, value) {
+        if (k === key) throw new W.DOMException('catalog quota', 'QuotaExceededError');
+        return set.call(this, k, value);
+      };
+      packing.release();
+      assert.equal(await pending, action === 'save');
+      if (action === 'save') {
+        assert.ok(W.localStorage.getItem(key).startsWith('z:'));
+        assert.match(app.$('regionChooserAll').textContent, /Oregon F247 refreshed/);
+        assert.match(app.$('regionCatalogStatus').textContent, /names refreshed/);
+      } else {
+        assert.equal(W.localStorage.getItem(key), action === 'replace' ? newer : before,
+          'this public bc_ catalog survives account erasure, but obsolete refreshes must not change it');
+        A.renderRegionChooser();
+        assert.doesNotMatch(app.$('regionChooserAll').textContent, /Oregon F247 refreshed/);
+        if (action === 'stop') assert.match(app.$('regionCatalogStatus').textContent, /cancelled/i);
+      }
+    } finally { prototype.setItem = set; packing.release(); W.close(); }
+  }
+});
+
+test('F247 jurisdiction refresh captures original bytes before delayed provider acquisition', async () => {
+  const key = 'bc_region_names_v1';
+  let release;
+  const app = await boot({ sample: false, home: false, nativeCompression: true, fetch: url =>
+    /ref\/region\/list\/subnational1\/US/.test(url)
+      ? new Promise(resolve => { release = () => resolve(jurisdictionNameResponse(url, ' F247 delayed')); })
+      : jurisdictionNameResponse(url, ' F247 delayed') });
+  const W = app.window, A = W.__app;
+  try {
+    const pending = A.refreshRegionNames();
+    await waitFor(() => release, 'delayed US jurisdiction catalog');
+    const newer = JSON.stringify(jurisdictionNameFixture(' F247 newer'));
+    W.localStorage.setItem(key, newer);
+    release();
+    assert.equal(await pending, false);
+    assert.equal(W.localStorage.getItem(key), newer);
+    A.renderRegionChooser();
+    assert.match(app.$('regionChooserAll').textContent, /Oregon F247 newer/);
+  } finally { W.close(); }
+});
+
+test('F247 a retired jurisdiction refresh neither coalesces nor clears a newer pending owner', async () => {
+  for (const action of ['profile', 'stop']) {
+    let suffix = ' F247 old';
+    const app = await boot({ sample: false, home: false, nativeCompression: true,
+      fetch: url => jurisdictionNameResponse(url, suffix) });
+    const W = app.window, A = W.__app;
+    const oldPacking = holdScoutCompression(W, json => json.includes('"US-OR":"Oregon F247 old"'));
+    let newPacking;
+    try {
+      const oldPending = A.refreshRegionNames();
+      assert.equal(A.refreshRegionNames(), oldPending, 'the current owner should coalesce');
+      await waitFor(oldPacking.ready, 'old catalog owner compression');
+      if (action === 'profile') {
+        const key = W.localStorage.getItem(A.bcReal('ebird_api_key'));
+        W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-new-catalog-owner');
+        W.localStorage.setItem(A.bcReal('ebird_api_key'), key);
+      }
+      else A.cancelStalledWork();
+      suffix = ' F247 new';
+      newPacking = holdScoutCompression(W, json => json.includes('"US-OR":"Oregon F247 new"'));
+      const newPending = A.refreshRegionNames();
+      assert.notEqual(newPending, oldPending, 'retired work cannot absorb the current refresh');
+      await waitFor(newPacking.ready, 'new catalog owner compression');
+      oldPacking.release();
+      assert.equal(await oldPending, false);
+      assert.equal(A.refreshRegionNames(), newPending, 'an old finalizer cannot release the current pending slot');
+      newPacking.release();
+      assert.equal(await newPending, true);
+      assert.match(app.$('regionChooserAll').textContent, /Oregon F247 new/);
+    } finally { oldPacking.release(); if (newPacking) newPacking.release(); W.close(); }
+  }
+});
+
+function rankingFragmentFixture() {
+  const period = String(new Date().getFullYear());
+  return dualRankFixture('spp', Array.from({ length: 12 }, (_, i) => ({
+    rank: i + 1, name: 'F247 PRIVATE ' + i, profileId: 'F247Private' + i,
+    species: 100 - i, checklists: 200 - i
+  })), 'US-WA', period);
+}
+
+function megaPersistenceRows(prefix, count = 24) {
+  return Array.from({ length: count }, (_, index) => ({
+    speciesCode: 'sabgul', comName: "Sabine's Gull", subId: `S247${prefix}${index}`,
+    obsDt: formatObsStamp(new Date(Date.now() - index * 60000)),
+    locName: 'Synthetic public F247 estuary', locId: 'L247PUBLIC',
+    lat: 47.75, lng: -122.16, userDisplayName: 'Synthetic observer ' + index,
+    subnational1Code: 'US-WA', subnational2Code: 'US-WA-061',
+    locationPrivate: true, obsReviewed: true, obsValid: true
+  }));
+}
+
+function megaPersistenceStorage(rows = megaPersistenceRows('OLD')) {
+  return {
+    ebird_report: 'wa', ebird_aba_sid: 'SN10489',
+    ebird_mega_snapshot_v1: JSON.stringify({
+      at: Date.now() - 8 * 3600000, region: 'US-WA', sid: 'SN10489',
+      membershipVersion: 2, sourceCount: rows.length, capped: false, rows
+    }),
+    ebird_aba_archive_v1: JSON.stringify({
+      'US-WA': Object.fromEntries(rows.map(row => [row.speciesCode + '|' + row.subId, row]))
+    })
+  };
+}
+
+test('F247 Mega and archive migrate before actual consumers and retain age, aliases and privacy on restart', async () => {
+  let storage = megaPersistenceStorage();
+  const at = JSON.parse(storage.ebird_mega_snapshot_v1).at;
+  for (const restart of [false, true]) {
+    const app = await boot({ sample: false, nativeCompression: true, storage });
+    const W = app.window, A = W.__app;
+    try {
+      for (const key of [A.MEGA_SNAP_KEY, A.ABA_ARCHIVE_KEY]) {
+        assert.ok(W.localStorage.getItem(key).startsWith('z:'), key + ' migrated before readiness');
+        storage[key] = W.localStorage.getItem(key);
+      }
+      assert.equal(readPersistedFixture(W, A.MEGA_SNAP_KEY).at, at);
+      assert.ok(A.megaSnapshotAgeH() >= 8, 'a migration cannot renew acquisition age');
+      const archived = A.abaArchiveFor('US-WA', 'sabgul');
+      assert.equal(archived.length, 24);
+      assert.equal(archived[0].locationPrivate, true);
+      assert.equal(archived[0].subnational2Code, 'US-WA-061');
+      assert.deepEqual(Array.from(A.MENU_BADGES.abaBtn('F247-native-badge').ids), ['sabgul'],
+        'actual menu badge reads the compressed all-region archive');
+      assert.equal(A.stakeoutStoredMegaRows('sabgul').length, 24);
+      assert.equal(A.stakeoutRarityKind({ code: 'sabgul', scope: A.activeScope(), stateRows: [] }), 'mega');
+      assert.ok(A.megaLane([]), 'Bird Gen reads the compressed membership snapshot');
+      const replacement = JSON.stringify({ at, region: 'US-WA', sid: 'SN10489',
+        membershipVersion: 2, rows: [] });
+      W.localStorage.setItem(A.MEGA_SNAP_KEY, replacement);
+      assert.equal(A.stakeoutRarityKind({ code: 'sabgul', scope: A.activeScope(), stateRows: [] }), '');
+      W.localStorage.setItem(A.ABA_ARCHIVE_KEY, '{}');
+      assert.equal(A.abaArchiveFor('US-WA', 'sabgul').length, 0, 'a decoded projection cannot outlive its bytes');
+      assert.equal(A.MENU_BADGES.abaBtn('F247-native-badge'), null);
+    } finally { W.close(); }
+  }
+});
+
+test('F247 archive appends await native storage and reject replaced, stopped, erased and foreign owners', async () => {
+  for (const action of ['save', 'replace', 'stop', 'erase', 'profile', 'quota']) {
+    const app = await boot({ sample: false, nativeCompression: true, storage: megaPersistenceStorage() });
+    const W = app.window, A = W.__app, key = A.ABA_ARCHIVE_KEY;
+    const before = W.localStorage.getItem(key), rows = megaPersistenceRows('APPEND');
+    const packing = holdScoutCompression(W, json => json.includes('"S247APPEND0"'));
+    const proto = W.Storage.prototype, set = proto.setItem;
+    let done = false, current = true;
+    try {
+      if (action === 'erase') W.localStorage.removeItem(A.bcReal('ebird_identity_rev_v1'));
+      const pending = A.abaArchiveAdd('US-WA', rows,
+        action === 'stop' ? { current: () => current } : undefined)
+        .finally(() => { done = true; });
+      await waitFor(packing.ready, 'held actual archive compression');
+      assert.equal(done, false);
+      assert.equal(W.localStorage.getItem(key), before, 'no raw JSON first allocation');
+      if (action === 'replace') W.localStorage.setItem(key, '{}');
+      else if (action === 'stop') current = false;
+      else if (action === 'erase') A.scrubPersonalData();
+      else if (action === 'profile') W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-archive-owner');
+      else if (action === 'quota') proto.setItem = function (k, value) {
+        if (k === key) throw new W.DOMException('archive quota', 'QuotaExceededError');
+        return set.call(this, k, value);
+      };
+      packing.release();
+      assert.equal(await pending, action === 'save');
+      if (action === 'save') assert.equal(A.abaArchiveFor('US-WA', 'sabgul').length, 48);
+      else if (action === 'replace') assert.equal(W.localStorage.getItem(key), '{}');
+      else if (action === 'erase') assert.equal(W.localStorage.getItem(key), null, 'erased archive is not resurrected');
+      else if (action === 'profile') assert.equal(W.localStorage.getItem(A.bcReal(key)), before,
+        'shared public archive is not extended by a retired profile');
+      else assert.equal(W.localStorage.getItem(key), before);
+    } finally { proto.setItem = set; packing.release(); await new Promise(setImmediate); W.close(); }
+  }
+});
+
+test('F247 concurrent archive transactions merge captured evidence and preserve complementary fields and the cap', async () => {
+  const app = await boot({ sample: false, nativeCompression: true });
+  const W = app.window, A = W.__app;
+  let held = false;
+  const packing = holdScoutCompression(W, json => !held && json.includes('"S247FIRST0"') && (held = true));
+  try {
+    const firstRows = megaPersistenceRows('FIRST');
+    const first = A.abaArchiveAdd('US-WA', firstRows);
+    firstRows[0].userDisplayName = 'MUTATED CALLER';
+    await waitFor(packing.ready, 'first archive transaction');
+    let done = false;
+    const second = A.abaArchiveAdd('US-WA', megaPersistenceRows('SECOND'))
+      .finally(() => { done = true; });
+    await new Promise(resolve => setTimeout(resolve, 20));
+    assert.equal(done, false, 'second append waits instead of replacing the first baseline');
+    packing.release();
+    assert.deepEqual(await Promise.all([first, second]), [true, true]);
+    assert.equal(A.abaArchiveFor('US-WA', 'sabgul').length, 48);
+    assert.equal(A.abaArchiveFor('US-WA', 'sabgul').find(row => row.subId === 'S247FIRST0')
+      .userDisplayName, 'Synthetic observer 0');
+    await A.abaArchiveAdd('US-WA', [{ ...megaPersistenceRows('FIRST', 1)[0],
+      userDisplayName: '', evidence: 'photo', hasComments: true }]);
+    const enriched = A.abaArchiveFor('US-WA', 'sabgul').find(row => row.subId === 'S247FIRST0');
+    assert.equal(enriched.userDisplayName, 'Synthetic observer 0');
+    assert.equal(enriched.evidence, 'photo');
+    assert.equal(enriched.locationPrivate, true);
+    const bounded = megaPersistenceRows('CAP', 4001);
+    await A.abaArchiveAdd('US-OR', bounded);
+    const kept = A.abaArchiveFor('US-OR', 'sabgul');
+    assert.equal(kept.length, 4000);
+    assert.equal(kept.some(row => row.subId === 'S247CAP4000'), false);
+    assert.equal(A.abaArchiveSince('US-OR'), bounded[3999].obsDt.slice(0, 10));
+  } finally { packing.release(); await new Promise(setImmediate); W.close(); }
+});
+
+test('F247 snapshot publication waits for its archived dated reports before replacing membership', async () => {
+  const app = await boot({ sample: false, nativeCompression: true, storage: megaPersistenceStorage() });
+  const W = app.window, A = W.__app, before = W.localStorage.getItem(A.MEGA_SNAP_KEY);
+  let held = false, done = false, pending;
+  const packing = holdScoutCompression(W, json =>
+    !held && json.includes('"US-WA":{') && json.includes('"S247ARCWAIT0"') && (held = true));
+  try {
+    pending = A.saveMegaSnapshot(megaPersistenceRows('ARCWAIT'), true).finally(() => { done = true; });
+    await waitFor(packing.ready, 'held archived observations before snapshot publication');
+    assert.equal(done, false);
+    assert.equal(W.localStorage.getItem(A.MEGA_SNAP_KEY), before);
+    packing.release();
+    assert.equal(await pending, true);
+    assert.equal(A.abaArchiveFor('US-WA', 'sabgul').length, 48);
+  } finally { packing.release(); if (pending) await pending; W.close(); }
+});
+
+test('F247 snapshot replacements await archive and native storage and protect the newest captured candidate', async () => {
+  const app = await boot({ sample: false, nativeCompression: true, storage: megaPersistenceStorage() });
+  const W = app.window, A = W.__app, before = W.localStorage.getItem(A.MEGA_SNAP_KEY);
+  let held = false;
+  const packing = holdScoutCompression(W, json =>
+    !held && json.includes('"membershipVersion":2') && json.includes('"S247FIRST0"') && (held = true));
+  try {
+    let done = false;
+    const first = A.saveMegaSnapshot(megaPersistenceRows('FIRST'), true)
+      .finally(() => { done = true; });
+    await waitFor(packing.ready, 'actual snapshot encoding after archival durability');
+    assert.equal(done, false);
+    assert.equal(W.localStorage.getItem(A.MEGA_SNAP_KEY), before);
+    assert.equal(A.abaArchiveFor('US-WA', 'sabgul').length, 48);
+    const rows = megaPersistenceRows('NEWEST');
+    const second = A.saveMegaSnapshot(rows, true);
+    rows[0].userDisplayName = 'MUTATED CALLER';
+    packing.release();
+    assert.deepEqual(await Promise.all([first, second]), [false, true],
+      JSON.stringify(W.__dbg.buf.slice(-15).map(row => row.msg)));
+    const saved = readPersistedFixture(W, A.MEGA_SNAP_KEY);
+    assert.equal(saved.rows[0].subId, 'S247NEWEST0');
+    assert.equal(saved.rows[0].userDisplayName, 'Synthetic observer 0');
+    assert.equal(A.abaArchiveFor('US-WA', 'sabgul').find(row => row.subId === 'S247NEWEST0')
+      .userDisplayName, 'Synthetic observer 0');
+  } finally { packing.release(); await new Promise(setImmediate); W.close(); }
+});
+
+test('F247 actual Mega controller captures pre-source bytes and awaits saving without discarding live rows', async () => {
+  for (const action of ['save', 'replace', 'quota']) {
+    let release;
+    const app = await boot({ sample: false, nativeCompression: true, storage: megaPersistenceStorage(),
+      fetch: url => /alert\/summary/.test(url) ? new Promise(resolve => { release = resolve; }) : [] });
+    const W = app.window, A = W.__app, proto = W.Storage.prototype, set = proto.setItem;
+    let before = W.localStorage.getItem(A.MEGA_SNAP_KEY);
+    const packing = holdScoutCompression(W, json =>
+      json.includes('"membershipVersion":2') && json.includes('"S247800000"'));
+    let done = false, newer;
+    try {
+      if (action === 'save') W.localStorage.setItem(A.MEGA_SNAP_KEY,
+        JSON.stringify(readPersistedFixture(W, A.MEGA_SNAP_KEY)));
+      const pending = A.loadAbaAlert().finally(() => { done = true; });
+      await waitFor(() => release, 'actual controller source begins');
+      before = W.localStorage.getItem(A.MEGA_SNAP_KEY);
+      if (action === 'replace') {
+        newer = await W.BirdPersistence.packJson(JSON.parse(megaPersistenceStorage(megaPersistenceRows('FOREIGN'))
+          .ebird_mega_snapshot_v1));
+        W.localStorage.setItem(A.MEGA_SNAP_KEY, newer);
+      }
+      release(megaAlertHtml(megaPersistenceRows('LIVE').map((row, index) => ({
+        code: row.speciesCode, name: row.comName, subId: 'S' + (247800000 + index),
+        when: row.obsDt, place: row.locName, lat: row.lat, lng: row.lng
+      }))));
+      await waitFor(packing.ready, 'actual controller snapshot compression');
+      assert.equal(done, false);
+      assert.ok(app.$('abaResults').querySelector('[data-mega-code="sabgul"]'), 'live evidence remains visible');
+      assert.equal(W.localStorage.getItem(A.MEGA_SNAP_KEY), newer || before);
+      if (action === 'quota') proto.setItem = function (k, value) {
+        if (k === A.MEGA_SNAP_KEY) throw new W.DOMException('snapshot quota', 'QuotaExceededError');
+        return set.call(this, k, value);
+      };
+      packing.release();
+      await pending;
+      if (action === 'save') assert.equal(readPersistedFixture(W, A.MEGA_SNAP_KEY).rows[0].subId, 'S247800000');
+      else {
+        assert.equal(W.localStorage.getItem(A.MEGA_SNAP_KEY), newer || before);
+        assert.match(app.$('abaStatus').textContent, /Live alert shown; snapshot not saved/);
+      }
+      assert.deepEqual(app.state.errors, []);
+    } finally { proto.setItem = set; packing.release(); await new Promise(setImmediate); W.close(); }
+  }
+});
+
+test('F247 snapshot native writes reject profile and same-identity erasure after exact bytes are restored', async () => {
+  for (const action of ['profile', 'erase']) {
+    const app = await boot({ sample: false, nativeCompression: true, storage: megaPersistenceStorage() });
+    const W = app.window, A = W.__app;
+    const before = W.localStorage.getItem(A.MEGA_SNAP_KEY);
+    const archive = W.localStorage.getItem(A.ABA_ARCHIVE_KEY);
+    const packing = holdScoutCompression(W, json =>
+      json.includes('"membershipVersion":2') && json.includes('"S247RETIRED0"'));
+    try {
+      W.localStorage.removeItem(A.bcReal(A.IDENTITY_REV_KEY));
+      const pending = A.saveMegaSnapshot(megaPersistenceRows('RETIRED'), true);
+      await waitFor(packing.ready, 'native snapshot before retirement');
+      if (action === 'profile') W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-snapshot-owner');
+      else {
+        await A.scrubPersonalData();
+        W.localStorage.setItem(A.MEGA_SNAP_KEY, before);
+        W.localStorage.setItem(A.ABA_ARCHIVE_KEY, archive);
+        assert.equal(A.identityRevision(), 0, 'identical revision isolates monotonic erasure');
+      }
+      packing.release();
+      assert.equal(await pending, false);
+      assert.equal(W.localStorage.getItem(A.MEGA_SNAP_KEY), before);
+    } finally { packing.release(); await new Promise(setImmediate); W.close(); }
+  }
+});
+
+test('F247 lazy Mega refresh replaces a retired owner without coalescing or clearing newer work', async () => {
+  let calls = 0;
+  const app = await boot({ sample: false, nativeCompression: true, storage: megaPersistenceStorage(),
+    fetch: url => /alert\/summary/.test(url) ? megaAlertHtml([{
+      code: 'sabgul', name: "Sabine's Gull", subId: 'S' + (247900000 + ++calls),
+      when: recentObsStamp(), place: 'Synthetic public lazy estuary', lat: 47.75, lng: -122.16
+    }]) : [] });
+  const W = app.window, A = W.__app, notifications = [0, 0];
+  const packing = holdScoutCompression(W, json =>
+    json.includes('"membershipVersion":2') && json.includes('"S247900001"'));
+  let first, second;
+  try {
+    first = A.lazyRefreshMegaSnapshot(() => notifications[0]++, true);
+    await waitFor(packing.ready, 'first lazy snapshot native write');
+    W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-lazy-owner');
+    W.localStorage.setItem(A.bcReal('ebird_report'), 'wa');
+    W.localStorage.setItem(A.bcReal('ebird_aba_sid'), 'SN10489');
+    second = A.lazyRefreshMegaSnapshot(() => notifications[1]++, true);
+    await new Promise(resolve => setTimeout(resolve, 50));
+    assert.equal(calls, 2, 'new owner starts its own actual source acquisition');
+    packing.release();
+    assert.deepEqual(await Promise.all([first, second]), [false, true],
+      JSON.stringify(W.__dbg.buf.slice(-15).map(row => row.msg)));
+    assert.deepEqual(notifications, [0, 1]);
+    assert.equal(readPersistedFixture(W, A.bcReal(A.MEGA_SNAP_KEY)).rows[0].subId, 'S247900002');
+    assert.equal(A.megaAlertSourceState(A.megaLane([])), 'ok');
+  } finally {
+    packing.release();
+    await Promise.allSettled([first, second].filter(Boolean));
+    W.close();
+  }
+});
+
+test('F247 unreadable Mega and archive receipts heal without inventing membership and keep snapshot bounds', async () => {
+  const app = await boot({ sample: false, nativeCompression: true });
+  const W = app.window, A = W.__app;
+  try {
+    W.localStorage.setItem(A.MEGA_SNAP_KEY, 'z:unreadable');
+    W.localStorage.setItem(A.ABA_ARCHIVE_KEY, 'z:unreadable');
+    assert.equal(A.megaLane([]), null);
+    assert.equal(A.megaSnapshotAgeH(), Infinity);
+    assert.equal(A.abaArchiveFor('US-WA', 'sabgul').length, 0);
+    const rows = megaPersistenceRows('BOUNDED', 230);
+    assert.equal(await A.saveMegaSnapshot(rows, true, 'US-WA', 'SN10489', 12345, 500), true);
+    const saved = readPersistedFixture(W, A.MEGA_SNAP_KEY);
+    assert.equal(saved.at, 12345);
+    assert.equal(saved.rows.length, 200);
+    assert.equal(saved.sourceCount, 500);
+    assert.equal(saved.capped, true);
+    assert.equal(A.abaArchiveFor('US-WA', 'sabgul').length, 230, 'snapshot bound does not erase full source evidence');
+  } finally { W.close(); }
+});
+
+test('F247 Mega quota recovery cannot reclaim the archive required by snapshot publication', async () => {
+  const app = await boot({ sample: false, nativeCompression: true, storage: megaPersistenceStorage() });
+  const W = app.window, A = W.__app, proto = W.Storage.prototype, set = proto.setItem;
+  const before = W.localStorage.getItem(A.MEGA_SNAP_KEY);
+  try {
+    proto.setItem = function (key, value) {
+      if (key === A.MEGA_SNAP_KEY && this.getItem(A.ABA_ARCHIVE_KEY) != null) {
+        A.freeCacheSpace(Number.MAX_SAFE_INTEGER, key, [A.ABA_ARCHIVE_KEY]);
+        throw new W.DOMException('snapshot blocked while archive exists', 'QuotaExceededError');
+      }
+      return set.call(this, key, value);
+    };
+    assert.equal(await A.saveMegaSnapshot(megaPersistenceRows('QUOTA'), true), false);
+    assert.equal(W.localStorage.getItem(A.MEGA_SNAP_KEY), before);
+    assert.equal(A.abaArchiveFor('US-WA', 'sabgul').length, 48, 'both dated acquisitions survive failed publication');
+  } finally { proto.setItem = set; W.close(); }
+});
+
+test('F247 detached finder enrichment waits for archival durability without writing across owners', async () => {
+  for (const action of ['save', 'profile']) {
+    const rows = megaPersistenceRows('FINDER', 2);
+    rows.forEach(row => { row.userDisplayName = ''; });
+    const app = await boot({ sample: false, nativeCompression: true, fetch: url =>
+      /product\/checklist\/view\//.test(url) ? {
+        obsDt: rows[0].obsDt, userDisplayName: 'Synthetic detailed observer',
+        obs: [{ speciesCode: 'sabgul', mediaCounts: { P: 1 } }]
+      } : [] });
+    const W = app.window, A = W.__app;
+    let held = false;
+    const packing = holdScoutCompression(W, json =>
+      !held && json.includes('"US-WA":{') && json.includes('"S247FINDER') && (held = true));
+    const entry = { code: 'sabgul', latest: rows[0], stateRows: rows,
+      view: { region: 'US-WA' }, finderHydration: {}, rarityKind: 'mega' };
+    let done = false;
+    try {
+      const pending = A.megaHydrateFinder(entry, -1).finally(() => { done = true; });
+      await waitFor(packing.ready, 'actual detached finder archive encoding');
+      assert.equal(done, false);
+      assert.equal(W.localStorage.getItem(A.ABA_ARCHIVE_KEY), null);
+      if (action === 'profile') W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-finder-owner');
+      packing.release();
+      await pending;
+      assert.equal(A.abaArchiveFor('US-WA', 'sabgul').length, action === 'save' ? 2 : 0);
+      if (action === 'save') assert.equal(A.abaArchiveFor('US-WA', 'sabgul')[0].userDisplayName,
+        'Synthetic detailed observer', 'useful enrichment survives detached UI generation');
+    } finally { packing.release(); await new Promise(setImmediate); W.close(); }
+  }
+});
+
+test('F247 actual state history waits for optional archival durability and rejects cancellation', async () => {
+  for (const action of ['save', 'stop']) {
+    const rows = megaPersistenceRows('HISTORY');
+    const app = await boot({ sample: false, nativeCompression: true,
+      fetch: url => /data\/obs\/US-WA\/recent\/sabgul/.test(url) ? rows : [] });
+    const W = app.window, A = W.__app;
+    const packing = holdScoutCompression(W, json => json.includes('"S247HISTORY0"'));
+    let current = true, done = false;
+    try {
+      const pending = A.abaStateHistory('US-WA', 'sabgul', () => current)
+        .finally(() => { done = true; });
+      await waitFor(packing.ready, 'state history archival compression');
+      assert.equal(done, false);
+      assert.equal(W.localStorage.getItem(A.ABA_ARCHIVE_KEY), null);
+      if (action === 'stop') current = false;
+      packing.release();
+      assert.equal((await pending).length, rows.length, 'optional storage failure does not discard useful source evidence');
+      assert.equal(A.abaArchiveFor('US-WA', 'sabgul').length, action === 'save' ? rows.length : 0);
+      assert.ok(app.state.fetches.some(url => /detail=full&includeProvisional=true&maxResults=10000/.test(url)));
+    } finally { packing.release(); await new Promise(setImmediate); W.close(); }
+  }
+});
+
+function customPersistenceRegion(kind) {
+  return { slug: 'u-f247-custom-' + kind.toLowerCase(), label: 'F247_CUSTOM_' + kind + ' repeat '.repeat(80),
+    place: 'Synthetic region', lat: 48.4, lng: -123.3, stateCode: 'CA-BC',
+    tideStation: '', tzStdOffset: -8, tzObservesDst: true };
+}
+
+function recentPersistenceRegion(kind) {
+  return { ...customPersistenceRegion(kind), slug: 'u-f247-recent-' + kind.toLowerCase() + '-route'.repeat(80) };
+}
+
+function menuPersistenceKeys(app) {
+  return [...app.document.querySelectorAll(ORIGINAL_MENU)].map(button => button.dataset.at);
+}
+
+function tempPersistencePoint(kind) {
+  return { lat: 47.61, lng: -122.33, label: 'F247_TEMP_' + kind + ' river access '.repeat(80) };
+}
+
+function seenPersistenceMark(kind) {
+  return { ids: Array.from({ length: 60 }, (_, i) => 'f247seen' + kind + i), at: 123456789 };
+}
+
+test('F247 menu seen marks hydrate native restart with fresh copied badge baselines', async () => {
+  const mark = seenPersistenceMark('START'), key = 'bc_seen_v1:F247-start';
+  let saved = JSON.stringify(mark);
+  for (const restart of [false, true]) {
+    const app = await boot({ sample: false, nativeCompression: true, storage: { [key]: saved } });
+    const W = app.window, A = W.__app;
+    try {
+      saved = W.localStorage.getItem(key);
+      assert.ok(saved.startsWith('z:'));
+      assert.deepEqual(readPersistedFixture(W, key), mark);
+      assert.equal(JSON.stringify(A.seenGet('F247-start')), JSON.stringify(mark));
+      A.seenGet('F247-start').ids.push('mutable');
+      assert.equal(A.seenGet('F247-start').ids.length, mark.ids.length);
+      W.localStorage.setItem(key, '{"ids":["replacement"]}');
+      assert.equal(A.newSince('F247-start', ['replacement', 'new']), 1);
+      W.localStorage.setItem(key, await A.packJson(seenPersistenceMark('CHANGED')));
+      assert.equal(A.seenGet('F247-start'), null, 'unknown changed gzip cannot reuse an old baseline');
+      await A.readSeenMark(key);
+      assert.equal(A.seenGet('F247-start').ids[0], 'f247seenCHANGED0');
+      for (const bad of ['{"ids":[1]}', '{"ids":[],"at":"bad"}', 'z:unreadable']) {
+        W.localStorage.setItem(key, bad);
+        assert.equal(A.seenGet('F247-start'), null);
+        assert.equal(A.newSince('F247-start', ['new']), 0, 'unknown is not an empty verified baseline');
+      }
+      assert.deepEqual(app.state.errors, []);
+    } finally { W.close(); }
+  }
+});
+
+test('F247 menu seen saves await copied migrated receipts and reject replaced, foreign or failed marks', async () => {
+  for (const action of ['save', 'replace', 'profile', 'erase', 'reject', 'quota']) {
+    const app = await boot({ sample: false, nativeCompression: true });
+    const W = app.window, A = W.__app, id = 'F247-write', key = A.seenKey(id);
+    W.localStorage.setItem(key, '{"ids":["previous"]}');
+    W.localStorage.removeItem(A.bcReal(A.IDENTITY_REV_KEY));
+    const mark = seenPersistenceMark('WRITE'), expected = JSON.parse(JSON.stringify(mark));
+    const packing = holdScoutCompression(W, json => json.startsWith('{"ids":["f247seenWRITE'));
+    const proto = W.Storage.prototype, set = proto.setItem;
+    let pending, done = false, current = true;
+    try {
+      pending = A.seenMark(id, mark, () => current).finally(() => { done = true; });
+      mark.ids[1] = 'changedcaller'; mark.at = 0;
+      await waitFor(() => packing.ready() || done, 'actual seen marker packing');
+      assert.equal(packing.ready(), true); assert.equal(done, false);
+      const before = W.localStorage.getItem(key);
+      assert.ok(before.startsWith('j:'), 'migration advances the baseline before save CAS');
+      assert.equal(A.newSince(id, ['previous', 'new']), 1);
+      if (action === 'replace') W.localStorage.setItem(key, 'null');
+      else if (action === 'profile') {
+        W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-seen-owner');
+        W.localStorage.setItem(A.bcReal(key), before);
+      } else if (action === 'erase') {
+        const persisted = Object.fromEntries(Object.keys(W.localStorage).map(k => [k, W.localStorage.getItem(k)]));
+        A.scrubPersonalData();
+        for (const [k, value] of Object.entries(persisted)) W.localStorage.setItem(k, value);
+      } else if (action === 'reject') current = false;
+      else if (action === 'quota') proto.setItem = function (k, value) {
+        if (k === key) throw new W.DOMException('Seen quota', 'QuotaExceededError');
+        return set.call(this, k, value);
+      };
+      packing.release();
+      assert.equal(await pending, action === 'save');
+      if (action === 'save') assert.deepEqual(readPersistedFixture(W, key), expected);
+      else {
+        assert.equal(W.localStorage.getItem(key), action === 'replace' ? 'null' : before);
+        if (action === 'profile') assert.equal(W.localStorage.getItem(A.bcReal(key)), before);
+      }
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      proto.setItem = set; packing.release(); if (pending) await pending;
+      await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 menu seen queues retire superseded marks and copy the latest pending signature', async () => {
+  const app = await boot({ sample: false, nativeCompression: true });
+  const W = app.window, A = W.__app, mark = seenPersistenceMark('NEXT');
+  let first, next, held = false, done = false;
+  const packing = holdScoutCompression(W, json => !held && json.startsWith('{"ids":["f247seenFIRST') && (held = true));
+  try {
+    assert.equal(await A.seenMark('F247-queue', { ids: [123] }), false);
+    first = A.seenMark('F247-queue', seenPersistenceMark('FIRST'));
+    await waitFor(packing.ready, 'first seen marker');
+    next = A.seenMark('F247-queue', mark).finally(() => { done = true; });
+    mark.ids[1] = 'changedqueuedcaller';
+    await new Promise(resolve => setTimeout(resolve, 20));
+    assert.equal(done, false); assert.equal(A.seenGet('F247-queue'), null);
+    packing.release();
+    assert.equal(await first, false); assert.equal(await next, true);
+    assert.deepEqual(readPersistedFixture(W, A.seenKey('F247-queue')), seenPersistenceMark('NEXT'));
+    assert.deepEqual(app.state.errors, []);
+  } finally {
+    packing.release(); await Promise.allSettled([first, next].filter(Boolean));
+    await new Promise(setImmediate); W.close();
+  }
+});
+
+test('F247 borrowed menu seen migration preserves newer records and restored or foreign owners', async () => {
+  for (const action of ['replace', 'profile', 'erase', 'reject']) {
+    const app = await boot({ sample: false, nativeCompression: true });
+    const W = app.window, A = W.__app, key = A.seenKey('F247-migration');
+    const raw = JSON.stringify(seenPersistenceMark('MIGRATE'));
+    W.localStorage.setItem(key, raw); W.localStorage.removeItem(A.bcReal(A.IDENTITY_REV_KEY));
+    const packing = holdScoutCompression(W, json => json.startsWith('{"ids":["f247seenMIGRATE'));
+    let pending, current = true;
+    try {
+      pending = A.readSeenMark(key, {}, () => current);
+      await waitFor(packing.ready, 'held marker migration');
+      if (action === 'replace') W.localStorage.setItem(key, 'null');
+      else if (action === 'profile') {
+        W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-seen-reader');
+        W.localStorage.setItem(A.bcReal(key), raw);
+      } else if (action === 'erase') {
+        const persisted = Object.fromEntries(Object.keys(W.localStorage).map(k => [k, W.localStorage.getItem(k)]));
+        A.scrubPersonalData();
+        for (const [k, value] of Object.entries(persisted)) W.localStorage.setItem(k, value);
+      } else current = false;
+      packing.release(); await pending;
+      assert.equal(W.localStorage.getItem(key), action === 'replace' ? 'null' : raw);
+      if (action === 'profile') assert.equal(W.localStorage.getItem(A.bcReal(key)), raw);
+      assert.deepEqual(app.state.errors, []);
+    } finally { packing.release(); if (pending) await pending; W.close(); }
+  }
+});
+
+test('F247 actual section navigation retains news until the menu seen receipt and preserves useful page on failure', async () => {
+  for (const action of ['save', 'quota', 'profile', 'newer']) {
+    const mark = seenPersistenceMark('UI'), id = 'sec-abaBtn', key = 'bc_seen_v1:' + id;
+    const archive = Object.fromEntries(mark.ids.map((code, i) => [code + '|S' + i, 1]));
+    const app = await boot({ sample: false, nativeCompression: true, storage: {
+      ebird_aba_archive_v1: JSON.stringify({ 'US-WA': archive }),
+      [key]: JSON.stringify({ ids: mark.ids.slice(0, -1) })
+    } });
+    const W = app.window, A = W.__app, section = app.$(id);
+    const tile = W.document.querySelector('#menuList .toclink[data-at="abaBtn"]');
+    const proto = W.Storage.prototype, set = proto.setItem;
+    let held = false, pending, next;
+    const packing = holdScoutCompression(W, json => !held && json.startsWith('{"ids":["f247seenUI') && (held = true));
+    try {
+      assert.ok(tile.querySelector('.tilebadge'));
+      A.showSection(id, { load: false });
+      pending = section._menuSeenSave;
+      assert.ok(pending && typeof pending.then === 'function');
+      let done = false; pending.then(() => { done = true; });
+      await waitFor(() => packing.ready() || done, 'actual section last-seen retention');
+      assert.equal(packing.ready(), true); assert.equal(done, false);
+      assert.equal(section.hidden, false, 'navigation is useful immediately, not blocked on the journal');
+      assert.ok(tile.querySelector('.tilebadge'), 'news remains unacknowledged during packing');
+      const before = W.localStorage.getItem(key), beforeCalls = app.state.fetches.length;
+      if (action === 'quota') proto.setItem = function (k, value) {
+        if (k === key) throw new W.DOMException('Actual seen quota', 'QuotaExceededError');
+        return set.call(this, k, value);
+      };
+      else if (action === 'profile') {
+        W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-seen-view-owner');
+        W.localStorage.setItem(A.bcReal(key), before);
+      } else if (action === 'newer') {
+        const ids = seenPersistenceMark('LATEST').ids;
+        W.localStorage.setItem(A.ABA_ARCHIVE_KEY, JSON.stringify({
+          'US-WA': Object.fromEntries(ids.map((code, i) => [code + '|N' + i, 1]))
+        }));
+        A.showSection(id, { load: false }); next = section._menuSeenSave;
+      }
+      packing.release();
+      assert.equal(await pending, action === 'save');
+      if (next) { assert.equal(await next, true); assert.deepEqual(readPersistedFixture(W, key).ids, seenPersistenceMark('LATEST').ids); }
+      else if (action === 'save') assert.deepEqual(readPersistedFixture(W, key).ids, mark.ids);
+      else {
+        assert.equal(W.localStorage.getItem(key), before);
+        if (action === 'profile') assert.equal(W.localStorage.getItem(A.bcReal(key)), before);
+      }
+      if (action === 'save' || action === 'newer') assert.equal(tile.querySelector('.tilebadge'), null);
+      else assert.ok(tile.querySelector('.tilebadge'), 'unacknowledged history cannot consume the visible news');
+      assert.equal(app.state.fetches.length, beforeCalls, 'last-seen bookkeeping cannot buy network calls');
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      proto.setItem = set; packing.release(); await Promise.allSettled([pending, next].filter(Boolean));
+      await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 menu seen receipt does not repaint another scope, a round-trip scope or replaced section', async () => {
+  for (const action of ['scope', 'roundtrip', 'section']) {
+    const mark = seenPersistenceMark('PUBLISH'), id = 'sec-abaBtn', key = 'bc_seen_v1:' + id;
+    const app = await boot({ sample: false, nativeCompression: true, storage: {
+      ebird_aba_archive_v1: JSON.stringify({ 'US-WA': Object.fromEntries(mark.ids.map((code, i) => [code + '|S' + i, 1])) }),
+      [key]: JSON.stringify({ ids: mark.ids.slice(0, -1) })
+    } });
+    const W = app.window, A = W.__app;
+    const packing = holdScoutCompression(W, json => json.startsWith('{"ids":["f247seenPUBLISH'));
+    let pending;
+    try {
+      A.showSection(id, { load: false }); pending = app.$(id)._menuSeenSave;
+      await waitFor(packing.ready, 'old-view seen receipt');
+      A.showMenu();
+      if (action === 'section') app.$(id).replaceWith(app.$(id).cloneNode(true));
+      else {
+        const slug = A.getReportSlug();
+        A.setActiveReport('az');
+        if (action === 'roundtrip') A.setActiveReport(slug);
+      }
+      A.refreshMenuBadges();
+      const tile = W.document.querySelector('#menuList .toclink[data-at="abaBtn"]');
+      assert.ok(tile.querySelector('.tilebadge'), 'current menu still has unacknowledged news');
+      packing.release();
+      assert.equal(await pending, true, 'the previously viewed captured signature remains valid history');
+      assert.deepEqual(readPersistedFixture(W, key).ids, mark.ids);
+      assert.equal(A.newSince(id, mark.ids), 0, 'storage is acknowledged independently of stale UI publication');
+      assert.ok(tile.querySelector('.tilebadge'), 'an old receipt cannot repaint the current menu');
+      assert.deepEqual(app.state.errors, []);
+    } finally { packing.release(); if (pending) await pending; await new Promise(setImmediate); W.close(); }
+  }
+});
+
+function wallPersistenceRecord(kind) {
+  return { kind: 'F247 ' + kind, url: 'https://ebird.org/region/US-WA?diagnostic=' + kind.repeat(100),
+    at: '2026-01-02T12:00:00.000Z' };
+}
+
+test('F247 diagnostic inventory uses current encoded byte metadata without exposing or counting foreign payloads', async () => {
+  for (const profile of ['', 'p1']) {
+    const revisionKey = (profile ? 'bcp:' + profile + ':' : '') + 'ebird_identity_rev_v1';
+    const app = await boot({ sample: false, nativeCompression: true, storage: { bc_profile: profile, [revisionKey]: '17' } });
+    const W = app.window, A = W.__app;
+    try {
+      assert.ok(A.activeScope().cacheIdentity.includes('|17'), 'startup uses the actual profile identity revision');
+      const before = A.diagnosticStorageInventory();
+      const values = {
+        f247_cache: 'z:' + require('node:zlib').gzipSync(JSON.stringify({ rows: ['synthetic public row'.repeat(40)] })).toString('base64'),
+        f247_seen: '{"ids":["synthetic"]}',
+        f247_setting: 'j:"\ud83d\ude00"'
+      };
+      for (const [key, value] of Object.entries(values)) W.localStorage.setItem(A.bcReal(key), value);
+      W.localStorage.setItem('bcp:foreign:f247_cache', 'foreign opaque payload'.repeat(100));
+      const current = A.diagnosticStorageInventory();
+      assert.equal(current.total_entries - before.total_entries, 3);
+      assert.equal(current.approximate_bytes - before.approximate_bytes,
+        Object.entries(values).reduce((sum, [key, value]) => sum + (key.length + value.length) * 2, 0));
+      assert.equal(current.cache_entries - before.cache_entries, 1);
+      assert.equal(current.history_entries - before.history_entries, 1);
+      assert.equal(current.settings_entries - before.settings_entries, 1);
+      W.localStorage.setItem(A.bcReal('f247_cache'), 'j:[]');
+      const changed = A.diagnosticStorageInventory();
+      assert.equal(changed.approximate_bytes - current.approximate_bytes, ('j:[]'.length - values.f247_cache.length) * 2);
+      assert.ok(Object.values(changed).every(value => typeof value === 'number'));
+      assert.deepEqual(app.state.errors, []);
+    } finally { W.close(); }
+  }
+});
+
+test('F247 fragment capture preference hydrates legacy and native restart with fresh fail-closed reads', async () => {
+  const key = 'bc_rank_snapshot_enabled';
+  const gzip = 'z:' + require('node:zlib').gzipSync('true').toString('base64');
+  for (const raw of ['true', 'j:true', gzip]) {
+    const app = await boot({ sample: false, nativeCompression: true, storage: { [key]: raw } });
+    const W = app.window, A = W.__app;
+    try {
+      assert.equal(A.rankSnapshotEnabled(), true);
+      assert.equal(app.$('dbgSourceCapture').getAttribute('aria-pressed'), 'true');
+      assert.match(app.$('dbgSourceCapture').textContent, /: On$/);
+      assert.equal(readPersistedFixture(W, key), true);
+      assert.equal(W.localStorage.getItem(key), raw === gzip ? gzip : 'j:true');
+      for (const value of ['false', '"true"', '1', 'null', 'z:unreadable']) {
+        W.localStorage.setItem(key, value);
+        assert.equal(A.rankSnapshotEnabled(), false, 'unknown or non-boolean cannot enable private capture');
+      }
+      W.localStorage.setItem(key, gzip);
+      await A.readRankCapturePreference();
+      assert.equal(A.rankSnapshotEnabled(), true);
+      assert.deepEqual(app.state.errors, []);
+    } finally { W.close(); }
+  }
+});
+
+test('F247 fragment capture preference migration preserves changed bytes and restored or foreign owners', async () => {
+  for (const action of ['replace', 'profile', 'erase', 'reject']) {
+    const app = await boot({ sample: false, nativeCompression: true });
+    const W = app.window, A = W.__app, key = 'bc_rank_snapshot_enabled';
+    W.localStorage.setItem(key, 'false'); W.localStorage.removeItem(A.bcReal(A.IDENTITY_REV_KEY));
+    let pending, current = true;
+    try {
+      pending = A.readRankCapturePreference({}, () => current);
+      if (action === 'replace') W.localStorage.setItem(key, 'null');
+      else if (action === 'profile') {
+        W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-capture-reader');
+        W.localStorage.setItem(A.bcReal(key), 'false');
+      } else if (action === 'erase') {
+        const persisted = Object.fromEntries(Object.keys(W.localStorage).map(k => [k, W.localStorage.getItem(k)]));
+        A.scrubPersonalData();
+        for (const [k, value] of Object.entries(persisted)) W.localStorage.setItem(k, value);
+      } else current = false;
+      await pending;
+      assert.equal(W.localStorage.getItem(key), action === 'replace' ? 'null' : 'false');
+      if (action === 'profile') assert.equal(W.localStorage.getItem(A.bcReal(key)), 'false');
+      assert.deepEqual(app.state.errors, []);
+    } finally { if (pending) await pending; W.close(); }
+  }
+});
+
+test('F247 fragment preference receipts serialize newest intent and reject replacement or lost admission', async () => {
+  for (const action of ['save', 'replace', 'reject', 'newer']) {
+    const app = await boot({ sample: false, nativeCompression: true });
+    const W = app.window, A = W.__app, key = 'bc_rank_snapshot_enabled';
+    W.localStorage.setItem(key, 'false');
+    let release, ready = false, done = false, current = true, pending, next;
+    try {
+      assert.equal(await A.saveRankCapturePreference('true'), false);
+      A.setRankCapturePreferenceGate({ then(resolve) { ready = true; release = resolve; } });
+      pending = A.saveRankCapturePreference(true, () => current).finally(() => { done = true; });
+      await waitFor(() => ready || done, 'actual native boolean backend acknowledgment');
+      assert.equal(ready, true); assert.equal(done, false);
+      assert.equal(W.localStorage.getItem(key), 'j:false', 'save uses the admitted migrated baseline');
+      assert.equal(A.rankSnapshotEnabled(), false);
+      if (action === 'replace') W.localStorage.setItem(key, 'null');
+      else if (action === 'reject') current = false;
+      else if (action === 'newer') {
+        A.setRankCapturePreferenceGate(null);
+        let nextDone = false;
+        next = A.saveRankCapturePreference(false).finally(() => { nextDone = true; });
+        await new Promise(setImmediate);
+        assert.equal(nextDone, false, 'new preference cannot escape the pending writer queue');
+      }
+      A.setRankCapturePreferenceGate(null); release();
+      assert.equal(await pending, action === 'save');
+      if (next) assert.equal(await next, true);
+      assert.equal(W.localStorage.getItem(key), action === 'replace' ? 'null' : action === 'save' ? 'j:true' : 'j:false');
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      A.setRankCapturePreferenceGate(null); if (release) release();
+      await Promise.allSettled([pending, next].filter(Boolean)); await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 actual fragment capture control preserves consent and waits for acknowledged preference before enabling capture', async () => {
+  for (const action of ['save', 'quota', 'noop', 'profile', 'erase']) {
+    const app = await boot({ sample: false, nativeCompression: true, storage: { bc_rank_snapshot_enabled: 'false' } });
+    const W = app.window, A = W.__app, key = 'bc_rank_snapshot_enabled', button = app.$('dbgSourceCapture');
+    const proto = W.Storage.prototype, set = proto.setItem;
+    let ready = false, release, pending, done = false;
+    W.localStorage.removeItem(A.bcReal(A.IDENTITY_REV_KEY));
+    try {
+      W.confirm = () => false; button.click();
+      assert.equal(button._rankCaptureSave, undefined, 'refused consent cannot start capture');
+      assert.equal(A.rankSnapshotEnabled(), false);
+      W.confirm = () => true;
+      A.setRankCapturePreferenceGate({ then(resolve) { ready = true; release = resolve; } });
+      button.click(); pending = button._rankCaptureSave;
+      assert.ok(pending && typeof pending.then === 'function');
+      pending.then(() => { done = true; });
+      await waitFor(() => ready || done, 'real capture control storage receipt');
+      assert.equal(ready, true); assert.equal(done, false);
+      assert.equal(button.disabled, true); assert.equal(button.getAttribute('aria-busy'), 'true');
+      assert.equal(button.getAttribute('aria-pressed'), 'false');
+      assert.equal(A.rankSnapshotEnabled(), false, 'private page fragments remain disabled before acknowledgment');
+      const before = W.localStorage.getItem(key);
+      if (action === 'quota' || action === 'noop') proto.setItem = function (k, value) {
+        if (k === key) {
+          if (action === 'quota') throw new W.DOMException('Capture quota', 'QuotaExceededError');
+          return;
+        }
+        return set.call(this, k, value);
+      };
+      else if (action === 'profile') {
+        W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-capture-owner');
+        W.localStorage.setItem(A.bcReal(key), before);
+      } else if (action === 'erase') {
+        const persisted = Object.fromEntries(Object.keys(W.localStorage).map(k => [k, W.localStorage.getItem(k)]));
+        A.scrubPersonalData();
+        for (const [k, value] of Object.entries(persisted)) W.localStorage.setItem(k, value);
+      }
+      A.setRankCapturePreferenceGate(null); release();
+      assert.equal(await pending, action === 'save');
+      assert.equal(button.disabled, false); assert.equal(button.hasAttribute('aria-busy'), false);
+      assert.equal(W.localStorage.getItem(key), action === 'save' ? 'j:true' : before);
+      if (action === 'profile') assert.equal(W.localStorage.getItem(A.bcReal(key)), before);
+      assert.equal(button.getAttribute('aria-pressed'), action === 'save' ? 'true' : 'false');
+      assert.equal(A.rankSnapshotEnabled(), action === 'save');
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      proto.setItem = set; A.setRankCapturePreferenceGate(null); if (release) release();
+      if (pending) await pending; await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+function coveragePersistenceInput(kind) {
+  return {
+    section: 'nemesis', state: 'results', report: 'hi', region: 'US-HI',
+    countyScope: ['US-HI-001'], filter: kind.toLowerCase(),
+    capturedAt: '2026-09-30T09:03:19.579Z',
+    visibleSpecies: Array.from({ length: 60 }, (_, i) => 'f247coverage' + kind.toLowerCase() + i)
+  };
+}
+
+test('F247 coverage audit hydrates native restart and fresh copied unknown-aware exports', async () => {
+  const app = await boot({ sample: false, nativeCompression: true });
+  const W = app.window, A = W.__app, key = 'ebird_coverage_audit_v1';
+  let saved;
+  try {
+    const row = A.recordCoverage(coveragePersistenceInput('START'));
+    assert.equal(await A.waitCoverage(row), true);
+    saved = W.localStorage.getItem(key);
+    assert.ok(saved.startsWith('z:'));
+    assert.equal(readPersistedFixture(W, key).history.length, 1);
+  } finally { W.close(); }
+  for (const raw of [saved, JSON.stringify(JSON.parse(require('node:zlib').gunzipSync(
+    Buffer.from(saved.slice(2), 'base64')).toString('utf8')))]) {
+    const restart = await boot({ sample: false, nativeCompression: true, storage: { [key]: raw } });
+    const R = restart.window, B = R.__app;
+    try {
+      assert.ok(R.localStorage.getItem(key).startsWith('z:'));
+      assert.equal(B.coverageRead().history.length, 1);
+      B.coverageRead().history[0].visibleSpecies.length = 0;
+      assert.equal(B.coverageRead().history[0].visibleSpecies.length, 60);
+      const changed = readPersistedFixture(R, key);
+      changed.history[0].filter = 'changed';
+      R.localStorage.setItem(key, await B.packJson(changed));
+      assert.ok(R.localStorage.getItem(key).startsWith('z:'));
+      const exported = JSON.parse(B.coverageAuditExport());
+      assert.equal(exported.history.length, 0);
+      assert.ok(exported.sections.every(row => row.state === 'not-opened'));
+      await B.readCoverageAudit();
+      assert.equal(B.coverageRead().history[0].filter, 'changed');
+      for (const bad of ['{"latest":{"bad":null},"history":[]}', '{"latest":[],"history":[]}', '{"latest":{},"history":[{}]}']) {
+        R.localStorage.setItem(key, bad);
+        assert.equal(B.coverageRead().history.length, 0);
+        assert.equal(Object.keys(B.coverageRead().latest).length, 0);
+        assert.ok(JSON.parse(B.coverageAuditExport()).sections.every(row => row.state === 'not-opened'));
+      }
+      assert.deepEqual(restart.state.errors, []);
+    } finally { R.close(); }
+  }
+});
+
+test('F247 coverage receipts await copied migrated audit history and reject stale owner, bytes or failures', async () => {
+  for (const action of ['save', 'replace', 'profile', 'erase', 'reject', 'quota', 'clear']) {
+    const app = await boot({ sample: false, nativeCompression: true });
+    const W = app.window, A = W.__app, key = 'ebird_coverage_audit_v1';
+    if (action !== 'clear') W.localStorage.setItem(key, '{"version":1,"latest":{},"history":[]}');
+    W.localStorage.removeItem(A.bcReal(A.IDENTITY_REV_KEY));
+    const proto = W.Storage.prototype, set = proto.setItem;
+    const packing = holdScoutCompression(W, json => json.includes('f247coveragewrite0'));
+    let pending, current = true, done = false;
+    try {
+      const input = coveragePersistenceInput('WRITE'), row = A.recordCoverage(input, () => current);
+      const expected = JSON.parse(JSON.stringify(row));
+      pending = A.waitCoverage(row).finally(() => { done = true; });
+      input.visibleSpecies[1] = 'callerchanged'; input.countyScope[0] = 'US-HI-003';
+      row.visibleSpecies[1].code = 'returnedchanged';
+      await waitFor(() => packing.ready() || done, 'native coverage allocation');
+      assert.equal(packing.ready(), true); assert.equal(done, false);
+      const before = W.localStorage.getItem(key);
+      if (action === 'clear') assert.equal(before, null, 'clear retirement must also cover an initially absent record');
+      else assert.ok(before.startsWith('j:'), 'legacy audit migration advances save CAS');
+      assert.equal(A.coverageRead().history.length, 0);
+      if (action === 'replace') W.localStorage.setItem(key, 'null');
+      else if (action === 'profile') {
+        W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-coverage-owner');
+        W.localStorage.setItem(A.bcReal(key), before);
+      } else if (action === 'erase') {
+        const persisted = Object.fromEntries(Object.keys(W.localStorage).map(k => [k, W.localStorage.getItem(k)]));
+        A.scrubPersonalData();
+        for (const [k, value] of Object.entries(persisted)) W.localStorage.setItem(k, value);
+      } else if (action === 'reject') current = false;
+      else if (action === 'quota') proto.setItem = function (k, value) {
+        if (k === key) throw new W.DOMException('Coverage quota', 'QuotaExceededError');
+        return set.call(this, k, value);
+      };
+      else if (action === 'clear') assert.equal(await A.clearCoverageAudit(), true);
+      packing.release();
+      assert.equal(await pending, action === 'save');
+      if (action === 'save') {
+        const record = readPersistedFixture(W, key);
+        assert.equal(record.history.length, 1);
+        assert.equal(record.history[0].visibleSpecies[1].code, 'f247coveragewrite1');
+        assert.deepEqual(record.history[0].countyScope, ['US-HI-001']);
+        assert.deepEqual(record.history[0], expected);
+        assert.equal(Object.keys(row).some(k => /receipt|promise/i.test(k)), false);
+      } else {
+        assert.equal(W.localStorage.getItem(key), action === 'replace' ? 'null' : action === 'clear' ? null : before);
+        if (action === 'profile') assert.equal(W.localStorage.getItem(A.bcReal(key)), before);
+      }
+      assert.deepEqual(app.state.errors, []);
+    } finally { proto.setItem = set; packing.release(); if (pending) await pending; await new Promise(setImmediate); W.close(); }
+  }
+});
+
+test('F247 coverage queue retains each copied observation and clear verifies absence without migration', async () => {
+  const app = await boot({ sample: false, nativeCompression: true });
+  const W = app.window, A = W.__app, key = 'ebird_coverage_audit_v1';
+  let held = false, first, next, done = false;
+  const packing = holdScoutCompression(W, json => !held && json.includes('f247coveragefirst0') && (held = true));
+  const proto = W.Storage.prototype, remove = proto.removeItem;
+  try {
+    first = A.waitCoverage(A.recordCoverage(coveragePersistenceInput('FIRST')));
+    await waitFor(packing.ready, 'first coverage write');
+    const input = coveragePersistenceInput('NEXT');
+    next = A.waitCoverage(A.recordCoverage(input)).finally(() => { done = true; });
+    input.visibleSpecies[1] = 'changedqueuedcaller';
+    await new Promise(resolve => setTimeout(resolve, 20));
+    assert.equal(done, false);
+    packing.release();
+    assert.equal(await first, true); assert.equal(await next, true);
+    const record = readPersistedFixture(W, key);
+    assert.deepEqual(record.history.map(row => row.filter), ['first', 'next']);
+    assert.equal(record.history[1].visibleSpecies[1].code, 'f247coveragenext1');
+    const legacy = JSON.stringify(record);
+    W.localStorage.setItem(key, legacy);
+    proto.removeItem = function (k) { if (k !== key) return remove.call(this, k); };
+    assert.equal(await A.clearCoverageAudit(), false);
+    assert.equal(W.localStorage.getItem(key), legacy, 'failed clear cannot repack the retained record');
+    proto.removeItem = remove;
+    assert.equal(await A.clearCoverageAudit(), true);
+    assert.equal(W.localStorage.getItem(key), null);
+    assert.deepEqual(app.state.errors, []);
+  } finally { proto.removeItem = remove; packing.release(); await Promise.allSettled([first, next].filter(Boolean)); W.close(); }
+});
+
+test('F247 borrowed coverage migration cannot replace newer bytes or cross restored, foreign or rejected owners', async () => {
+  for (const action of ['replace', 'profile', 'erase', 'reject']) {
+    const app = await boot({ sample: false, nativeCompression: true });
+    const W = app.window, A = W.__app, key = 'ebird_coverage_audit_v1';
+    await A.waitCoverage(A.recordCoverage(coveragePersistenceInput('MIGRATE')));
+    const raw = JSON.stringify(readPersistedFixture(W, key));
+    W.localStorage.setItem(key, raw); W.localStorage.removeItem(A.bcReal(A.IDENTITY_REV_KEY));
+    const packing = holdScoutCompression(W, json => json.includes('f247coveragemigrate0'));
+    let pending, current = true;
+    try {
+      pending = A.readCoverageAudit({}, () => current);
+      await waitFor(packing.ready, 'actual coverage migration');
+      if (action === 'replace') W.localStorage.setItem(key, 'null');
+      else if (action === 'profile') {
+        W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-coverage-reader');
+        W.localStorage.setItem(A.bcReal(key), raw);
+      } else if (action === 'erase') {
+        const persisted = Object.fromEntries(Object.keys(W.localStorage).map(k => [k, W.localStorage.getItem(k)]));
+        A.scrubPersonalData();
+        for (const [k, value] of Object.entries(persisted)) W.localStorage.setItem(k, value);
+      } else current = false;
+      packing.release(); await pending;
+      assert.equal(W.localStorage.getItem(key), action === 'replace' ? 'null' : raw);
+      if (action === 'profile') assert.equal(W.localStorage.getItem(A.bcReal(key)), raw);
+      assert.deepEqual(app.state.errors, []);
+    } finally { packing.release(); if (pending) await pending; W.close(); }
+  }
+});
+
+test('F247 coverage clear acknowledgment cannot borrow an owner or superseding clear', async () => {
+  for (const action of ['profile', 'erase', 'new-clear']) {
+    const app = await boot({ sample: false, nativeCompression: true });
+    const W = app.window, A = W.__app;
+    let pending, next;
+    try {
+      W.localStorage.removeItem(A.bcReal(A.IDENTITY_REV_KEY));
+      const persisted = Object.fromEntries(Object.keys(W.localStorage).map(k => [k, W.localStorage.getItem(k)]));
+      pending = A.clearCoverageAudit();
+      if (action === 'profile') W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-coverage-clear');
+      else if (action === 'erase') {
+        A.scrubPersonalData();
+        for (const [k, value] of Object.entries(persisted)) W.localStorage.setItem(k, value);
+      } else next = A.clearCoverageAudit();
+      assert.equal(await pending, false);
+      if (next) assert.equal(await next, true);
+      assert.deepEqual(app.state.errors, []);
+    } finally { await Promise.allSettled([pending, next].filter(Boolean)); W.close(); }
+  }
+});
+
+test('F247 actual patch renderer keeps cards useful during coverage retention and rejects a retired source scope', async () => {
+  for (const action of ['save', 'scope', 'hydrate']) {
+    const app = await boot({ sample: false, nativeCompression: true, storage: { ebird_report: 'hi' }, fetch: () => [] });
+    const W = app.window, A = W.__app, code = 'f247coveragepatch0';
+    await seedSeen(app, [], null, [{ code, name: 'Synthetic public bird' }]);
+    const sec = app.$('sec-destBtn'), scope = A.activeScope();
+    const packing = holdScoutCompression(W, json => json.includes(code)
+      && (action !== 'hydrate' || JSON.parse(json).history.length === 2));
+    let pending, done = false;
+    try {
+      A.showSection(sec.id, { load: false });
+      A.renderDestinations([{
+        locId: 'L123', locName: 'Synthetic public patch', lat: 19.5, lng: -155.5,
+        dist: 1, score: 1, rare: 0, species: [{ code, name: 'Synthetic public bird' }]
+      }], app.$('destMap'), app.$('destResults'), action !== 'hydrate', false, scope);
+      pending = action === 'hydrate' ? sec._coverageHydration : sec._coverageSave;
+      assert.ok(pending && typeof pending.then === 'function');
+      pending.then(() => { done = true; });
+      await waitFor(() => packing.ready() || done, 'actual patch coverage allocation');
+      assert.equal(packing.ready(), true); assert.equal(done, false);
+      assert.match(app.$('destResults').textContent, /Synthetic public patch/);
+      if (action === 'scope') { A.showMenu(); A.setActiveReport('wa'); }
+      packing.release();
+      assert.equal(await pending, action !== 'scope');
+      if (action !== 'scope') {
+        const record = readPersistedFixture(W, 'ebird_coverage_audit_v1'), row = record.history[0];
+        assert.equal(record.history.length, action === 'hydrate' ? 2 : 1);
+        assert.equal(row.section, 'todays_patches'); assert.equal(row.state, 'results');
+        assert.ok(row.visibleSpecies.some(bird => bird.code === code));
+        assert.equal(JSON.stringify(row).includes('Synthetic public'), false);
+      } else assert.equal(W.localStorage.getItem('ebird_coverage_audit_v1'), null);
+      assert.deepEqual(app.state.errors, []);
+    } finally { packing.release(); if (pending) await pending; await new Promise(setImmediate); W.close(); }
+  }
+});
+
+test('F247 actual coverage autoload awaits asynchronous, synchronous and rejected source journals without hiding useful results', async () => {
+  for (const mode of ['async', 'sync', 'reject', 'quota', 'scope', 'unload']) {
+    const app = await boot({ sample: false, nativeCompression: true, storage: { ebird_report: 'hi' } });
+    const W = app.window, A = W.__app, sec = app.$('sec-easyBtn'), key = 'ebird_coverage_audit_v1';
+    const packing = holdScoutCompression(W, json => json.includes('f247coveragesource0'));
+    const proto = W.Storage.prototype, set = proto.setItem;
+    let pending, done = false;
+    try {
+      sec._loader = { fn: function () {
+        sec.innerHTML += '<span data-code="f247coveragesource0">Public coverage fixture</span>';
+        return mode === 'sync' ? true : mode === 'reject' ? Promise.reject(new Error('source fixture failed')) : Promise.resolve(true);
+      } };
+      A.showSection(sec.id, { load: false });
+      pending = Promise.resolve(A.autoLoad(sec)).finally(() => { done = true; });
+      await waitFor(() => packing.ready() || done, 'real autoload coverage retention');
+      assert.equal(packing.ready(), true); assert.equal(done, false);
+      assert.match(sec.textContent, /Public coverage fixture/);
+      assert.equal(sec.hidden, false, 'useful painted result does not wait for diagnostics');
+      if (mode === 'quota') proto.setItem = function (k, value) {
+        if (k === key) throw new W.DOMException('Source coverage quota', 'QuotaExceededError');
+        return set.call(this, k, value);
+      };
+      if (mode === 'scope') { A.showMenu(); A.setActiveReport('wa'); }
+      if (mode === 'unload') W.dispatchEvent(new W.Event('unload'));
+      packing.release();
+      assert.equal(await pending, !['reject', 'scope', 'unload'].includes(mode));
+      if (['quota', 'scope', 'unload'].includes(mode)) assert.equal(W.localStorage.getItem(key), null);
+      else assert.equal(readPersistedFixture(W, key).history[0].state, mode === 'reject' ? 'failed' : 'results');
+      if (mode !== 'scope') assert.match(sec.textContent, /Public coverage fixture/);
+      assert.deepEqual(app.state.errors, []);
+    } finally { proto.setItem = set; packing.release(); if (pending) await pending; await new Promise(setImmediate); W.close(); }
+  }
+});
+
+test('F247 wall observations hydrate native restart and reject stale or malformed backing bytes', async () => {
+  const record = wallPersistenceRecord('START');
+  let saved = JSON.stringify(record);
+  for (const restart of [false, true]) {
+    const app = await boot({ sample: false, nativeCompression: true, storage: { bc_wall_seen: saved } });
+    const W = app.window, A = W.__app, key = A.WALL_SEEN_KEY;
+    try {
+      saved = W.localStorage.getItem(key);
+      assert.ok(saved.startsWith('z:'));
+      assert.deepEqual(readPersistedFixture(W, key), record);
+      assert.equal(JSON.stringify(A.wallSeen()), JSON.stringify(record));
+      A.wallSeen().kind = 'mutated';
+      assert.equal(A.wallSeen().kind, record.kind);
+      W.localStorage.setItem(key, JSON.stringify({ ...record, kind: 'Replacement' }));
+      assert.equal(A.wallSeen().kind, 'Replacement');
+      W.localStorage.setItem(key, await A.packJson(wallPersistenceRecord('CHANGED')));
+      assert.equal(A.wallSeen(), null, 'unknown changed gzip is not an old observation');
+      await A.readWallSeen();
+      assert.equal(A.wallSeen().kind, 'F247 CHANGED');
+      for (const bad of ['[]', '{"kind":"No timestamp"}',
+        JSON.stringify({ ...record, at: 'not-a-date' }), 'z:unreadable']) {
+        W.localStorage.setItem(key, bad);
+        assert.equal(A.wallSeen(), null);
+      }
+      assert.deepEqual(app.state.errors, []);
+    } finally { W.close(); }
+  }
+});
+
+test('F247 wall writes await copied migrated receipts and reject replaced, cleared or foreign records', async () => {
+  for (const action of ['save', 'replace', 'profile', 'erase', 'reject', 'clear', 'clear-restore', 'quota']) {
+    const app = await boot({ sample: false, nativeCompression: true });
+    const W = app.window, A = W.__app, key = A.WALL_SEEN_KEY;
+    const previous = { kind: 'Previous', url: 'ebird.org/region/US-WA', at: '2026-01-02T12:00:00.000Z' };
+    W.localStorage.setItem(key, JSON.stringify(previous));
+    W.localStorage.removeItem(A.bcReal(A.IDENTITY_REV_KEY));
+    const record = wallPersistenceRecord('WRITE'), url = {
+      toString: () => record.url, toJSON: () => record.url
+    };
+    const packing = holdScoutCompression(W, json => json.includes('"kind":"F247 WRITE"'));
+    const proto = W.Storage.prototype, set = proto.setItem;
+    let pending, done = false, current = true;
+    try {
+      pending = A.noteWall(record.kind, url, () => current).finally(() => { done = true; });
+      record.url = wallPersistenceRecord('CALLER-CHANGED').url;
+      await waitFor(() => packing.ready() || done, 'native wall observation');
+      assert.equal(packing.ready(), true); assert.equal(done, false);
+      const before = W.localStorage.getItem(key);
+      assert.ok(before.startsWith('j:'), 'a migrated observation provides the write baseline');
+      assert.equal(A.wallSeen().kind, previous.kind);
+      if (action === 'replace') W.localStorage.setItem(key, 'null');
+      else if (action === 'profile') {
+        W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-wall-owner');
+        W.localStorage.setItem(A.bcReal(key), before);
+      } else if (action === 'erase') {
+        const persisted = Object.fromEntries(Object.keys(W.localStorage).map(k => [k, W.localStorage.getItem(k)]));
+        await A.scrubPersonalData();
+        for (const [k, value] of Object.entries(persisted)) W.localStorage.setItem(k, value);
+      } else if (action === 'reject') current = false;
+      else if (action === 'clear' || action === 'clear-restore') {
+        const clearing = A.clearWall('ebird.org/region/US-WA');
+        assert.equal(W.localStorage.getItem(key), null, 'open-page admission removes the old observation immediately');
+        assert.equal(await clearing, true);
+        if (action === 'clear-restore') W.localStorage.setItem(key, before);
+      } else if (action === 'quota') proto.setItem = function (k, value) {
+        if (k === key) throw new W.DOMException('Wall quota', 'QuotaExceededError');
+        return set.call(this, k, value);
+      };
+      packing.release();
+      assert.equal(await pending, action === 'save');
+      if (action === 'save') {
+        const actual = readPersistedFixture(W, key);
+        assert.equal(actual.kind, 'F247 WRITE');
+        assert.equal(actual.url, wallPersistenceRecord('WRITE').url);
+        assert.ok(Number.isFinite(Date.parse(actual.at)));
+      } else {
+        assert.equal(W.localStorage.getItem(key), action === 'replace' ? 'null' : action === 'clear' ? null : before);
+        if (action === 'profile') assert.equal(W.localStorage.getItem(A.bcReal(key)), before,
+          'the destination physical profile cannot receive the old observation');
+      }
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      proto.setItem = set; packing.release(); if (pending) await pending;
+      await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 newer queued wall observation retires held detection and publishes only its actual receipt', async () => {
+  const app = await boot({ sample: false, nativeCompression: true });
+  const W = app.window, A = W.__app;
+  let first, next, held = false, done = false;
+  const packing = holdScoutCompression(W, json => !held && json.includes('"kind":"F247 FIRST"') && (held = true));
+  try {
+    first = A.noteWall('F247 FIRST', wallPersistenceRecord('FIRST').url);
+    await waitFor(packing.ready, 'first wall detection');
+    next = A.noteWall('F247 NEXT', wallPersistenceRecord('NEXT').url).finally(() => { done = true; });
+    await new Promise(resolve => setTimeout(resolve, 20));
+    assert.equal(done, false); assert.equal(A.wallSeen(), null);
+    packing.release();
+    assert.equal(await first, false); assert.equal(await next, true);
+    assert.equal(readPersistedFixture(W, A.WALL_SEEN_KEY).kind, 'F247 NEXT');
+    assert.equal(A.wallSeen().kind, 'F247 NEXT');
+    assert.deepEqual(app.state.errors, []);
+  } finally {
+    packing.release(); await Promise.allSettled([first, next].filter(Boolean));
+    await new Promise(setImmediate); W.close();
+  }
+});
+
+test('F247 wall clear verifies actual absence and does not migrate a silently retained observation', async () => {
+  const app = await boot({ sample: false, nativeCompression: true,
+    storage: { bc_wall_seen: JSON.stringify(wallPersistenceRecord('KEEP')) } });
+  const W = app.window, A = W.__app, key = A.WALL_SEEN_KEY, proto = W.Storage.prototype, remove = proto.removeItem;
+  try {
+    W.localStorage.setItem(key, JSON.stringify(wallPersistenceRecord('KEEP')));
+    const before = W.localStorage.getItem(key);
+    proto.removeItem = function (k) { if (k !== key) return remove.call(this, k); };
+    assert.equal(await A.clearWall('ebird.org/region/US-WA'), false);
+    assert.equal(W.localStorage.getItem(key), before);
+    assert.doesNotMatch(W.__dbg.buf.map(row => row.msg).join('\n'), /wall cleared/);
+    proto.removeItem = remove;
+    assert.equal(await A.clearWall('ebird.org/region/US-WA'), true);
+    assert.equal(A.wallSeen(), null);
+    assert.deepEqual(app.state.errors, []);
+  } finally { proto.removeItem = remove; W.close(); }
+});
+
+test('F247 borrowed wall migrations preserve newer bytes and restored or foreign owners', async () => {
+  for (const action of ['replace', 'profile', 'erase', 'reject']) {
+    const app = await boot({ sample: false, nativeCompression: true });
+    const W = app.window, A = W.__app, key = A.WALL_SEEN_KEY;
+    const raw = JSON.stringify(wallPersistenceRecord('MIGRATE'));
+    W.localStorage.setItem(key, raw);
+    W.localStorage.removeItem(A.bcReal(A.IDENTITY_REV_KEY));
+    const packing = holdScoutCompression(W, json => json.includes('"kind":"F247 MIGRATE"'));
+    let pending, current = true;
+    try {
+      pending = A.readWallSeen({}, () => current);
+      await waitFor(packing.ready, 'held wall migration');
+      if (action === 'replace') W.localStorage.setItem(key, 'null');
+      else if (action === 'profile') {
+        W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-wall-reader');
+        W.localStorage.setItem(A.bcReal(key), raw);
+      } else if (action === 'erase') {
+        const persisted = Object.fromEntries(Object.keys(W.localStorage).map(k => [k, W.localStorage.getItem(k)]));
+        await A.scrubPersonalData();
+        for (const [k, value] of Object.entries(persisted)) W.localStorage.setItem(k, value);
+      } else current = false;
+      packing.release(); await pending;
+      assert.equal(W.localStorage.getItem(key), action === 'replace' ? 'null' : raw);
+      if (action === 'profile') assert.equal(W.localStorage.getItem(A.bcReal(key)), raw);
+      assert.deepEqual(app.state.errors, []);
+    } finally { packing.release(); if (pending) await pending; W.close(); }
+  }
+});
+
+test('F247 clear acknowledgment cannot publish under a restored owner or a newer blocked intent', async () => {
+  for (const action of ['profile', 'erase', 'newer']) {
+    const app = await boot({ sample: false, nativeCompression: true });
+    const W = app.window, A = W.__app, key = A.WALL_SEEN_KEY;
+    await A.noteWall('Old wall', 'ebird.org/region/US-WA');
+    W.localStorage.removeItem(A.bcReal(A.IDENTITY_REV_KEY));
+    const packing = holdScoutCompression(W, json => json.includes('"kind":"F247 NEWER"'));
+    let clearing, newer;
+    try {
+      clearing = A.clearWall('ebird.org/region/US-WA');
+      assert.equal(W.localStorage.getItem(key), null);
+      if (action === 'profile') W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-wall-clear-owner');
+      else if (action === 'erase') {
+        const persisted = Object.fromEntries(Object.keys(W.localStorage).map(k => [k, W.localStorage.getItem(k)]));
+        A.scrubPersonalData();
+        for (const [k, value] of Object.entries(persisted)) W.localStorage.setItem(k, value);
+      } else newer = A.noteWall('F247 NEWER', wallPersistenceRecord('NEWER').url);
+      assert.equal(await clearing, false, 'absence alone does not admit a retired clear receipt');
+      assert.doesNotMatch(W.__dbg.buf.map(row => row.msg).join('\n'), /wall cleared/);
+      if (newer) {
+        await waitFor(packing.ready, 'newer blocked intent');
+        packing.release(); assert.equal(await newer, true);
+        assert.equal(A.wallSeen().kind, 'F247 NEWER');
+      }
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      packing.release(); await Promise.allSettled([clearing, newer].filter(Boolean)); W.close();
+    }
+  }
+});
+
+test('F247 actual web-key observation awaits its encoded write and cannot borrow a changed owner', async () => {
+  for (const action of ['save', 'profile', 'erase', 'newer', 'quota']) {
+    const app = await boot({ sample: false, nativeCompression: true, fetch: url =>
+      /ebird\.org\/region\/US-WA/.test(url) ? '<html><title>Anubis</title>anubis_challenge</html>' : [] });
+    const W = app.window, A = W.__app, key = A.WALL_SEEN_KEY;
+    W.localStorage.removeItem(A.bcReal(A.IDENTITY_REV_KEY));
+    const proto = W.Storage.prototype, set = proto.setItem;
+    let pending, release, ready = false, done = false;
+    A.setWallStoreGate(() => { ready = true; return new Promise(resolve => { release = resolve; }); });
+    try {
+      pending = A.ebirdWebKey().finally(() => { done = true; });
+      await waitFor(() => ready || done, 'actual wall write acknowledgment');
+      assert.equal(ready, true); assert.equal(done, false);
+      assert.equal(W.localStorage.getItem(key), null);
+      if (action === 'profile') W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-wall-source');
+      else if (action === 'erase') {
+        const persisted = Object.fromEntries(Object.keys(W.localStorage).map(k => [k, W.localStorage.getItem(k)]));
+        await A.scrubPersonalData();
+        for (const [k, value] of Object.entries(persisted)) W.localStorage.setItem(k, value);
+      } else if (action === 'newer') await A.clearWall('ebird.org/region/US-WA');
+      else if (action === 'quota') proto.setItem = function (k, value) {
+        if (k === key) throw new W.DOMException('Actual wall quota', 'QuotaExceededError');
+        return set.call(this, k, value);
+      };
+      release(); assert.equal(await pending, null);
+      if (action === 'save') {
+        assert.ok(W.localStorage.getItem(key).startsWith('j:'));
+        assert.equal(readPersistedFixture(W, key).kind, 'eBird\u2019s bot filter');
+      } else {
+        assert.equal(W.localStorage.getItem(key), null);
+        if (action === 'profile') assert.equal(W.localStorage.getItem(A.bcReal(key)), null);
+      }
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      proto.setItem = set; if (release) release(); if (pending) await pending;
+      A.setWallStoreGate(null); await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 actual open-page consumers await native failed-clear receipts without discarding useful results', async () => {
+  const html = '<html><title>Region</title><script>window.__NUXT__=(function(a,b,c){return {x:a,cfg:{ebirdApiKey:b}}}("zz","f247syntheticwebkey",1));</script></html>';
+  for (const consumer of ['key', 'probe']) {
+    const app = await boot({ sample: false, nativeCompression: true,
+      storage: { bc_wall_seen: JSON.stringify(wallPersistenceRecord('UNCLEARED')) },
+      fetch: url => /ebird\.org\/region\/US-WA/.test(url) ? html : [] });
+    const W = app.window, A = W.__app, key = A.WALL_SEEN_KEY;
+    assert.equal(A.extractWebKey(html), 'f247syntheticwebkey', 'the controlled region page carries an extractable token');
+    const encoded = W.localStorage.getItem(key), NativeResponse = W.Response;
+    const proto = W.Storage.prototype, remove = proto.removeItem;
+    let pending, release, held = false, done = false;
+    W.Response = class {
+      constructor(value) {
+        if (!held && ArrayBuffer.isView(value) && Buffer.from(value).toString('base64') === encoded.slice(2)) {
+          held = true; this.body = { pipeThrough: () => ({ wallRead: true }) };
+        } else if (value && value.wallRead) {
+          this.text = () => new Promise(resolve => {
+            release = () => resolve(zlib.gunzipSync(Buffer.from(encoded.slice(2), 'base64')).toString('utf8'));
+          });
+        } else return new NativeResponse(value);
+      }
+    };
+    proto.removeItem = function (k) { if (k !== key) return remove.call(this, k); };
+    try {
+      pending = (consumer === 'key' ? A.ebirdWebKey() : A.wallFetch()).finally(() => { done = true; });
+      await waitFor(() => !!release || done, 'actual open-page failed-clear decode receipt');
+      assert.ok(release, 'the consumer must actually verify the silently retained native record');
+      assert.equal(done, false, 'open-page completion awaits its clear acknowledgment');
+      release();
+      const result = await pending;
+      if (consumer === 'key') assert.equal(result, 'f247syntheticwebkey');
+      else assert.equal(result.verdict, 'OPEN');
+      assert.equal(W.localStorage.getItem(key), encoded, 'failed removal cannot invent an absent durable history');
+      assert.doesNotMatch(W.__dbg.buf.map(row => row.msg).join('\n'), /wall cleared/);
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      proto.removeItem = remove; if (release) release(); if (pending) await pending;
+      W.Response = NativeResponse; await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 late web-key pages cannot record a foreign or superseded source observation', async () => {
+  for (const action of ['profile', 'erase', 'newer', 'newer-key']) {
+    let reply, armed = false;
+    const app = await boot({ sample: false, nativeCompression: true, fetch: url =>
+      /ebird\.org\/region\/US-WA/.test(url)
+        ? armed ? new Promise(resolve => { reply = resolve; })
+          : '<html><title>Washington - eBird</title><a href="/region/US-WA/bird-list">Bird list</a></html>'
+        : [] });
+    const W = app.window, A = W.__app, key = A.WALL_SEEN_KEY;
+    W.localStorage.removeItem(A.bcReal(A.IDENTITY_REV_KEY));
+    let pending;
+    try {
+      armed = true; pending = A.ebirdWebKey();
+      await waitFor(() => !!reply, 'held wall source page');
+      if (action === 'profile') W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-late-wall-source');
+      else if (action === 'erase') {
+        const persisted = Object.fromEntries(Object.keys(W.localStorage).map(k => [k, W.localStorage.getItem(k)]));
+        A.scrubPersonalData();
+        for (const [k, value] of Object.entries(persisted)) W.localStorage.setItem(k, value);
+      } else {
+        armed = false;
+        assert.equal((await A.wallFetch()).verdict, 'OPEN');
+        if (action === 'newer-key') await A.noteWall('Newer blocked page', 'ebird.org/region/US-WA');
+      }
+      reply(action === 'newer-key'
+        ? '<html><title>Region</title><script>window.__NUXT__=(function(a,b,c){return {x:a,cfg:{ebirdApiKey:b}}}("zz","f247ownedearlierkey",1));</script></html>'
+        : '<html><title>Anubis</title>anubis_challenge</html>');
+      assert.equal(await pending, action === 'newer-key' ? 'f247ownedearlierkey' : null,
+        'a useful same-owner token is independent of admitting its older wall observation');
+      if (action === 'newer-key') assert.equal(A.wallSeen()?.kind, 'Newer blocked page');
+      else assert.equal(W.localStorage.getItem(key), null);
+      if (action === 'profile') assert.equal(W.localStorage.getItem(A.bcReal(key)), null);
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      if (reply) reply('<html>anubis_challenge</html>');
+      if (pending) await pending; W.close();
+    }
+  }
+});
+
+test('F247 late wall probes cannot clear a restored or foreign newer observation', async () => {
+  for (const action of ['profile', 'erase', 'newer']) {
+    let reply, armed = false;
+    const app = await boot({ sample: false, nativeCompression: true, fetch: url =>
+      /ebird\.org\/region\/US-WA/.test(url)
+        ? armed ? new Promise(resolve => { reply = resolve; })
+          : '<html><title>Washington - eBird</title><a href="/region/US-WA/bird-list">Bird list</a></html>'
+        : [] });
+    const W = app.window, A = W.__app, key = A.WALL_SEEN_KEY;
+    W.localStorage.removeItem(A.bcReal(A.IDENTITY_REV_KEY));
+    let pending;
+    try {
+      armed = true; pending = A.wallFetch();
+      await waitFor(() => !!reply, 'held wall probe page');
+      if (action === 'profile') W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-late-wall-probe');
+      else if (action === 'erase') {
+        const persisted = Object.fromEntries(Object.keys(W.localStorage).map(k => [k, W.localStorage.getItem(k)]));
+        A.scrubPersonalData();
+        for (const [k, value] of Object.entries(persisted)) W.localStorage.setItem(k, value);
+      } else {
+        armed = false; assert.equal((await A.wallFetch()).verdict, 'OPEN');
+      }
+      assert.equal(await A.noteWall('Newer blocked observation', 'ebird.org/region/US-WA'), true);
+      const physicalKey = A.bcReal(key), before = W.localStorage.getItem(physicalKey);
+      reply('<html><title>Washington - eBird</title><a href="/region/US-WA/bird-list">Bird list</a></html>');
+      assert.equal((await pending).verdict, 'OPEN');
+      assert.equal(W.localStorage.getItem(physicalKey), before,
+        'the older open page cannot clear a newer owned observation');
+      assert.equal(A.wallSeen()?.kind, 'Newer blocked observation');
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      if (reply) reply('<html><title>Washington - eBird</title></html>');
+      if (pending) await pending; W.close();
+    }
+  }
+});
+
+function dailyPersistenceCodes(kind) {
+  return Array.from({ length: 60 }, (_, i) => 'd247' + kind + i);
+}
+
+test('F247 daily species snapshots hydrate native history and restart without stale prior sets', async () => {
+  const codes = dailyPersistenceCodes('prior'), key = 'bc_snap:wa:2026-01-02';
+  let saved = JSON.stringify(codes);
+  for (const restart of [false, true]) {
+    const app = await boot({ sample: false, home: false, nativeCompression: true, storage: { [key]: saved,
+      'bc_snap:wa:2026-01-01': '["older"]' } });
+    const W = app.window, A = W.__app;
+    try {
+      saved = W.localStorage.getItem(key);
+      assert.ok(saved.startsWith('z:'));
+      assert.deepEqual(readPersistedFixture(W, key), codes);
+      assert.ok(A.priorSnapCodes('wa'), 'hydrated prior codes are available to synchronous Chase comparisons');
+      assert.deepEqual(Object.keys(A.priorSnapCodes('wa')), codes);
+      A.priorSnapCodes('wa').injected = 1;
+      assert.equal(A.priorSnapCodes('wa').injected, undefined);
+      W.localStorage.setItem(key, '[]');
+      assert.deepEqual(Object.keys(A.priorSnapCodes('wa')), []);
+      W.localStorage.setItem(key, '{"not":"codes"}');
+      assert.equal(A.priorSnapCodes('wa'), null, 'invalid latest history is not a verified empty or an older answer');
+      W.localStorage.setItem(key, '[1]');
+      assert.equal(A.priorSnapCodes('wa'), null);
+      W.localStorage.setItem(key, await A.packJson(dailyPersistenceCodes('changed')));
+      assert.equal(A.priorSnapCodes('wa'), null, 'changed unknown gzip cannot borrow the old decoded history');
+      await A.readSnapCodes(key);
+      assert.ok(A.priorSnapCodes('wa'), 'an awaited changed record becomes the current prior set');
+      assert.deepEqual(Object.keys(A.priorSnapCodes('wa')), dailyPersistenceCodes('changed'));
+      W.localStorage.setItem(key, 'z:unreadable');
+      assert.equal(A.priorSnapCodes('wa'), null);
+      assert.deepEqual(app.state.errors, []);
+    } finally { W.close(); }
+  }
+});
+
+test('F247 daily species saves await copied migrated receipts and retire changed bytes, owners or failures', async () => {
+  for (const action of ['save', 'replace', 'profile', 'erase', 'reject', 'quota']) {
+    const app = await boot({ sample: false, home: false, nativeCompression: true });
+    const W = app.window, A = W.__app, key = A.snapKey('wa', A.todayStr());
+    W.localStorage.setItem(key, '["previous"]');
+    W.localStorage.removeItem(A.bcReal(A.IDENTITY_REV_KEY));
+    const codes = dailyPersistenceCodes('write'), expected = [...codes];
+    const packing = holdScoutCompression(W, json => json.startsWith('["d247write'));
+    const proto = W.Storage.prototype, set = proto.setItem;
+    let pending, done = false, current = true;
+    try {
+      pending = A.saveSnapCodes('wa', codes, () => current).finally(() => { done = true; });
+      codes[1] = 'changedcaller';
+      await waitFor(() => packing.ready() || done, 'held native daily snapshot');
+      assert.equal(packing.ready(), true);
+      assert.equal(done, false);
+      const before = W.localStorage.getItem(key);
+      assert.ok(before.startsWith('j:'), 'legacy migration supplies the actual replacement baseline');
+      assert.deepEqual(readPersistedFixture(W, key), ['previous']);
+      if (action === 'replace') W.localStorage.setItem(key, '["external"]');
+      else if (action === 'profile') {
+        W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-daily-owner');
+        W.localStorage.setItem(A.bcReal(key), before);
+      } else if (action === 'erase') {
+        const persisted = Object.fromEntries(Object.keys(W.localStorage).map(k => [k, W.localStorage.getItem(k)]));
+        await A.scrubPersonalData();
+        for (const [k, value] of Object.entries(persisted)) W.localStorage.setItem(k, value);
+      } else if (action === 'reject') current = false;
+      else if (action === 'quota') proto.setItem = function (k, value) {
+        if (k === key) throw new W.DOMException('Daily snapshot quota', 'QuotaExceededError');
+        return set.call(this, k, value);
+      };
+      packing.release();
+      assert.equal(await pending, action === 'save');
+      if (action === 'save') assert.deepEqual(readPersistedFixture(W, key), expected);
+      else {
+        assert.equal(W.localStorage.getItem(key), action === 'replace' ? '["external"]' : before);
+        if (action === 'profile') assert.equal(W.localStorage.getItem(A.bcReal(key)), before,
+          'the old producer cannot allocate in the destination profile either');
+      }
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      proto.setItem = set; packing.release(); if (pending) await pending;
+      await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 serialized daily snapshots capture the initiating day and commit the latest copied list', async () => {
+  const app = await boot({ sample: false, home: false, nativeCompression: true });
+  const W = app.window, A = W.__app, NativeDate = W.Date;
+  let clock = new Date(2026, 8, 28, 23, 59).getTime();
+  W.Date = class extends NativeDate {
+    constructor(...args) { super(...(args.length ? args : [clock])); }
+    static now() { return clock; }
+  };
+  const firstCodes = dailyPersistenceCodes('first'), nextCodes = dailyPersistenceCodes('next');
+  let held = false, first, next, done = false;
+  const packing = holdScoutCompression(W, json => !held && json.startsWith('["d247first') && (held = true));
+  try {
+    assert.equal(await A.saveSnapCodes('wa', [123]), false, 'invalid code arrays cannot become durable baselines');
+    assert.equal(W.localStorage.getItem(A.snapKey('wa', '2026-09-28')), null);
+    first = A.saveSnapCodes('wa', firstCodes);
+    await waitFor(packing.ready, 'first daily save');
+    next = A.saveSnapCodes('wa', nextCodes).finally(() => { done = true; });
+    nextCodes[1] = 'changedqueuedcaller';
+    clock += 120000;
+    await new Promise(resolve => setTimeout(resolve, 20));
+    assert.equal(done, false, 'next snapshot is not acknowledged ahead of its queued transaction');
+    assert.equal(W.localStorage.getItem(A.snapKey('wa', '2026-09-28')), null);
+    packing.release();
+    assert.equal(await first, true);
+    assert.equal(await next, true);
+    assert.deepEqual(readPersistedFixture(W, A.snapKey('wa', '2026-09-28')), dailyPersistenceCodes('next'));
+    assert.equal(W.localStorage.getItem(A.snapKey('wa', '2026-09-29')), null,
+      'packing past midnight does not rename either initiating-day snapshot');
+    assert.deepEqual(app.state.errors, []);
+  } finally {
+    packing.release(); await Promise.allSettled([first, next].filter(Boolean));
+    await new Promise(setImmediate); W.Date = NativeDate; W.close();
+  }
+});
+
+test('F247 daily snapshot migration cannot borrow a restored or foreign owner or replace newer bytes', async () => {
+  for (const action of ['replace', 'profile', 'erase', 'reject']) {
+    const app = await boot({ sample: false, home: false, nativeCompression: true });
+    const W = app.window, A = W.__app, key = 'bc_snap:wa:2026-01-02';
+    const raw = JSON.stringify(dailyPersistenceCodes('migration'));
+    W.localStorage.setItem(key, raw);
+    W.localStorage.removeItem(A.bcReal(A.IDENTITY_REV_KEY));
+    const packing = holdScoutCompression(W, json => json.startsWith('["d247migration'));
+    let pending, current = true;
+    try {
+      pending = A.readSnapCodes(key, {}, () => current);
+      await waitFor(packing.ready, 'native daily migration');
+      if (action === 'replace') W.localStorage.setItem(key, '["replacement"]');
+      else if (action === 'profile') {
+        W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-daily-reader');
+        W.localStorage.setItem(A.bcReal(key), raw);
+      } else if (action === 'erase') {
+        const persisted = Object.fromEntries(Object.keys(W.localStorage).map(k => [k, W.localStorage.getItem(k)]));
+        await A.scrubPersonalData();
+        for (const [k, value] of Object.entries(persisted)) W.localStorage.setItem(k, value);
+      } else current = false;
+      packing.release(); await pending;
+      assert.equal(W.localStorage.getItem(key), action === 'replace' ? '["replacement"]' : raw);
+      if (action === 'profile') assert.equal(W.localStorage.getItem(A.bcReal(key)), raw,
+        'a rejected borrowed migration leaves the destination physical namespace unchanged');
+      assert.deepEqual(app.state.errors, []);
+    } finally { packing.release(); if (pending) await pending; W.close(); }
+  }
+});
+
+test('F247 actual Chase waits for daily retention while keeping useful phase-one results on storage failure', async () => {
+  for (const action of ['save', 'quota', 'replace', 'scope']) {
+    const codes = dailyPersistenceCodes('source');
+    const rows = codes.map((speciesCode, i) => ({
+      speciesCode, comName: 'Daily Snapshot Bird ' + i, obsDt: recentObsStamp(0),
+      locId: 'L247DAY', locName: 'Daily Snapshot Wetland', lat: 47.62, lng: -122.34, subId: 'S247DAY'
+    }));
+    const app = await boot({ sample: false, nativeCompression: true, fetch: url =>
+      /\/data\/obs\//.test(url) ? rows : [] });
+    const W = app.window, A = W.__app;
+    await seedSeen(app, codes, null, rows.map(r => ({ code: r.speciesCode, name: r.comName })));
+    const key = A.snapKey('wa', A.todayStr());
+    const proto = W.Storage.prototype, set = proto.setItem;
+    let held = false, pending, done = false;
+    const packing = holdScoutCompression(W, json => !held && json.startsWith('["d247source') && (held = true));
+    try {
+      pending = A.getChaseAll(true).then(value => ({ value }), error => ({ error }))
+        .finally(() => { done = true; });
+      await waitFor(() => packing.ready() || done, 'actual Chase daily code receipt');
+      assert.equal(packing.ready(), true);
+      assert.equal(done, false, 'the actual source operation must await its daily retention');
+      assert.equal(W.localStorage.getItem(key), null, 'no provisional JSON allocation');
+      const useful = await A.getChaseAll(false);
+      assert.equal(useful.cv.merged.length, codes.length, 'the in-memory phase-one result stays useful during packing');
+      if (action === 'quota') proto.setItem = function (k, value) {
+        if (k === key) throw new W.DOMException('Actual daily quota', 'QuotaExceededError');
+        return set.call(this, k, value);
+      };
+      else if (action === 'replace') W.localStorage.setItem(key, '["newer"]');
+      else if (action === 'scope') A.clearChaseCache(false);
+      packing.release();
+      const result = await pending;
+      if (action === 'scope') assert.equal(result.error?.chaseSuperseded, true);
+      else assert.equal(result.value.cv.merged.length, codes.length,
+        'optional retention failure cannot discard the acquired source');
+      if (action === 'save') assert.deepEqual(readPersistedFixture(W, key), codes);
+      else assert.equal(W.localStorage.getItem(key), action === 'replace' ? '["newer"]' : null);
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      proto.setItem = set; packing.release(); if (pending) await pending;
+      await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 cached and offline Chase producers await daily receipts without losing retained rows', async () => {
+  for (const state of ['fresh', 'stale', 'offline', 'arriving']) {
+    let W, snapshotKey, cachedRaw, installed = false;
+    const app = await boot({ sample: false, nativeCompression: true, fetch: url => {
+      if (!/\/data\/obs\//.test(url)) return [];
+      if (state === 'arriving' && snapshotKey && cachedRaw && !installed) {
+        installed = true; W.localStorage.setItem(snapshotKey, cachedRaw);
+      }
+      return { __status: 400, __body: { error: 'Retained daily source' } };
+    } });
+    W = app.window;
+    const A = W.__app, NativeDate = W.Date, noon = new Date();
+    noon.setHours(12, 0, 0, 0);
+    let clock = noon.getTime();
+    W.Date = class extends NativeDate {
+      constructor(...args) { super(...(args.length ? args : [clock])); }
+      static now() { return clock += 3000; }
+    };
+    const codes = dailyPersistenceCodes('cached');
+    const rows = codes.map((speciesCode, i) => ({ speciesCode, comName: 'Daily Cached Bird ' + i,
+      obsDt: A.todayStr() + ' 08:00', locId: 'L247CACHED', locName: 'Cached Daily Wetland',
+      lat: 47.62, lng: -122.34, subId: 'S247CACHED' }));
+    await seedSeen(app, codes, null, rows.map(r => ({ code: r.speciesCode, name: r.comName })));
+    const byFile = {}, states = {};
+    W.BirdLogic.planFeeds(A.chaseProfile()).forEach(feed => {
+      byFile[feed.file] = rows; states[feed.file] = 'ok';
+    });
+    await A.saveChaseSnapshot('wa', codes, byFile, states);
+    snapshotKey = A.chaseKey('wa'); cachedRaw = W.localStorage.getItem(snapshotKey);
+    assert.ok(cachedRaw);
+    if (state === 'arriving') W.localStorage.removeItem(snapshotKey);
+    if (state === 'stale') clock += 31 * 60000;
+    A.seedChase('wa', null);
+    const key = A.snapKey('wa', A.todayStr()), beforeCalls = app.state.fetches.length;
+    let held = false, pending, done = false;
+    const packing = holdScoutCompression(W, json => !held && json.startsWith('["d247cached') && (held = true));
+    try {
+      pending = A.getChaseAll(state === 'offline' || state === 'arriving').finally(() => { done = true; });
+      await waitFor(() => packing.ready() || done, 'retained actual Chase daily acknowledgment');
+      assert.equal(packing.ready(), true, state + ' retained codes enter native packing');
+      assert.equal(done, false, state + ' source operation must await its real daily receipt');
+      assert.equal(W.localStorage.getItem(key), null);
+      if (state === 'fresh') assert.equal(app.state.fetches.length, beforeCalls,
+        'fresh cached retention does not buy another source wave');
+      packing.release();
+      const result = await pending;
+      assert.equal(result.cv.merged.length, codes.length);
+      assert.deepEqual(readPersistedFixture(W, key), codes);
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      packing.release(); if (pending) await pending;
+      A.clearChaseCache(false); await new Promise(setImmediate);
+      W.Date = NativeDate; W.close();
+    }
+  }
+});
+
+test('F247 failed or partially unknown empty Chase cannot poison the next daily comparison', async () => {
+  for (const state of ['failed', 'partial', 'no-plan', 'empty']) {
+    const app = await boot({ sample: false, nativeCompression: true, fetch: url => {
+      if (!/\/data\/obs\//.test(url)) return [];
+      if (state === 'failed' || state === 'partial' && /\/recent\/notable\?/.test(url)) {
+        return { __status: 400, __body: { error: 'Unavailable daily source' } };
+      }
+      return [];
+    } });
+    const W = app.window, A = W.__app, key = A.snapKey('wa', A.todayStr());
+    try {
+      if (state === 'no-plan') W.BirdLogic.planFeeds = () => [];
+      const result = await A.getChaseAll(true);
+      if (state === 'no-plan') assert.equal(result.cv, null, 'no planned source remains unknown, not a verified zero');
+      else assert.equal(result.cv.merged.length, 0);
+      if (state !== 'no-plan') assert.equal(result.feedComplete, state === 'empty');
+      assert.equal(W.localStorage.getItem(key), state === 'empty' ? 'j:[]' : null,
+        'only an acquired complete empty source is a durable empty daily baseline');
+      assert.deepEqual(app.state.errors, []);
+    } finally { W.close(); }
+  }
+});
+
+test('F247 Temp Home hydrates native startup and restart with fresh copied coordinates', async () => {
+  const point = tempPersistencePoint('START');
+  let saved = JSON.stringify(point);
+  for (const restart of [false, true]) {
+    const app = await boot({ sample: false, home: false, nativeCompression: true,
+      storage: { ebird_temp_home_v1: saved } });
+    const W = app.window, A = W.__app;
+    try {
+      saved = W.localStorage.getItem(A.TEMP_HOME_KEY);
+      assert.ok(saved.startsWith('z:'));
+      assert.deepEqual(readPersistedFixture(W, A.TEMP_HOME_KEY), point);
+      assert.equal(JSON.stringify(A.tempHome()), JSON.stringify(point));
+      A.tempHome().lat = 0;
+      assert.equal(A.tempHome().lat, point.lat);
+      W.localStorage.setItem(A.TEMP_HOME_KEY, JSON.stringify({ ...point, label: 'Replacement' }));
+      assert.equal(A.tempHome().label, 'Replacement');
+      const replacement = tempPersistencePoint('CHANGED');
+      W.localStorage.setItem(A.TEMP_HOME_KEY, await A.packJson(replacement));
+      assert.equal(A.tempHome(), null, 'unknown changed gzip must not reuse a decoded replacement');
+      await A.readTempHome();
+      assert.equal(A.tempHome().label, replacement.label);
+      W.localStorage.setItem(A.TEMP_HOME_KEY, 'z:unreadable');
+      assert.equal(A.tempHome(), null);
+      assert.deepEqual(app.state.errors, []);
+    } finally { W.close(); }
+  }
+});
+
+test('F247 Temp Home writes await copied migrated receipts and retire scope, owner, clear or failure', async () => {
+  for (const action of ['save', 'replace', 'profile', 'erase', 'scope', 'roundtrip', 'clear', 'clear-restore', 'quota', 'reject']) {
+    const app = await boot({ sample: false, home: false, nativeCompression: true });
+    const W = app.window, A = W.__app, key = A.TEMP_HOME_KEY;
+    const previous = { lat: 47.62, lng: -122.34, label: 'Previous Temp' };
+    W.localStorage.setItem(key, JSON.stringify(previous));
+    W.localStorage.removeItem(A.bcReal(A.IDENTITY_REV_KEY));
+    const point = tempPersistencePoint('WRITE'), expected = { ...point };
+    const packing = holdScoutCompression(W, json => json.includes('F247_TEMP_WRITE'));
+    const proto = W.Storage.prototype, set = proto.setItem;
+    let pending, done = false, current = true;
+    try {
+      pending = A.saveTempHome(point, () => current).finally(() => { done = true; });
+      point.lat = 0; point.lng = 0;
+      await waitFor(() => packing.ready() || done, 'native Temp retention');
+      assert.equal(packing.ready(), true);
+      assert.equal(done, false);
+      const before = W.localStorage.getItem(key);
+      assert.ok(before.startsWith('j:'), 'migration updates the baseline before replacement');
+      assert.equal(A.tempHome().label, previous.label);
+      if (action === 'replace') W.localStorage.setItem(key, 'null');
+      else if (action === 'profile') {
+        W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-temp-owner');
+        W.localStorage.setItem(A.bcReal(key), before);
+      } else if (action === 'erase') {
+        const scope = A.activeScope();
+        const persisted = Object.fromEntries(Object.keys(W.localStorage).map(k => [k, W.localStorage.getItem(k)]));
+        await A.scrubPersonalData();
+        for (const [k, value] of Object.entries(persisted)) W.localStorage.setItem(k, value);
+        assert.equal(A.activeScope().cacheIdentity, scope.cacheIdentity,
+          'identical persisted scope must not substitute for the monotonic erasure barrier');
+        assert.equal(A.activeScope().generation, scope.generation);
+      } else if (action === 'scope' || action === 'roundtrip') {
+        A.setActiveReport('hi');
+        if (action === 'roundtrip') A.setActiveReport('wa');
+      } else if (action === 'clear' || action === 'clear-restore') {
+        const clearing = A.clearTempHome();
+        assert.equal(W.localStorage.getItem(key), null, 'Restore removes the old point immediately');
+        assert.equal(await clearing, true);
+        if (action === 'clear-restore') W.localStorage.setItem(key, before);
+      } else if (action === 'reject') current = false;
+      else if (action === 'quota') proto.setItem = function (k, value) {
+        if (k === key) throw new W.DOMException('Temp quota', 'QuotaExceededError');
+        return set.call(this, k, value);
+      };
+      packing.release();
+      assert.equal(await pending, action === 'save');
+      if (action === 'save') {
+        assert.deepEqual(readPersistedFixture(W, key), expected);
+        assert.equal(A.tempHome().lat, expected.lat);
+      } else {
+        assert.equal(W.localStorage.getItem(key), action === 'replace' ? 'null' : action === 'clear' ? null : before);
+        if (action === 'profile') assert.equal(W.localStorage.getItem(A.bcReal(key)), before,
+          'rejected Temp writes must not alter the newer profile either');
+      }
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      proto.setItem = set; packing.release(); if (pending) await pending;
+      await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 Temp Home newer save supersedes held intent and then acknowledges only the latest point', async () => {
+  const app = await boot({ sample: false, home: false, nativeCompression: true });
+  const W = app.window, A = W.__app;
+  const firstPoint = tempPersistencePoint('FIRST'), nextPoint = tempPersistencePoint('NEXT');
+  let held = false, first, next, nextDone = false;
+  const packing = holdScoutCompression(W, json => {
+    if (held || !json.includes('F247_TEMP_FIRST')) return false;
+    held = true; return true;
+  });
+  try {
+    first = A.saveTempHome(firstPoint);
+    await waitFor(packing.ready, 'first Temp intention');
+    next = A.saveTempHome(nextPoint).finally(() => { nextDone = true; });
+    await new Promise(resolve => setTimeout(resolve, 20));
+    assert.equal(nextDone, false);
+    assert.equal(A.tempHome(), null);
+    packing.release();
+    assert.equal(await first, false);
+    assert.equal(await next, true);
+    assert.deepEqual(readPersistedFixture(W, A.TEMP_HOME_KEY), nextPoint);
+    assert.equal(A.tempHome().label, nextPoint.label);
+    assert.deepEqual(app.state.errors, []);
+  } finally { packing.release(); await Promise.allSettled([first, next].filter(Boolean)); W.close(); }
+});
+
+test('F247 Temp restore verifies absence without migrating a silently retained point', async () => {
+  const app = await boot({ sample: false, home: false, nativeCompression: true,
+    storage: { ebird_temp_home_v1: JSON.stringify(tempPersistencePoint('KEEP')) } });
+  const W = app.window, A = W.__app, proto = W.Storage.prototype, remove = proto.removeItem;
+  try {
+    W.localStorage.setItem(A.TEMP_HOME_KEY, JSON.stringify(tempPersistencePoint('KEEP')));
+    const before = W.localStorage.getItem(A.TEMP_HOME_KEY);
+    proto.removeItem = function (key) {
+      if (key === A.TEMP_HOME_KEY) return;
+      return remove.call(this, key);
+    };
+    assert.equal(await A.clearTempHome(), false);
+    assert.equal(W.localStorage.getItem(A.TEMP_HOME_KEY), before);
+    assert.equal(A.tempHome().label, tempPersistencePoint('KEEP').label);
+    proto.removeItem = remove;
+    assert.equal(await A.clearTempHome(), true);
+    assert.equal(A.tempHome(), null);
+    assert.equal(W.localStorage.getItem(A.TEMP_HOME_KEY), null);
+    assert.deepEqual(app.state.errors, []);
+  } finally { proto.removeItem = remove; W.close(); }
+});
+
+test('F247 actual Temp Save awaits native receipt and suppresses retired editor feedback', async () => {
+  for (const action of ['save', 'cancel', 'profile', 'scope', 'newer', 'detach']) {
+    const point = tempPersistencePoint('UI');
+    const app = await boot({ sample: false, home: false, nativeCompression: true, fetch: url =>
+      /photon\.komoot\.io/.test(url) ? { features: [{
+        geometry: { coordinates: [point.lng, point.lat] },
+        properties: { name: point.label }
+      }] } : [] });
+    const W = app.window, A = W.__app;
+    let pending, packing;
+    try {
+      const home = JSON.stringify(A.getHome());
+      A.openSavedLocationEditor('temp');
+      app.$('tempHomePlace').value = 'F247 Temp fixture';
+      app.$('tempGeocodeBtn').click();
+      await waitFor(() => !app.$('tempHomeCandidateReview').hidden, 'actual long labelled Temp candidate');
+      packing = holdScoutCompression(W, json => json.includes('F247_TEMP_UI'));
+      const button = app.$('tempHomeDeviceSave');
+      let status = app.$('tempGeocodeStatus');
+      button.click(); pending = button._tempHomeSave;
+      await waitFor(() => packing.ready() || !button.disabled, 'actual pending Temp save');
+      assert.equal(packing.ready(), true);
+      assert.equal(button.disabled, true);
+      assert.match(status.textContent, /^Saving Temp Home/);
+      assert.equal(A.tempHome(), null);
+      assert.equal(app.$('settingsTempHomeEditor').open, true);
+      if (action === 'cancel') app.$('tempClearHomeBtn').click();
+      else if (action === 'profile') W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-temp-ui-owner');
+      else if (action === 'scope') A.setActiveReport('hi');
+      else if (action === 'newer') {
+        app.$('tempHomePlace').dispatchEvent(new W.Event('input', { bubbles: true }));
+        A.openSavedLocationEditor('temp');
+      } else if (action === 'detach') {
+        app.$('settingsTempHomeEditor').replaceWith(app.$('settingsTempHomeEditor').cloneNode(true));
+        status = app.$('tempGeocodeStatus');
+      }
+      if (action === 'cancel' || action === 'newer') assert.equal(button.disabled, false,
+        'cancelling must leave a later candidate save actionable');
+      if (action !== 'save') status.textContent = 'Newer Temp task';
+      packing.release();
+      assert.equal(await pending, action === 'save');
+      if (action === 'save') {
+        assert.equal(A.tempHome().label, point.label);
+        assert.match(status.textContent, /^Saved Temp Home/);
+        assert.equal(app.$('settingsTempHomeEditor').open, false);
+        assert.equal(button.disabled, false);
+      } else {
+        assert.equal(status.textContent, 'Newer Temp task');
+        assert.equal(A.tempHome(), null);
+      }
+      assert.equal(JSON.stringify(A.getHome()), home, 'Temp never changes permanent Home');
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      if (packing) packing.release(); if (pending) await pending;
+      await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 Temp restore receipt cannot close a newer editor after immediate removal', async () => {
+  for (const action of ['editor', 'lookup']) {
+    const app = await boot({ sample: false, home: false,
+      storage: { ebird_temp_home_v1: JSON.stringify({ lat: 47.61, lng: -122.33, label: 'Old Temp' }) } });
+    const A = app.window.__app;
+    try {
+      A.openSavedLocationEditor('temp');
+      app.$('tempHomeRestore').click();
+      const pending = app.$('tempHomeRestore')._tempHomeSave;
+      assert.equal(A.tempHome(), null);
+      if (action === 'editor') A.openSavedLocationEditor('temp');
+      else {
+        app.$('tempHomePlace').value = '47.62, -122.34';
+        app.$('tempGeocodeBtn').click();
+      }
+      await pending;
+      assert.equal(app.$('settingsTempHomeEditor').open, true, 'the old restore cannot close a newer edit');
+      assert.deepEqual(app.state.errors, []);
+    } finally { app.window.close(); }
+  }
+});
+
+test('F247 borrowed Temp migration cannot write into a newer owner or replaced record', async () => {
+  for (const action of ['profile', 'replace']) {
+    const app = await boot({ sample: false, home: false, nativeCompression: true });
+    const W = app.window, A = W.__app, point = tempPersistencePoint('MIGRATE');
+    const legacy = JSON.stringify(point);
+    W.localStorage.setItem(A.TEMP_HOME_KEY, legacy);
+    W.localStorage.removeItem(A.bcReal(A.IDENTITY_REV_KEY));
+    const packing = holdScoutCompression(W, json => json.includes('F247_TEMP_MIGRATE'));
+    let pending;
+    try {
+      pending = A.readTempHome();
+      await waitFor(packing.ready, 'borrowed Temp migration');
+      if (action === 'profile') {
+        W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-temp-migration-owner');
+        W.localStorage.setItem(A.bcReal(A.TEMP_HOME_KEY), legacy);
+      } else W.localStorage.setItem(A.TEMP_HOME_KEY, 'null');
+      packing.release(); await pending;
+      assert.equal(W.localStorage.getItem(A.TEMP_HOME_KEY), action === 'profile' ? legacy : 'null');
+      if (action === 'profile') assert.equal(W.localStorage.getItem(A.bcReal(A.TEMP_HOME_KEY)), legacy,
+        'borrowed migration must leave the newer profile physical record unchanged');
+      assert.deepEqual(app.state.errors, []);
+    } finally { packing.release(); if (pending) await pending; W.close(); }
+  }
+});
+
+test('F247 menu shortcuts hydrate native startup and restart with fresh explicit preferences', async () => {
+  const seed = await boot({ sample: false });
+  const keys = menuPersistenceKeys(seed);
+  seed.window.close();
+  const record = [...keys, keys[0], 'not-a-tool', 17];
+  let saved = JSON.stringify(record);
+  for (const restart of [false, true]) {
+    const app = await boot({ sample: false, nativeCompression: true, storage: { [SHORTCUT_KEY]: saved } });
+    const W = app.window, A = W.__app;
+    try {
+      saved = W.localStorage.getItem(SHORTCUT_KEY);
+      assert.ok(saved.startsWith('z:'), 'real menu IDs cross the profitable native packing threshold');
+      assert.deepEqual(readPersistedFixture(W, SHORTCUT_KEY), record);
+      assert.deepEqual(arr(A.menuShortcutKeys()), keys);
+      A.menuShortcutKeys().pop();
+      assert.deepEqual(arr(A.menuShortcutKeys()), keys);
+      assert.deepEqual(shortcutIds(app), keys);
+      W.localStorage.setItem(SHORTCUT_KEY, '[]');
+      assert.deepEqual(arr(A.menuShortcutKeys()), [], 'explicit emptiness is not default selection');
+      W.localStorage.setItem(SHORTCUT_KEY, await A.packJson(keys));
+      assert.deepEqual(arr(A.menuShortcutKeys()), ['destBtn', 'stakeHsBtn', 'spLookupBtn', 'refreshBtn'],
+        'changed unknown gzip cannot return the earlier decoded empty preference');
+      await A.readMenuShortcuts();
+      assert.deepEqual(arr(A.menuShortcutKeys()), keys);
+      W.localStorage.setItem(SHORTCUT_KEY, 'z:unreadable');
+      const unreadable = W.localStorage.getItem(SHORTCUT_KEY);
+      assert.equal(await A.setMenuShortcut('surgeBtn', true), false,
+        'failed decoding must not turn unknown preferences into an empty/default write');
+      assert.equal(W.localStorage.getItem(SHORTCUT_KEY), unreadable);
+      assert.deepEqual(app.state.errors, []);
+    } finally { W.close(); }
+  }
+});
+
+test('F247 menu shortcut writes await migrated receipts and reject replaced, retired or failed writes', async () => {
+  for (const action of ['save', 'replace', 'profile', 'erase', 'quota', 'reject']) {
+    const app = await boot({ sample: false, nativeCompression: true });
+    const W = app.window, A = W.__app, keys = menuPersistenceKeys(app);
+    W.localStorage.setItem(SHORTCUT_KEY, JSON.stringify(keys));
+    W.localStorage.removeItem(A.bcReal(A.IDENTITY_REV_KEY));
+    const expected = keys.filter(key => key !== 'destBtn');
+    const packing = holdScoutCompression(W, json => json === JSON.stringify(expected));
+    const proto = W.Storage.prototype, set = proto.setItem;
+    let pending, done = false, current = true;
+    try {
+      pending = A.setMenuShortcut('destBtn', false, () => current).finally(() => { done = true; });
+      await waitFor(() => packing.ready() || done, 'native menu preference write');
+      assert.equal(packing.ready(), true);
+      assert.equal(done, false);
+      const before = W.localStorage.getItem(SHORTCUT_KEY);
+      assert.ok(before.startsWith('z:'), 'the legacy record migrates before replacement admission');
+      assert.deepEqual(arr(A.menuShortcutKeys()), keys, 'pending removal has no speculative publication');
+      if (action === 'replace') W.localStorage.setItem(SHORTCUT_KEY, '["surgeBtn"]');
+      else if (action === 'profile') {
+        W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-menu-owner');
+        W.localStorage.setItem(A.bcReal(SHORTCUT_KEY), before);
+      } else if (action === 'erase') {
+        await A.scrubPersonalData();
+        W.localStorage.removeItem(A.bcReal(A.IDENTITY_REV_KEY));
+        W.localStorage.setItem(SHORTCUT_KEY, before);
+      } else if (action === 'reject') current = false;
+      else if (action === 'quota') proto.setItem = function (key, value) {
+        if (key === SHORTCUT_KEY) throw new W.DOMException('Menu preference quota', 'QuotaExceededError');
+        return set.call(this, key, value);
+      };
+      packing.release();
+      assert.equal(await pending, action === 'save');
+      if (action === 'save') assert.deepEqual(readPersistedFixture(W, SHORTCUT_KEY), expected);
+      else {
+        assert.equal(W.localStorage.getItem(SHORTCUT_KEY), action === 'replace' ? '["surgeBtn"]' : before);
+        if (action === 'profile') assert.equal(W.localStorage.getItem(A.bcReal(SHORTCUT_KEY)), before);
+      }
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      proto.setItem = set; packing.release();
+      if (pending) await pending;
+      await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 menu shortcuts serialize latest explicit edits without toggling repeated pin intent', async () => {
+  const app = await boot({ sample: false, nativeCompression: true });
+  const W = app.window, A = W.__app;
+  const keys = menuPersistenceKeys(app).filter(key => key !== 'surgeBtn');
+  W.localStorage.setItem(SHORTCUT_KEY, JSON.stringify(keys));
+  await A.readMenuShortcuts();
+  let held = false, first, second, third, secondDone = false;
+  const packing = holdScoutCompression(W, json => {
+    if (held || json !== JSON.stringify([...keys, 'surgeBtn'])) return false;
+    held = true; return true;
+  });
+  try {
+    first = A.setMenuShortcut('surgeBtn', true);
+    await waitFor(packing.ready, 'first native menu pin');
+    second = A.setMenuShortcut('destBtn', false).finally(() => { secondDone = true; });
+    third = A.setMenuShortcut('surgeBtn', true);
+    await new Promise(resolve => setTimeout(resolve, 20));
+    assert.equal(secondDone, false, 'later edits await the first acknowledged latest-state merge');
+    assert.deepEqual(arr(A.menuShortcutKeys()), keys);
+    packing.release();
+    assert.equal(await first, true);
+    assert.equal(await second, true);
+    assert.equal(await third, true);
+    const expected = [...keys.filter(key => key !== 'destBtn'), 'surgeBtn'];
+    assert.deepEqual(readPersistedFixture(W, SHORTCUT_KEY), expected);
+    assert.deepEqual(arr(A.menuShortcutKeys()), expected);
+    const before = W.localStorage.getItem(SHORTCUT_KEY);
+    assert.equal(await A.setMenuShortcut('not-a-tool', true), false);
+    assert.equal(W.localStorage.getItem(SHORTCUT_KEY), before);
+  } finally {
+    packing.release(); await Promise.allSettled([first, second, third].filter(Boolean)); W.close();
+  }
+});
+
+test('F247 actual menu pin waits for receipt and repeated visible Pin remains explicit intent', async () => {
+  const app = await boot({ sample: false, nativeCompression: true });
+  const W = app.window, A = W.__app;
+  const keys = menuPersistenceKeys(app).filter(key => key !== 'surgeBtn');
+  W.localStorage.setItem(SHORTCUT_KEY, JSON.stringify(keys));
+  await A.readMenuShortcuts(); A.showMenu();
+  const before = W.localStorage.getItem(SHORTCUT_KEY);
+  let held = false, first, second, secondDone = false;
+  const packing = holdScoutCompression(W, json => {
+    if (held || json !== JSON.stringify([...keys, 'surgeBtn'])) return false;
+    held = true; return true;
+  });
+  try {
+    const bird = app.document.querySelector(ORIGINAL_MENU + '[data-at="surgeBtn"]');
+    shortcutMenu(app, bird, true);
+    const action = app.$('menuShortcutAction');
+    action.click(); first = action._shortcutSave;
+    await waitFor(() => packing.ready() || !action.disabled, 'actual pending menu pin');
+    assert.equal(packing.ready(), true);
+    assert.equal(action.disabled, true);
+    assert.equal(action.getAttribute('aria-busy'), 'true');
+    assert.equal(app.$('menuShortcutPopup').hidden, false);
+    assert.deepEqual(shortcutIds(app), keys);
+    assert.equal(W.localStorage.getItem(SHORTCUT_KEY), before);
+    shortcutMenu(app, bird, true);
+    assert.equal(action.textContent, 'Pin to shortcuts');
+    action.click(); second = action._shortcutSave.finally(() => { secondDone = true; });
+    await new Promise(resolve => setTimeout(resolve, 20));
+    assert.equal(secondDone, false);
+    packing.release();
+    assert.equal(await first, true);
+    assert.equal(await second, true);
+    assert.deepEqual(shortcutIds(app), [...keys, 'surgeBtn']);
+    assert.deepEqual(readPersistedFixture(W, SHORTCUT_KEY), [...keys, 'surgeBtn']);
+    assert.equal(app.$('menuShortcutPopup').hidden, true);
+    assert.equal(app.document.activeElement, bird);
+    assert.deepEqual(app.state.errors, []);
+  } finally {
+    packing.release(); await Promise.allSettled([first, second].filter(Boolean)); W.close();
+  }
+});
+
+test('F247 retired menu receipts cannot close or refocus a newer popup or owner', async () => {
+  for (const retirement of ['popup', 'profile', 'detach']) {
+    const app = await boot({ sample: false, nativeCompression: true });
+    const W = app.window, A = W.__app;
+    const keys = menuPersistenceKeys(app).filter(key => key !== 'surgeBtn');
+    W.localStorage.setItem(SHORTCUT_KEY, JSON.stringify(keys));
+    await A.readMenuShortcuts(); A.showMenu();
+    const before = W.localStorage.getItem(SHORTCUT_KEY);
+    const packing = holdScoutCompression(W, json => json === JSON.stringify([...keys, 'surgeBtn']));
+    let pending;
+    try {
+      const bird = app.document.querySelector(ORIGINAL_MENU + '[data-at="surgeBtn"]');
+      shortcutMenu(app, bird, true);
+      const action = app.$('menuShortcutAction');
+      action.click(); pending = action._shortcutSave;
+      await waitFor(packing.ready, 'menu receipt before retirement');
+      const errors = W.__dbg.buf.filter(row => row.msg === 'Menu shortcuts: preferences could not be saved').length;
+      if (retirement === 'popup') {
+        const newer = app.document.querySelector(ORIGINAL_MENU + '[data-at="abaBtn"]');
+        shortcutMenu(app, newer, true);
+        assert.equal(action.disabled, false);
+      } else if (retirement === 'profile') {
+        W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-menu-ui-owner');
+        W.localStorage.setItem(A.bcReal(SHORTCUT_KEY), before);
+      } else app.$('menuList').replaceWith(app.$('menuList').cloneNode(true));
+      const shelf = app.document.querySelector('.menuShortcutShelf');
+      const label = app.$('menuShortcutTarget').textContent;
+      packing.release();
+      assert.equal(await pending, retirement !== 'profile');
+      assert.equal(app.$('menuShortcutPopup').hidden, false);
+      assert.equal(app.$('menuShortcutTarget').textContent, label);
+      assert.equal(app.document.activeElement, action, 'retired work cannot move current popup focus');
+      assert.equal(app.document.querySelector('.menuShortcutShelf'), shelf, 'retired receipt cannot regenerate current rows');
+      assert.equal(W.__dbg.buf.filter(row => row.msg === 'Menu shortcuts: preferences could not be saved').length, errors);
+      assert.deepEqual(readPersistedFixture(W, SHORTCUT_KEY), retirement !== 'profile' ? [...keys, 'surgeBtn'] : keys);
+      assert.deepEqual(app.state.errors, []);
+    } finally { packing.release(); if (pending) await pending; W.close(); }
+  }
+});
+
+test('F247 borrowed menu migration retires when owner or observed source bytes change', async () => {
+  for (const retirement of ['profile', 'replace']) {
+    const app = await boot({ sample: false, nativeCompression: true });
+    const W = app.window, A = W.__app, keys = menuPersistenceKeys(app);
+    const legacy = JSON.stringify(keys);
+    W.localStorage.setItem(SHORTCUT_KEY, legacy);
+    W.localStorage.removeItem(A.bcReal(A.IDENTITY_REV_KEY));
+    const packing = holdScoutCompression(W, json => json === legacy);
+    let pending;
+    try {
+      pending = A.readMenuShortcuts();
+      await waitFor(packing.ready, 'borrowed native menu migration');
+      if (retirement === 'profile') {
+        W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-menu-migration-owner');
+        W.localStorage.setItem(A.bcReal(SHORTCUT_KEY), legacy);
+      } else W.localStorage.setItem(SHORTCUT_KEY, '[]');
+      packing.release(); await pending;
+      assert.equal(W.localStorage.getItem(SHORTCUT_KEY), retirement === 'profile' ? legacy : '[]');
+      if (retirement === 'profile') assert.equal(W.localStorage.getItem(A.bcReal(SHORTCUT_KEY)), legacy);
+      assert.deepEqual(app.state.errors, []);
+    } finally { packing.release(); if (pending) await pending; W.close(); }
+  }
+});
+
+test('F247 recent regions hydrate native startup and restart with fresh copied decoded choices', async () => {
+  const region = recentPersistenceRegion('START');
+  const history = [region.slug, 'wa', region.slug, 'invalid', 'hi', 'ca', 'az', 'lower48', 'aba'];
+  const choices = [region.slug, 'wa', 'hi', 'ca', 'az', 'lower48'];
+  let saved = JSON.stringify(history);
+  for (const restart of [false, true]) {
+    const app = await boot({ sample: false, nativeCompression: true, storage: {
+      ebird_custom_regions: JSON.stringify([region]), bc_recent_regions_v1: saved
+    } });
+    const W = app.window, A = W.__app, key = A.RECENT_REGIONS_KEY;
+    try {
+      saved = W.localStorage.getItem(key);
+      assert.ok(saved.startsWith('z:'));
+      assert.deepEqual(readPersistedFixture(W, key), history);
+      assert.deepEqual(arr(A.recentRegions()), choices);
+      A.recentRegions().pop();
+      assert.deepEqual(arr(A.recentRegions()), choices);
+      W.localStorage.setItem(key, '["hi"]');
+      assert.deepEqual(arr(A.recentRegions()), ['hi']);
+      W.localStorage.setItem(key, await A.packJson([region.slug]));
+      assert.equal(A.recentRegions().length, 0, 'unknown compressed bytes cannot return an earlier decoded value');
+      await A.readRecentRegions();
+      assert.deepEqual(arr(A.recentRegions()), [region.slug]);
+      W.localStorage.setItem(key, 'z:unreadable');
+      assert.equal(A.recentRegions().length, 0);
+      assert.deepEqual(app.state.errors, []);
+    } finally { W.close(); }
+  }
+});
+
+test('F247 recent selections await migrated receipts and reject replaced, retired or failed writes', async () => {
+  for (const action of ['save', 'replace', 'profile', 'erase', 'quota', 'reject']) {
+    const region = recentPersistenceRegion('WRITE');
+    const app = await boot({ sample: false, nativeCompression: true,
+      storage: { ebird_custom_regions: JSON.stringify([region]) } });
+    const W = app.window, A = W.__app, key = A.RECENT_REGIONS_KEY;
+    W.localStorage.setItem(key, '["wa"]');
+    W.localStorage.removeItem(A.bcReal(A.IDENTITY_REV_KEY));
+    const packing = holdScoutCompression(W, json => json.includes(region.slug));
+    const proto = W.Storage.prototype, set = proto.setItem;
+    let pending, done = false, current = true;
+    try {
+      pending = A.rememberRecentRegion(region.slug, () => current).finally(() => { done = true; });
+      await waitFor(() => packing.ready() || done, 'recent-region durable write');
+      assert.equal(packing.ready(), true);
+      assert.equal(done, false);
+      const before = W.localStorage.getItem(key);
+      assert.ok(before.startsWith('j:'), 'the tiny legacy record migrates before the replacement');
+      assert.deepEqual(arr(A.recentRegions()), ['wa']);
+      if (action === 'replace') W.localStorage.setItem(key, '["hi"]');
+      else if (action === 'profile') {
+        W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-recent-owner');
+        W.localStorage.setItem(A.bcReal(key), before);
+      } else if (action === 'erase') {
+        await A.scrubPersonalData();
+        W.localStorage.removeItem(A.bcReal(A.IDENTITY_REV_KEY));
+        W.localStorage.setItem(key, before);
+      } else if (action === 'reject') current = false;
+      else if (action === 'quota') proto.setItem = function (k, value) {
+        if (k === key) throw new W.DOMException('Recent selection quota', 'QuotaExceededError');
+        return set.call(this, k, value);
+      };
+      packing.release();
+      assert.equal(await pending, action === 'save');
+      if (action === 'save') assert.deepEqual(readPersistedFixture(W, key), [region.slug, 'wa']);
+      else {
+        assert.equal(W.localStorage.getItem(key), action === 'replace' ? '["hi"]' : before);
+        if (action === 'profile') assert.equal(W.localStorage.getItem(A.bcReal(key)), before);
+      }
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      proto.setItem = set; packing.release();
+      if (pending) await pending;
+      await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 recent selections serialize latest edits and preserve bounded distinct recency', async () => {
+  const region = recentPersistenceRegion('FIRST');
+  const app = await boot({ sample: false, nativeCompression: true, storage: {
+    ebird_custom_regions: JSON.stringify([region]), bc_recent_regions_v1: '["wa"]'
+  } });
+  const W = app.window, A = W.__app;
+  let held = false, first, second, secondDone = false;
+  const packing = holdScoutCompression(W, json => {
+    if (held || !json.includes(region.slug)) return false;
+    held = true; return true;
+  });
+  try {
+    first = A.rememberRecentRegion(region.slug);
+    await waitFor(packing.ready, 'first recent selection');
+    second = A.rememberRecentRegion('hi').finally(() => { secondDone = true; });
+    await new Promise(resolve => setTimeout(resolve, 20));
+    assert.equal(secondDone, false);
+    assert.deepEqual(arr(A.recentRegions()), ['wa']);
+    packing.release();
+    assert.equal(await first, true);
+    assert.equal(await second, true);
+    assert.deepEqual(readPersistedFixture(W, A.RECENT_REGIONS_KEY), ['hi', region.slug, 'wa']);
+    for (const value of ['ca', 'az', 'lower48', 'aba', 'hi']) {
+      assert.equal(await A.rememberRecentRegion(value), true);
+      assert.deepEqual(readPersistedFixture(W, A.RECENT_REGIONS_KEY), arr(A.recentRegions()),
+        'every acknowledged merge, not only the last, retains the same bounded distinct choices');
+    }
+    assert.deepEqual(arr(A.recentRegions()), ['hi', 'aba', 'lower48', 'az', 'ca', region.slug]);
+    assert.deepEqual(readPersistedFixture(W, A.RECENT_REGIONS_KEY), arr(A.recentRegions()));
+    assert.equal(await A.rememberRecentRegion('invalid'), false);
+  } finally {
+    packing.release(); await Promise.allSettled([first, second].filter(Boolean));
+    await new Promise(setImmediate); W.close();
+  }
+});
+
+test('F247 actual region shortcuts select immediately but await acknowledged recent choices', async () => {
+  for (const choice of ['hi', 'region:CA-PE']) {
+    const region = recentPersistenceRegion('ACTUAL');
+    const app = await boot({ sample: false, nativeCompression: true, storage: {
+      ebird_custom_regions: JSON.stringify([region]), ebird_report: region.slug, bc_recent_regions_v1: '["wa"]'
+    } });
+    const W = app.window, A = W.__app;
+    const packing = holdScoutCompression(W, json => json.startsWith('["') && json.includes(region.slug));
+    let selected, done = false;
+    try {
+      A.openRegionChooser();
+      selected = A.selectRegionChoice(choice).finally(() => { done = true; });
+      await waitFor(() => packing.ready() || done, 'actual shortcut recent-selection acknowledgment');
+      assert.equal(packing.ready(), true);
+      assert.equal(A.activeScope().effectiveRegion, choice === 'hi' ? 'US-HI' : 'CA-PE',
+        'scope selection does not wait for optional recent-history retention');
+      assert.equal(done, false);
+      assert.equal(app.$('regionChooser').hidden, true);
+      assert.deepEqual(arr(A.recentRegions()), ['wa']);
+      const saving = app.$('menuScopeHost')._recentRegionSave;
+      assert.ok(saving && typeof saving.then === 'function');
+      packing.release();
+      assert.equal(await saving, true);
+      await selected;
+      assert.deepEqual(arr(A.recentRegions()), [region.slug, 'wa']);
+      assert.deepEqual(arr(app.$('menuRecentRegions').querySelectorAll('[data-region-choice]'),
+        node => node.dataset.regionChoice), [region.slug, 'wa']);
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      packing.release(); if (selected) await selected;
+      await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 recent-choice resolved acquisition and failure UI retire newer profile or round-trip intent', async () => {
+  for (const action of ['scope', 'profile', 'round-trip']) {
+    const region = recentPersistenceRegion('RESOLVER');
+    const app = await boot({ sample: false, nativeCompression: true, storage: {
+      ebird_custom_regions: JSON.stringify([region]), ebird_report: region.slug
+    } });
+    const W = app.window, A = W.__app;
+    const packing = holdScoutCompression(W, json => json.includes('"stateCode":"CA-PE"'));
+    let selected, done = false;
+    try {
+      A.openRegionChooser();
+      selected = A.selectRegionChoice('region:CA-PE').finally(() => { done = true; });
+      await waitFor(() => packing.ready() || done, 'owned resolved jurisdiction retention');
+      assert.equal(packing.ready(), true);
+      assert.equal(done, false);
+      assert.equal(A.getReportSlug(), region.slug);
+      if (action === 'profile') {
+        W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-recent-resolver-owner');
+        A.setActiveReport('hi');
+      } else {
+        await A.selectRegionChoice('hi');
+        if (action === 'round-trip') await A.selectRegionChoice(region.slug);
+      }
+      const newer = A.getReportSlug();
+      const status = JSON.stringify({ status: 'probe', message: 'Newer selection status' });
+      W.localStorage.setItem('ebird_region_setup_v1', status);
+      packing.release();
+      await selected;
+      assert.equal(A.getReportSlug(), newer, 'a returned original scope is not permission for an older lookup');
+      assert.equal(W.localStorage.getItem('ebird_region_setup_v1'), status,
+        'retired lookup failure cannot replace newer setup feedback');
+      assert.equal(A.getCustomRegions().some(row => row.stateCode === 'CA-PE'), false);
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      packing.release(); if (selected) await selected;
+      await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 recent-region migration cannot write borrowed profile bytes and records acknowledged baselines', async () => {
+  for (const action of ['save', 'profile']) {
+    const region = recentPersistenceRegion('MIGRATE');
+    const app = await boot({ sample: false, nativeCompression: true,
+      storage: { ebird_custom_regions: JSON.stringify([region]) } });
+    const W = app.window, A = W.__app, key = A.RECENT_REGIONS_KEY;
+    const legacy = JSON.stringify([region.slug]);
+    W.localStorage.setItem(key, legacy);
+    const packing = holdScoutCompression(W, json => json.includes(region.slug));
+    let pending;
+    try {
+      const observed = {};
+      pending = A.readRecentRegions(observed);
+      await waitFor(packing.ready, 'legacy recent-region migration');
+      assert.equal(observed.raw, legacy);
+      if (action === 'profile') {
+        W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-recent-migration-owner');
+        W.localStorage.setItem(A.bcReal(key), legacy);
+      }
+      packing.release();
+      await pending;
+      if (action === 'save') {
+        assert.ok(observed.raw.startsWith('z:'));
+        assert.equal(observed.raw, W.localStorage.getItem(key));
+        assert.deepEqual(readPersistedFixture(W, key), [region.slug]);
+      } else {
+        assert.equal(observed.raw, legacy);
+        assert.equal(W.localStorage.getItem(key), legacy);
+        assert.equal(W.localStorage.getItem(A.bcReal(key)), legacy);
+      }
+    } finally {
+      packing.release(); if (pending) await pending;
+      await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 recent-region cache recovery retires decoded visits after profile or identity changes', async () => {
+  for (const action of ['save', 'profile', 'revision']) {
+    const app = await boot({ sample: false, nativeCompression: true });
+    const W = app.window, A = W.__app;
+    const key = 'ebird_chase_v1:ca:' + A.todayStr();
+    const record = { v: 2, t: W.Date.now() - 1000,
+      rows: { observations: [{ speciesCode: 'amerob', obsDt: A.todayStr() + ' 07:00',
+        locName: 'F247_RECOVERY_HELD '.repeat(80) }] },
+      fetchBaseKey: 'https://api.ebird.org/v2/data/obs/US-CA/recent' };
+    const bytes = 'z:' + require('node:zlib').gzipSync(JSON.stringify(record)).toString('base64');
+    W.localStorage.setItem(key, bytes);
+    A.cancelStalledWork();
+    const NativeResponse = W.Response;
+    let release, pending, done = false;
+    W.Response = class extends NativeResponse {
+      async text() {
+        const text = await super.text();
+        return text.includes('F247_RECOVERY_HELD')
+          ? new Promise(resolve => { release = () => resolve(text); }) : text;
+      }
+    };
+    try {
+      pending = A.recoverCachedRecentRegions().finally(() => { done = true; });
+      await waitFor(() => release || done, 'actual compressed visit recovery');
+      assert.ok(release, 'the control must reach decoded cached evidence');
+      assert.equal(done, false);
+      if (action === 'profile') {
+        W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-recovered-visit-owner');
+        W.localStorage.setItem(A.bcReal(key), bytes);
+      } else if (action === 'revision') W.localStorage.setItem(A.IDENTITY_REV_KEY, String(A.identityRevision() + 1));
+      release();
+      assert.deepEqual(arr(await pending), action === 'save' ? ['ca'] : []);
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      if (release) release(); if (pending) await pending;
+      W.Response = NativeResponse; await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 recent-choice acknowledgment cannot repaint a newer scope or round-trip selection', async () => {
+  for (const mode of ['scope', 'round-trip']) {
+    const region = recentPersistenceRegion('REPAINT');
+    const app = await boot({ sample: false, nativeCompression: true, storage: {
+      ebird_custom_regions: JSON.stringify([region]), ebird_report: region.slug, bc_recent_regions_v1: '["wa"]'
+    } });
+    const W = app.window, A = W.__app, NativeResponse = W.Response;
+    const releases = new Map(), pending = [];
+    let draining = false;
+    W.Response = class {
+      constructor(value) {
+        if (typeof value === 'string' && value.includes(region.slug)) {
+          this.body = { pipeThrough: () => ({ recentSnapshot: value }) };
+        } else if (value && value.recentSnapshot) {
+          this.arrayBuffer = () => new Promise(resolve => {
+            const finish = () => {
+              const bytes = require('node:zlib').gzipSync(value.recentSnapshot);
+              resolve(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
+            };
+            if (draining) finish();
+            else releases.set(JSON.parse(value.recentSnapshot)[0], finish);
+          });
+        } else return new NativeResponse(value);
+      }
+    };
+    const host = app.$('menuScopeHost');
+    const html = Object.getOwnPropertyDescriptor(W.Element.prototype, 'innerHTML');
+    let watching = false, paints = 0;
+    Object.defineProperty(host, 'innerHTML', {
+      configurable: true, get() { return html.get.call(this); },
+      set(value) { if (watching) paints++; html.set.call(this, value); }
+    });
+    try {
+      pending.push(A.selectRegionChoice('hi'));
+      await waitFor(() => releases.has(region.slug), 'first actual selection receipt');
+      if (mode === 'scope') A.setActiveReport('ca');
+      else {
+        pending.push(A.selectRegionChoice('ca'));
+        pending.push(A.selectRegionChoice('hi'));
+      }
+      watching = true;
+      releases.get(region.slug)();
+      await pending[0];
+      assert.equal(paints, 0, 'an older acknowledged choice must not repaint the newer UI');
+      if (mode === 'round-trip') {
+        await waitFor(() => releases.has('hi'), 'second queued selection receipt');
+        releases.get('hi')();
+        await pending[1];
+        assert.equal(paints, 0);
+        await waitFor(() => releases.has('ca'), 'latest queued selection receipt');
+        releases.get('ca')();
+        await pending[2];
+        assert.ok(paints > 0, 'the latest acknowledged selection repaints its durable shortcuts');
+        assert.deepEqual(readPersistedFixture(W, A.RECENT_REGIONS_KEY), ['ca', 'hi', region.slug, 'wa']);
+      }
+      assert.equal(A.getReportSlug(), mode === 'scope' ? 'ca' : 'hi');
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      watching = false;
+      draining = true;
+      for (const release of releases.values()) release();
+      await Promise.allSettled(pending);
+      W.Response = NativeResponse; await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 custom regions hydrate before native scoped startup and retain fresh decoded records on restart', async () => {
+  const region = customPersistenceRegion('START');
+  let saved = JSON.stringify([region]);
+  for (const restart of [false, true]) {
+    const app = await boot({ sample: false, nativeCompression: true,
+      storage: { ebird_custom_regions: saved, ebird_report: region.slug } });
+    const W = app.window, A = W.__app;
+    try {
+      saved = W.localStorage.getItem(A.CUSTOM_KEY);
+      assert.ok(saved.startsWith('z:'));
+      assert.equal(A.getReportSlug(), region.slug);
+      assert.equal(A.getReport().stateCode, 'CA-BC');
+      assert.deepEqual(readPersistedFixture(W, A.CUSTOM_KEY), [region]);
+      const decoded = A.getCustomRegions();
+      decoded[0].label = 'Borrowed mutation';
+      assert.equal(A.getCustomRegions()[0].label, region.label);
+      W.localStorage.setItem(A.CUSTOM_KEY, JSON.stringify([customPersistenceRegion('REPLACED')]));
+      assert.equal(A.getCustomRegions()[0].slug, 'u-f247-custom-replaced');
+      W.localStorage.setItem(A.CUSTOM_KEY, 'z:unreadable');
+      assert.equal(A.getCustomRegions().length, 0);
+      assert.deepEqual(app.state.errors, []);
+    } finally { await new Promise(setImmediate); W.close(); }
+  }
+});
+
+test('F247 custom region writes copy intent and await migration, CAS and current owner receipts', async () => {
+  for (const action of ['save', 'replace', 'profile', 'erase', 'quota', 'reject']) {
+    const app = await boot({ sample: false, nativeCompression: true });
+    const W = app.window, A = W.__app, key = A.CUSTOM_KEY;
+    W.localStorage.setItem(key, JSON.stringify([customPersistenceRegion('BASE')]));
+    W.localStorage.removeItem(A.bcReal(A.IDENTITY_REV_KEY));
+    const packing = holdScoutCompression(W, json => json.includes('"label":"F247_CUSTOM_WRITE'));
+    const proto = W.Storage.prototype, set = proto.setItem;
+    let pending, done = false, current = true;
+    try {
+      const list = [customPersistenceRegion('WRITE')];
+      pending = A.saveCustomRegions(list, () => current).finally(() => { done = true; });
+      list[0].label = 'Borrowed changed label';
+      await waitFor(() => packing.ready() || done, 'custom region copied transaction');
+      assert.equal(packing.ready(), true, 'encoding uses the copied original intent');
+      assert.equal(done, false);
+      const before = W.localStorage.getItem(key);
+      assert.ok(before.startsWith('z:'), 'legacy migration precedes the held replacement');
+      if (action === 'replace') W.localStorage.setItem(key, '[]');
+      else if (action === 'profile') {
+        W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-custom-owner');
+        W.localStorage.setItem(A.bcReal(key), before);
+      }
+      else if (action === 'erase') {
+        await A.scrubPersonalData();
+        W.localStorage.removeItem(A.bcReal(A.IDENTITY_REV_KEY));
+        W.localStorage.setItem(key, before);
+      } else if (action === 'reject') current = false;
+      else if (action === 'quota') proto.setItem = function (k, value) {
+        if (k === key) throw new W.DOMException('Custom region quota', 'QuotaExceededError');
+        return set.call(this, k, value);
+      };
+      packing.release();
+      assert.equal(!!await pending, action === 'save');
+      if (action === 'save') assert.deepEqual(readPersistedFixture(W, key), [customPersistenceRegion('WRITE')]);
+      else {
+        assert.equal(W.localStorage.getItem(key), action === 'replace' ? '[]' : before);
+        if (action === 'profile') assert.equal(W.localStorage.getItem(A.bcReal(key)), before);
+      }
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      proto.setItem = set; packing.release();
+      if (pending) await pending;
+      await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 custom region edits serialize against the latest acknowledged catalog', async () => {
+  const app = await boot({ sample: false, nativeCompression: true });
+  const W = app.window, A = W.__app;
+  let held = false;
+  const packing = holdScoutCompression(W, json => {
+    if (held || !json.includes('F247_CUSTOM_FIRST')) return false;
+    held = true; return true;
+  });
+  let first, second, secondDone = false;
+  try {
+    first = A.updateCustomRegions(list => list.concat(customPersistenceRegion('FIRST')));
+    await waitFor(packing.ready, 'first catalog edit');
+    second = A.updateCustomRegions(list => list.concat(customPersistenceRegion('SECOND')))
+      .finally(() => { secondDone = true; });
+    await new Promise(resolve => setTimeout(resolve, 20));
+    assert.equal(secondDone, false);
+    assert.equal(A.getCustomRegions().length, 0);
+    packing.release();
+    assert.ok(await first);
+    assert.ok(await second);
+    assert.deepEqual(readPersistedFixture(W, A.CUSTOM_KEY), [
+      customPersistenceRegion('FIRST'), customPersistenceRegion('SECOND')
+    ]);
+  } finally {
+    packing.release(); await Promise.allSettled([first, second].filter(Boolean));
+    await new Promise(setImmediate); W.close();
+  }
+});
+
+test('F247 custom region resolver selects only after durable creation and rejects retired source intent', async () => {
+  for (const retired of [false, true]) {
+    const app = await boot({ sample: false, nativeCompression: true, storage: { ebird_report: 'wa' } });
+    const W = app.window, A = W.__app;
+    const region = customPersistenceRegion('WRITE');
+    const packing = holdScoutCompression(W, json => json.includes('F247_CUSTOM_WRITE'));
+    let pending, current = true, done = false;
+    try {
+      pending = A.selectResolvedRegion({ status: 'ok', code: 'CA-BC',
+        label: region.label, lat: region.lat, lng: region.lng }, () => current)
+        .then(value => ({ value }), error => ({ error })).finally(() => { done = true; });
+      await waitFor(packing.ready, 'actual resolved region creation');
+      assert.equal(done, false);
+      assert.equal(A.getReportSlug(), 'wa');
+      if (retired) current = false;
+      packing.release();
+      const result = await pending;
+      assert.equal(!!result.error, retired);
+      if (retired) {
+        assert.equal(A.getCustomRegions().length, 0);
+        assert.equal(A.getReportSlug(), 'wa');
+      } else {
+        assert.equal(result.value.created, true);
+        assert.equal(A.getReportSlug(), result.value.slug);
+        assert.equal(readPersistedFixture(W, A.CUSTOM_KEY)[0].label, region.label);
+      }
+      assert.deepEqual(app.state.errors, []);
+    } finally { packing.release(); if (pending) await pending; await new Promise(setImmediate); W.close(); }
+  }
+});
+
+test('F247 custom region deletion awaits its receipt and preserves changed cache bytes and newer report selection', async () => {
+  const region = customPersistenceRegion('DELETE');
+  const app = await boot({ sample: false, nativeCompression: true,
+    storage: { ebird_custom_regions: JSON.stringify([region]), ebird_report: region.slug } });
+  const W = app.window, A = W.__app, key = 'bc_snap:' + region.slug + ':2026-08-02';
+  const home = 'ebird_home_place:' + region.slug;
+  W.localStorage.setItem(key, '["old"]');
+  W.localStorage.setItem(home, 'Original Home');
+  const packing = holdRarityPacking(W, value => Array.isArray(value) && value.length === 0);
+  let pending, done = false;
+  try {
+    pending = A.deleteCustomRegion(region.slug).finally(() => { done = true; });
+    await waitFor(packing.ready, 'held catalog deletion');
+    assert.equal(done, false);
+    assert.equal(W.localStorage.getItem(home), 'Original Home');
+    assert.equal(A.getCustomRegions().length, 1);
+    W.localStorage.setItem(key, '["new"]');
+    W.localStorage.setItem('ebird_report', 'hi');
+    packing.release();
+    assert.equal(await pending, 2);
+    assert.equal(W.localStorage.getItem(home), null);
+    assert.equal(W.localStorage.getItem(key), '["new"]');
+    assert.equal(A.getReportSlug(), 'hi');
+    assert.deepEqual(readPersistedFixture(W, A.CUSTOM_KEY), []);
+  } finally {
+    packing.release(); if (pending) await pending;
+    await A.updateCustomRegions(list => list);
+    await new Promise(setImmediate); W.close();
+  }
+});
+
+test('F247 custom region Scout action waits for acknowledgment and rejects retired or failed creation', async () => {
+  for (const action of ['save', 'report', 'profile', 'quota']) {
+    const app = await boot({ sample: false, nativeCompression: true });
+    const W = app.window, A = W.__app, key = A.CUSTOM_KEY;
+    const label = customPersistenceRegion('SCOUT').label;
+    W.confirm = () => true;
+    app.$('scoutResults').innerHTML = '<button id="scoutCreate" data-label="' + label
+      + '" data-lat="48.4" data-lng="-123.3">Add region</button>';
+    const button = app.$('scoutCreate');
+    const packing = holdScoutCompression(W, json => json.includes('F247_CUSTOM_SCOUT'));
+    const proto = W.Storage.prototype, set = proto.setItem;
+    let saving;
+    try {
+      app.click(button);
+      saving = button._customRegionSave;
+      assert.ok(saving);
+      assert.equal(A.getReportSlug(), 'wa');
+      await waitFor(packing.ready, 'actual Scout catalog acknowledgment');
+      assert.equal(A.getCustomRegions().length, 0);
+      assert.equal(button.disabled, true);
+      if (action === 'report') W.localStorage.setItem('ebird_report', 'hi');
+      else if (action === 'profile') W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-custom-scout-owner');
+      else if (action === 'quota') proto.setItem = function (k, value) {
+        if (k === key) throw new W.DOMException('Scout catalog quota', 'QuotaExceededError');
+        return set.call(this, k, value);
+      };
+      packing.release();
+      assert.equal(!!await saving, action === 'save');
+      await Promise.resolve();
+      if (action === 'save') {
+        const receipt = readPersistedFixture(W, key);
+        assert.equal(receipt[0].label, label);
+        assert.equal(A.getReportSlug(), receipt[0].slug);
+      } else {
+        assert.equal(W.localStorage.getItem(key), null);
+        assert.equal(W.localStorage.getItem('ebird_report'), action === 'report' ? 'hi' : 'wa');
+        if (action === 'quota') assert.match(button.textContent, /not saved.*Retry/i);
+      }
+      assert.equal(button.disabled, false);
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      proto.setItem = set; packing.release(); if (saving) await saving;
+      await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 custom region onboarding carries source ownership through provider acquisition and persistence', async () => {
+  for (const phase of ['provider', 'encoding']) {
+    let releaseProvider;
+    const response = { features: [{ properties: {
+      countrycode: 'ca', country: 'Canada', state: 'British Columbia'
+    } }] };
+    const app = await boot({ sample: false, nativeCompression: true, report: null,
+      fetch: url => /\/reverse\?/.test(url)
+        ? phase === 'provider' ? new Promise(resolve => { releaseProvider = () => resolve(response); }) : response
+        : [] });
+    const W = app.window, A = W.__app;
+    const packing = holdRarityPacking(W, value => Array.isArray(value)
+      && value.some(row => row.stateCode === 'CA-BC'));
+    let saving;
+    try {
+      const find = app.$('regionFindBtn');
+      assert.ok(find, 'the actual region onboarding action is available');
+      app.$('regionFindPlace').value = '48.4, -123.3';
+      app.click(find);
+      saving = find._regionSave;
+      assert.ok(saving);
+      if (phase === 'provider') await waitFor(() => !!releaseProvider, 'held actual region provider');
+      else await waitFor(packing.ready, 'held actual onboarding receipt');
+      W.localStorage.setItem('ebird_report', 'wa');
+      if (releaseProvider) releaseProvider();
+      packing.release();
+      await saving;
+      assert.equal(W.localStorage.getItem(A.CUSTOM_KEY), null,
+        'an old onboarding action cannot persist a catalog into the replacement view');
+      assert.equal(A.getReportSlug(), 'wa');
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      if (releaseProvider) releaseProvider(); packing.release();
+      if (saving) await saving;
+      await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 custom region migration cannot write borrowed identical bytes into another profile', async () => {
+  const app = await boot({ sample: false, nativeCompression: true });
+  const W = app.window, A = W.__app, key = A.CUSTOM_KEY;
+  const raw = JSON.stringify([customPersistenceRegion('WRITE')]);
+  W.localStorage.setItem(key, raw);
+  const packing = holdScoutCompression(W, json => json.includes('F247_CUSTOM_WRITE'));
+  let pending;
+  try {
+    pending = A.readCustomRegions();
+    await waitFor(packing.ready, 'native custom catalog migration');
+    W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-custom-migration-owner');
+    W.localStorage.setItem(A.bcReal(key), raw);
+    packing.release();
+    assert.equal((await pending)[0].slug, 'u-f247-custom-write');
+    assert.equal(W.localStorage.getItem(A.bcReal(key)), raw);
+  } finally { packing.release(); if (pending) await pending; await new Promise(setImmediate); W.close(); }
+});
+
+async function clickLastNewControl(app, button) {
+  app.click(button);
+  const saving = app.$('lastNewControlsHost')._lastNewSave;
+  if (saving) await saving;
+  await Promise.resolve();
+}
+
+test('F247 Ticks settings migrate before actual metrics and retain fresh decoded defaults on restart', async () => {
+  let saved = JSON.stringify({ sort: 'count', hideSeen: true, padding: 'repeat '.repeat(100) });
+  for (const restart of [false, true]) {
+    const app = await boot({ sample: false, nativeCompression: true,
+      storage: { bc_lastnew_display_v1: saved } });
+    const W = app.window, A = W.__app, key = A.LAST_NEW_DISPLAY_KEY;
+    try {
+      saved = W.localStorage.getItem(key);
+      assert.ok(saved.startsWith('z:'));
+      assert.deepEqual(JSON.parse(JSON.stringify(A.lastNewSettings())), { sort: 'count', hideSeen: true });
+      A.renderLastNew({ 'Synthetic public bird': { latest: recentObsStamp().slice(0, 10),
+        birders: [{ name: 'Synthetic public contributor', rank: 1, date: recentObsStamp().slice(0, 10) }] } },
+        { 'Synthetic public bird': { code: 'sabgul' } }, 'US-WA', {});
+      assert.equal(app.$('lastNewResults').querySelector('.spmetricstack').dataset.tickMetric, 'count');
+      W.localStorage.setItem(key, '{"sort":"date","hideSeen":false}');
+      assert.equal(A.lastNewSettings().sort, 'date');
+      W.localStorage.setItem(key, 'z:unreadable');
+      assert.deepEqual(JSON.parse(JSON.stringify(A.lastNewSettings())), { sort: 'date', hideSeen: false });
+    } finally { await new Promise(setImmediate); W.close(); }
+  }
+});
+
+test('F247 Ticks settings await tagged transactions and preserve merged fields, CAS and retired owners', async () => {
+  for (const action of ['save', 'replace', 'profile', 'erase', 'quota', 'reject']) {
+    const app = await boot({ sample: false, nativeCompression: true });
+    const W = app.window, A = W.__app, key = A.LAST_NEW_DISPLAY_KEY;
+    W.localStorage.setItem(key, '{"sort":"date","hideSeen":false}');
+    W.localStorage.removeItem(A.bcReal(A.IDENTITY_REV_KEY));
+    const packing = holdRarityPacking(W, value => value && value.sort === 'count');
+    const proto = W.Storage.prototype, set = proto.setItem;
+    let first, second, done = false, current = true;
+    try {
+      first = A.setLastNewSetting('sort', 'count', () => current).finally(() => { done = true; });
+      await waitFor(packing.ready, 'actual small Ticks setting encoding');
+      const before = W.localStorage.getItem(key);
+      assert.equal(done, false);
+      assert.ok(before.startsWith('j:'), 'legacy migration updates the write baseline before the held candidate');
+      if (action === 'save') {
+        let secondDone = false;
+        second = A.setLastNewSetting('hideSeen', true).finally(() => { secondDone = true; });
+        await new Promise(resolve => setTimeout(resolve, 20));
+        assert.equal(secondDone, false);
+      } else if (action === 'replace') W.localStorage.setItem(key, '{"external":1}');
+      else if (action === 'profile') W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-ticks-owner');
+      else if (action === 'erase') {
+        await A.scrubPersonalData();
+        W.localStorage.removeItem(A.bcReal(A.IDENTITY_REV_KEY));
+        W.localStorage.setItem(key, before);
+      } else if (action === 'reject') current = false;
+      else if (action === 'quota') proto.setItem = function (k, value) {
+        if (k === key) throw new W.DOMException('Ticks preference quota', 'QuotaExceededError');
+        return set.call(this, k, value);
+      };
+      packing.release();
+      assert.equal(!!await first, action === 'save');
+      if (action === 'save') {
+        assert.ok(await second);
+        assert.ok(W.localStorage.getItem(key).startsWith('j:'));
+        assert.deepEqual(readPersistedFixture(W, key), { sort: 'count', hideSeen: true });
+      } else assert.equal(W.localStorage.getItem(key), action === 'replace' ? '{"external":1}' : before);
+    } finally {
+      proto.setItem = set; packing.release();
+      await Promise.allSettled([first, second].filter(Boolean));
+      await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 Ticks legacy migration rejects borrowed identical bytes in another profile', async () => {
+  const app = await boot({ sample: false, nativeCompression: true });
+  const W = app.window, A = W.__app, key = A.LAST_NEW_DISPLAY_KEY;
+  const raw = JSON.stringify({ sort: 'count', hideSeen: true, padding: 'repeat '.repeat(100) });
+  W.localStorage.setItem(key, raw);
+  const packing = holdScoutCompression(W, json => json.includes('"padding"'));
+  let pending;
+  try {
+    pending = A.readLastNewSettings();
+    await waitFor(packing.ready, 'native Ticks settings migration');
+    W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-ticks-migration-owner');
+    W.localStorage.setItem(A.bcReal(key), raw);
+    packing.release();
+    assert.equal((await pending).sort, 'count');
+    assert.equal(W.localStorage.getItem(A.bcReal(key)), raw);
+  } finally {
+    packing.release(); if (pending) await pending;
+    await new Promise(setImmediate); W.close();
+  }
+});
+
+test('F247 Ticks controls wait for the newest combined receipt rather than painting an intermediate sort', async () => {
+  const app = await boot({ sample: false, nativeCompression: true });
+  const W = app.window, A = W.__app;
+  await seedSeen(app, ['mallar'], ['Mallard']);
+  A.setWatchlist([]);
+  const today = recentObsStamp().slice(0, 10), older = recentObsStamp(3).slice(0, 10);
+  A.renderLastNew({
+    Mallard: { latest: today, birders: [{ name: 'Synthetic one', rank: 1, date: today }] },
+    'Dark-eyed Junco': { latest: older, birders: Array.from({ length: 3 }, (_, i) => ({
+      name: 'Synthetic contributor ' + i, rank: i + 1, date: older })) }
+  }, { Mallard: { code: 'mallar' }, 'Dark-eyed Junco': { code: 'daejun' } }, 'US-WA', {});
+  const names = () => [...app.$('lastNewResults').children].filter(row => row.hasAttribute('data-sp')).map(row => row.dataset.sp);
+  assert.deepEqual(names(), ['Mallard', 'Dark-eyed Junco']);
+  const packing = holdRarityPacking(W, value => value && value.sort === 'count');
+  let secondPacking;
+  try {
+    app.click(app.$('lastNewSort').querySelector('[data-ticksort="count"]'));
+    await waitFor(packing.ready, 'first Ticks control encoding');
+    app.click(app.$('lastNewSeen'));
+    packing.release();
+    secondPacking = holdRarityPacking(W, value => value && value.hideSeen === true);
+    await waitFor(secondPacking.ready, 'second Ticks control encoding');
+    assert.deepEqual(names(), ['Mallard', 'Dark-eyed Junco'], 'the older intent cannot repaint before the newest receipt');
+    const saving = app.$('lastNewControlsHost')._lastNewSave;
+    secondPacking.release();
+    await saving;
+    await Promise.resolve();
+    assert.deepEqual(names(), ['Dark-eyed Junco'], 'the acknowledged combined intent repaints once');
+    assert.deepEqual(readPersistedFixture(W, A.LAST_NEW_DISPLAY_KEY), { sort: 'count', hideSeen: true });
+    assert.deepEqual(app.state.errors, []);
+  } finally {
+    packing.release(); if (secondPacking) secondPacking.release();
+    await new Promise(setImmediate); W.close();
+  }
+});
+
+test('F247 Ticks Recent stays immediate and session-only while a sort acknowledgment is pending', async () => {
+  const app = await boot({ sample: false, nativeCompression: true });
+  const W = app.window, A = W.__app;
+  const today = recentObsStamp().slice(0, 10), older = recentObsStamp(3).slice(0, 10);
+  const old = recentObsStamp(30).slice(0, 10);
+  A.renderLastNew({
+    New: { latest: today, birders: [{ name: 'Synthetic new', rank: 1, date: today }] },
+    Popular: { latest: older, birders: Array.from({ length: 3 }, (_, i) => ({
+      name: 'Synthetic contributor ' + i, rank: i + 1, date: older })) },
+    Old: { latest: old, birders: [{ name: 'Synthetic old', rank: 1, date: old }] }
+  }, {}, 'US-WA', {});
+  const names = () => [...app.$('lastNewResults').children].filter(row => row.hasAttribute('data-sp')).map(row => row.dataset.sp);
+  const packing = holdRarityPacking(W, value => value && value.sort === 'count');
+  try {
+    app.click(app.$('lastNewSort').querySelector('[data-ticksort="count"]'));
+    await waitFor(packing.ready, 'held Count display acknowledgment');
+    const before = W.localStorage.getItem(A.LAST_NEW_DISPLAY_KEY);
+    app.click(app.$('lastNewRecent'));
+    assert.deepEqual(names(), ['New', 'Popular']);
+    assert.equal(app.$('lastNewRecent').getAttribute('aria-pressed'), 'true');
+    assert.equal(W.localStorage.getItem(A.LAST_NEW_DISPLAY_KEY), before,
+      'Recent cannot allocate settings while the explicit Count receipt is pending');
+    const saving = app.$('lastNewControlsHost')._lastNewSave;
+    packing.release();
+    await saving;
+    await Promise.resolve();
+    assert.deepEqual(names(), ['Popular', 'New'], 'Recent recomputes after the pending sort is durable');
+    assert.deepEqual(readPersistedFixture(W, A.LAST_NEW_DISPLAY_KEY), { sort: 'count', hideSeen: false });
+    assert.deepEqual(app.state.errors, []);
+  } finally { packing.release(); await new Promise(setImmediate); W.close(); }
+});
+
+function rarityPersistenceIds(prefix, count = 64) {
+  return Array.from({ length: count }, (_, index) => `F247_RARITY_${prefix}_${index}`);
+}
+
+function holdRarityPacking(W, accept) {
+  const pack = W.BirdPersistence.packJson;
+  let release, held = false;
+  W.BirdPersistence.packJson = function (value) {
+    if (!held && accept(value)) {
+      held = true;
+      return new Promise(resolve => { release = () => resolve(pack.call(this, value)); });
+    }
+    return pack.call(this, value);
+  };
+  return {
+    ready: () => held,
+    release() { W.BirdPersistence.packJson = pack; if (release) release(); }
+  };
+}
+
+test('F247 rarity receipts migrate before consumers and reject stale or unreadable baseline projections on restart', async () => {
+  const key = 'ebird_rarity_seen:wa:' + todayFixtureDate();
+  const ids = rarityPersistenceIds('OLD');
+  let storage = { ebird_report: 'wa',
+    [key]: JSON.stringify(Object.fromEntries(ids.map(id => [id, 1]))),
+    ebird_rarity_filters_v1: JSON.stringify({ year: 'all', distance: 'region', padding: 'repeat '.repeat(100) }) };
+  for (const restart of [false, true]) {
+    const app = await boot({ sample: false, nativeCompression: true, storage });
+    const W = app.window, A = W.__app;
+    try {
+      assert.equal(A.raritySeenKey(), key);
+      assert.ok(W.localStorage.getItem(key).startsWith('z:'));
+      assert.ok(W.localStorage.getItem(A.RARITY_FILTER_KEY).startsWith('z:'));
+      storage = { ebird_report: 'wa', [key]: W.localStorage.getItem(key),
+        ebird_rarity_filters_v1: W.localStorage.getItem(A.RARITY_FILTER_KEY) };
+      assert.equal(Object.keys(A.raritySeenIds()).length, ids.length);
+      assert.equal(A.rarityHasBaseline(), true);
+      assert.equal(A.rarityKnownFor([ids[0], 'F247_NEW'])[ids[0]], 1);
+      assert.equal(A.rarityKnownFor([ids[0], 'F247_NEW']).F247_NEW, undefined);
+      assert.equal(A.rarityFilters().distance, 'region');
+      W.localStorage.setItem(key, 'z:unreadable');
+      assert.equal(A.rarityHasBaseline(), false);
+      assert.equal(Object.keys(A.raritySeenIds()).length, 0);
+      W.localStorage.setItem(A.RARITY_FILTER_KEY, '{"distance":"near"}');
+      assert.equal(A.rarityFilters().distance, 'near');
+      W.localStorage.setItem(key, '[]');
+      assert.equal(A.rarityHasBaseline(), false, 'an invalid shape is not a known-empty baseline');
+      assert.equal(await A.markRaritySeen([]), 0);
+      assert.equal(A.rarityHasBaseline(), true, 'a durable empty first visit is a valid baseline');
+      W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-rarity-restart-owner');
+      W.localStorage.setItem(A.bcReal('ebird_report'), 'wa');
+      assert.equal(A.rarityKnownFor([ids[0], 'F247_NEW']).F247_NEW, 1,
+        'another profile cannot inherit a previous view pinned to identical row IDs');
+      W.localStorage.setItem(A.bcReal(key), '{"F247_DAY_OLD":1}');
+      assert.equal(A.rarityKnownFor(['F247_DAY_OLD', 'F247_DAY_NEW']).F247_DAY_NEW, undefined);
+      const NativeDate = W.Date;
+      try {
+        W.Date = class extends NativeDate {
+          constructor(...args) { super(...(args.length ? args : [NativeDate.now() + 86400000])); }
+        };
+        assert.equal(A.rarityKnownFor(['F247_DAY_OLD', 'F247_DAY_NEW']).F247_DAY_NEW, 1,
+          'a previous day cannot supply the new day first-visit baseline');
+      } finally { W.Date = NativeDate; }
+    } finally { await new Promise(setImmediate); W.close(); }
+  }
+});
+
+test('F247 rarity baseline appends await native persistence and preserve CAS, ownership, erasure and cleanup barriers', async () => {
+  for (const action of ['save', 'replace', 'profile', 'erase', 'stop', 'region', 'quota']) {
+    const app = await boot({ sample: false, nativeCompression: true });
+    const W = app.window, A = W.__app, key = A.raritySeenKey();
+    const ids = rarityPersistenceIds('OLD'), added = rarityPersistenceIds('NEW', 32);
+    assert.equal(await A.markRaritySeen(ids), ids.length);
+    W.localStorage.removeItem(A.bcReal(A.IDENTITY_REV_KEY));
+    const before = W.localStorage.getItem(key), oldKey = 'ebird_rarity_seen:wa:2000-01-01';
+    W.localStorage.setItem(oldKey, '{"old":1}');
+    const packing = holdScoutCompression(W, json => json.includes('"F247_RARITY_NEW_0"'));
+    const proto = W.Storage.prototype, set = proto.setItem;
+    let current = true, done = false, pending;
+    try {
+      pending = A.markRaritySeen(added, A.rarityVisitContext(() => current))
+        .finally(() => { done = true; });
+      added[0] = 'MUTATED_CALLER';
+      await waitFor(() => packing.ready() || done, 'native rarity baseline encoding');
+      assert.equal(packing.ready(), true, 'copied source IDs reach the actual native encoding boundary');
+      assert.equal(done, false);
+      assert.equal(W.localStorage.getItem(key), before, 'no first raw allocation');
+      assert.equal(W.localStorage.getItem(oldKey), '{"old":1}', 'cleanup waits for acknowledgment');
+      if (action === 'save') W.localStorage.setItem(oldKey, '{"replacement":1}');
+      else if (action === 'replace') W.localStorage.setItem(key, '{"external":1}');
+      else if (action === 'profile') W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-rarity-owner');
+      else if (action === 'erase') {
+        await A.scrubPersonalData();
+        W.localStorage.setItem('ebird_report', 'wa');
+        W.localStorage.removeItem(A.bcReal(A.IDENTITY_REV_KEY));
+        W.localStorage.setItem(key, before);
+        assert.equal(A.identityRevision(), 0);
+      } else if (action === 'stop') current = false;
+      else if (action === 'region') A.setActiveReport('or');
+      else if (action === 'quota') proto.setItem = function (k, value) {
+        if (k === key) throw new W.DOMException('rarity quota', 'QuotaExceededError');
+        return set.call(this, k, value);
+      };
+      packing.release();
+      assert.equal(await pending, action === 'save' ? 32 : 0);
+      if (action === 'save') {
+        const saved = readPersistedFixture(W, key);
+        assert.equal(Object.keys(saved).length, 96);
+        assert.equal(saved.F247_RARITY_NEW_0, 1);
+        assert.equal(saved.MUTATED_CALLER, undefined);
+        assert.equal(W.localStorage.getItem(oldKey), '{"replacement":1}',
+          'cleanup cannot delete independently replaced historical bytes');
+      } else {
+        assert.equal(W.localStorage.getItem(key), action === 'replace' ? '{"external":1}' : before);
+        if (action !== 'erase') assert.equal(W.localStorage.getItem(oldKey), '{"old":1}');
+      }
+    } finally {
+      proto.setItem = set; packing.release();
+      if (pending) await pending;
+      await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 rarity migration cannot publish borrowed bytes across profile ownership during native encoding', async () => {
+  const app = await boot({ sample: false, nativeCompression: true });
+  const W = app.window, A = W.__app, key = A.RARITY_FILTER_KEY;
+  const raw = JSON.stringify({ year: 'all', distance: 'region', padding: 'repeat '.repeat(100) });
+  W.localStorage.setItem(key, raw);
+  const packing = holdScoutCompression(W, json => json.includes('"padding"'));
+  let pending;
+  try {
+    pending = A.readRarityJson(key);
+    await waitFor(packing.ready, 'actual legacy rarity migration encoding');
+    W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-rarity-migration-owner');
+    W.localStorage.setItem(A.bcReal(key), raw);
+    packing.release();
+    assert.equal((await pending).distance, 'region');
+    assert.equal(W.localStorage.getItem(A.bcReal(key)), raw,
+      'identical bytes do not authorize migration into another profile');
+  } finally {
+    packing.release(); if (pending) await pending;
+    await new Promise(setImmediate); W.close();
+  }
+});
+
+test('F247 concurrent rarity visits merge captured IDs and cannot rebind retired source ownership', async () => {
+  const app = await boot({ sample: false, nativeCompression: true });
+  const W = app.window, A = W.__app;
+  const oldKey = 'ebird_rarity_seen:wa:2000-01-01';
+  W.localStorage.setItem(oldKey, '{"old":1}');
+  let held = false;
+  const packing = holdScoutCompression(W, json =>
+    !held && json.includes('"F247_RARITY_FIRST_0"') && (held = true));
+  let first, second;
+  try {
+    const source = A.rarityVisitContext();
+    first = A.markRaritySeen(rarityPersistenceIds('FIRST'));
+    await waitFor(packing.ready, 'first serialized rarity visit');
+    let done = false;
+    second = A.markRaritySeen(rarityPersistenceIds('SECOND')).finally(() => { done = true; });
+    await new Promise(resolve => setTimeout(resolve, 20));
+    assert.equal(done, false);
+    packing.release();
+    assert.deepEqual(await Promise.all([first, second]), [64, 64]);
+    assert.equal(Object.keys(A.raritySeenIds()).length, 128);
+    assert.equal(W.localStorage.getItem(oldKey), null);
+    W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-retired-rarity-source');
+    W.localStorage.setItem(A.bcReal('ebird_report'), 'wa');
+    assert.equal(await A.markRaritySeen(['FOREIGN_SOURCE'], source), 0);
+    assert.equal(A.rarityHasBaseline(), false);
+  } finally {
+    packing.release(); await Promise.allSettled([first, second].filter(Boolean));
+    await new Promise(setImmediate); W.close();
+  }
+});
+
+test('F247 rarity preferences serialize fields and await small tagged receipts without replacing foreign bytes', async () => {
+  for (const action of ['save', 'replace', 'profile', 'erase', 'quota']) {
+    const app = await boot({ sample: false, nativeCompression: true });
+    const W = app.window, A = W.__app, key = A.RARITY_FILTER_KEY;
+    W.localStorage.setItem(key, '{"year":"all","distance":"near"}');
+    W.localStorage.removeItem(A.bcReal(A.IDENTITY_REV_KEY));
+    const packing = holdRarityPacking(W, value => value && value.distance === 'region');
+    const proto = W.Storage.prototype, set = proto.setItem;
+    let first, second, done = false;
+    try {
+      first = A.setRarityFilter('distance', 'region').finally(() => { done = true; });
+      await waitFor(packing.ready, 'small rarity preference encoding boundary');
+      const before = W.localStorage.getItem(key);
+      assert.equal(done, false);
+      if (action === 'save') {
+        let secondDone = false;
+        second = A.setRarityFilter('year', 'unseen').finally(() => { secondDone = true; });
+        await new Promise(resolve => setTimeout(resolve, 20));
+        assert.equal(secondDone, false, 'the second field waits for the first acknowledgment');
+      } else if (action === 'replace') W.localStorage.setItem(key, '{"external":1}');
+      else if (action === 'profile') W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-rarity-preference-owner');
+      else if (action === 'erase') {
+        await A.scrubPersonalData();
+        W.localStorage.removeItem(A.bcReal(A.IDENTITY_REV_KEY));
+        W.localStorage.setItem(key, before);
+      } else if (action === 'quota') proto.setItem = function (k, value) {
+        if (k === key) throw new W.DOMException('preference quota', 'QuotaExceededError');
+        return set.call(this, k, value);
+      };
+      packing.release();
+      assert.equal(!!await first, action === 'save');
+      if (action === 'save') {
+        assert.ok(await second);
+        assert.ok(W.localStorage.getItem(key).startsWith('j:'), 'tiny preferences must not grow into gzip');
+        assert.deepEqual(readPersistedFixture(W, key), { year: 'unseen', distance: 'region' });
+      } else assert.equal(W.localStorage.getItem(key), action === 'replace' ? '{"external":1}' : before);
+    } finally {
+      proto.setItem = set; packing.release();
+      await Promise.allSettled([first, second].filter(Boolean));
+      await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 actual rarity loaders paint useful rows but await their baseline acknowledgment', async () => {
+  for (const weekly of [false, true]) {
+    const app = await boot({ sample: false, nativeCompression: true });
+    const W = app.window, A = W.__app;
+    await A.markRaritySeen(rarityPersistenceIds('OLD'));
+    await seedRarityChase(app, [{ kind: 'Rarity', code: 'sabgul', name: "Sabine's Gull",
+      distMi: 4, dateStr: recentObsStamp(), loc: 'Synthetic public estuary', locId: 'L247RARITY',
+      subId: 'S247RARITY', obsId: 'F247_ACTUAL_RARITY', observer: 'Synthetic observer' }]);
+    let held = false;
+    const packing = holdScoutCompression(W, json =>
+      !held && json.includes('"F247_ACTUAL_RARITY":1') && (held = true));
+    let pending, done = false;
+    try {
+      pending = (weekly ? A.loadActiveRarities() : A.refresh()).finally(() => { done = true; });
+      await waitFor(() => packing.ready() || done, 'actual rarity baseline encoding');
+      assert.equal(packing.ready(), true, JSON.stringify(Object.keys(A.raritySeenIds())));
+      assert.equal(done, false);
+      assert.match(app.$(weekly ? 'activeResults' : 'results').textContent, /Sabine/);
+      assert.equal(A.raritySeenIds().F247_ACTUAL_RARITY, undefined);
+      packing.release();
+      await pending;
+      assert.equal(A.raritySeenIds().F247_ACTUAL_RARITY, 1);
+      assert.deepEqual(app.state.errors, []);
+    } finally {
+      packing.release(); if (pending) await pending;
+      await new Promise(setImmediate); W.close();
+    }
+  }
+});
+
+test('F247 rapid rarity controls repaint only the newest durable combined preference', async () => {
+  let sourceCalls = 0;
+  const app = await boot({ sample: false, nativeCompression: true, fetch: url => {
+    if (/alert\/rba\//.test(url)) { sourceCalls++; return ''; }
+    return [];
+  } });
+  const W = app.window, A = W.__app;
+  await seedSeen(app, ['daejun'], ['Dark-eyed Junco']);
+  await seedRarityChase(app, [
+    { kind: 'Rarity', code: 'daejun', name: 'Dark-eyed Junco', distMi: 4,
+      dateStr: recentObsStamp(), loc: 'Synthetic near park', locId: 'L247NEAR', subId: 'S247NEAR' },
+    { kind: 'Rarity', code: 'sabgul', name: "Sabine's Gull", distMi: A.chaseMaxMi() + 30,
+      dateStr: recentObsStamp(), loc: 'Synthetic far park', locId: 'L247FAR', subId: 'S247FAR' }]);
+  await A.refresh();
+  const packing = holdRarityPacking(W, value => value && value.distance === 'region');
+  const status = app.$('status').textContent;
+  let secondPacking;
+  try {
+    app.$('todayDistance').querySelector('[data-value="region"]').click();
+    await waitFor(packing.ready, 'first real rarity filter persistence');
+    app.$('todayYear').click();
+    assert.doesNotMatch(app.$('results').textContent, /Sabine|Dark-eyed/);
+    packing.release();
+    secondPacking = holdRarityPacking(W, value => value && value.distance === 'region' && value.year === 'all');
+    await waitFor(secondPacking.ready, 'second real rarity filter persistence');
+    assert.equal(app.$('status').textContent, status, 'the older intent cannot start a repaint');
+    assert.equal(sourceCalls, 0, 'an older intermediate preference cannot start a region-wide source request');
+    secondPacking.release();
+    await waitFor(() => /Sabine/.test(app.$('results').textContent)
+      && /Dark-eyed/.test(app.$('results').textContent), 'newest combined rarity filter paints')
+      .catch(error => assert.fail(JSON.stringify({ error: error.message,
+        saved: readPersistedFixture(W, A.RARITY_FILTER_KEY), filters: A.rarityFilters(),
+        text: app.$('results').textContent, status: app.$('status').textContent,
+        debug: W.__dbg.buf.slice(-10).map(row => row.msg) })));
+    assert.deepEqual(readPersistedFixture(W, A.RARITY_FILTER_KEY), { year: 'all', distance: 'region' });
+    assert.deepEqual(app.state.errors, []);
+  } finally {
+    packing.release(); if (secondPacking) secondPacking.release();
+    await new Promise(setImmediate); W.close();
+  }
+});
+
+test('F247 diagnostic fragments migrate sanitized records and survive compressed restart without source data', async () => {
+  const key = 'bc_rank_snapshots_v1';
+  let saved = JSON.stringify([{ time: Date.now(), version: /var APP_VERSION = '([^']+)'/.exec(HTML)[1],
+    transport: 'http-response', metric: 'spp', fragment: rankingFragmentFixture(), extra: 'SECRET' }]);
+  for (const restart of [false, true]) {
+    const app = await boot({ sample: false, nativeCompression: true, storage: { [key]: saved } });
+    const W = app.window, A = W.__app;
+    try {
+      saved = W.localStorage.getItem(key);
+      assert.ok(saved.startsWith('z:'));
+      const records = readPersistedFixture(W, key);
+      assert.equal(records.length, 1);
+      assert.doesNotMatch(JSON.stringify(records), /PRIVATE|SECRET|F247Private|href|extra/);
+      assert.equal(A.rankSnapshotRead().length, 1);
+      assert.match(A.rankSnapshotRead()[0].fragment, /ResultsStats-index/);
+      assert.deepEqual(Object.keys(records[0]).sort(), ['fragment','metric','time','transport','version']);
+    } finally { W.close(); }
+  }
+});
+
+test('F247 diagnostic fragment writes await native compression and respect clear, opt-out and ownership barriers', async () => {
+  const key = 'bc_rank_snapshots_v1', html = rankingFragmentFixture();
+  for (const action of ['save', 'replace', 'erase', 'profile', 'clear', 'opt-out', 'stop', 'quota']) {
+    const app = await boot({ sample: false, nativeCompression: true, storage: { bc_rank_snapshot_enabled: 'true' } });
+    const W = app.window, A = W.__app;
+    if (action === 'quota') W.localStorage.setItem(key, JSON.stringify([{
+      time: Date.now(), version: /var APP_VERSION = '([^']+)'/.exec(HTML)[1],
+      transport: 'http-response', metric: 'spp', fragment: '<div class="ResultsStats-index">[text]</div>'
+    }]));
+    const before = W.localStorage.getItem(key);
+    const packing = holdScoutCompression(W, json => json.includes('"transport":"rendered-dom"'));
+    const prototype = W.Storage.prototype, set = prototype.setItem;
+    let current = true;
+    try {
+      if (action === 'erase') W.localStorage.removeItem(A.bcReal('ebird_identity_rev_v1'));
+      let done = false;
+      const pending = A.rankSnapshotSave(html, 'rendered-dom', 'spp', () => current)
+        .finally(() => { done = true; });
+      await waitFor(packing.ready, 'held actual diagnostic-fragment compression');
+      assert.equal(done, false);
+      assert.equal(W.localStorage.getItem(key), before, 'raw source or raw JSON cannot be allocated first');
+      const newer = JSON.stringify([]);
+      if (action === 'replace') W.localStorage.setItem(key, newer);
+      else if (action === 'erase') A.scrubPersonalData();
+      else if (action === 'profile') W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-fragment-owner');
+      else if (action === 'clear') app.click(app.$('dbgClear'));
+      else if (action === 'opt-out') W.localStorage.setItem('bc_rank_snapshot_enabled', 'false');
+      else if (action === 'stop') current = false;
+      else if (action === 'quota') prototype.setItem = function (k, value) {
+        if (k === key) throw new W.DOMException('fragment quota', 'QuotaExceededError');
+        return set.call(this, k, value);
+      };
+      packing.release();
+      assert.equal(await pending, action === 'save');
+      if (action === 'save') {
+        assert.ok(W.localStorage.getItem(key).startsWith('z:'));
+        assert.doesNotMatch(JSON.stringify(readPersistedFixture(W, key)), /PRIVATE|F247Private|href/);
+      } else {
+        assert.equal(W.localStorage.getItem(key), action === 'replace' ? newer : before);
+        if (action === 'profile') assert.equal(W.localStorage.getItem(A.bcReal(key)), null);
+      }
+    } finally { prototype.setItem = set; packing.release(); W.close(); }
+  }
+});
+
+test('F247 simultaneous fragment captures serialize and merge their bounded retained evidence', async () => {
+  const app = await boot({ sample: false, nativeCompression: true, storage: { bc_rank_snapshot_enabled: 'true' } });
+  const W = app.window, A = W.__app;
+  let held = false;
+  const packing = holdScoutCompression(W, json =>
+    !held && json.includes('"transport":"rendered-dom"') && (held = true));
+  try {
+    const first = A.rankSnapshotSave(rankingFragmentFixture(), 'rendered-dom', 'spp');
+    await waitFor(packing.ready, 'first diagnostic capture compression');
+    let done = false;
+    const second = A.rankSnapshotSave(rankingFragmentFixture(), 'http-response', 'cl')
+      .finally(() => { done = true; });
+    await new Promise(resolve => setTimeout(resolve, 20));
+    assert.equal(done, false);
+    packing.release();
+    assert.deepEqual(await Promise.all([first, second]), [true, true]);
+    assert.deepEqual(arr(A.rankSnapshotRead(), row => row.transport), ['rendered-dom','http-response']);
+  } finally { packing.release(); W.close(); }
+});
+
+test('F247 actual HTTP and native capture consumers await optional diagnostic durability before publishing', async () => {
+  for (const provider of ['http', 'native']) for (const action of ['save', 'stop']) {
+    const html = rankingFragmentFixture(), period = String(new Date().getFullYear());
+    const app = await boot({ sample: false, nativeCompression: true,
+      storage: { bc_rank_snapshot_enabled: 'true' },
+      fetch: url => /top100/.test(url) ? html : [] });
+    const W = app.window, A = W.__app, handlers = {};
+    let held = false, current = true, opened = false, done = false;
+    const packing = holdScoutCompression(W, json =>
+      !held && json.includes('"fragment":') && (held = true));
+    try {
+      let work;
+      if (provider === 'http') {
+        work = A.fetchRank({ region: 'US-WA', max: 500, rowLimit: 500, metric: 'spp' }, period, '', true);
+      } else {
+        W.Capacitor = { Plugins: { CapgoInAppBrowser: {
+          addListener(name, handler) { handlers[name] = handler; return Promise.resolve({ remove() {} }); },
+          openWebView() { opened = true; return Promise.resolve({ id: 'F247-fragment-window' }); },
+          executeScript() { return Promise.resolve(); },
+          hide() {}, show() {}, close() { return Promise.resolve(); }
+        } } };
+        work = A.captureEbird({ kind: 'rank', url: 'https://ebird.org/top100/US-WA',
+          script: 'void 0', alive: () => current });
+      }
+      const pending = work.then(data => ({ data }), error => ({ error })).finally(() => { done = true; });
+      if (provider === 'native') {
+        await waitFor(() => opened, 'owned native capture window');
+        handlers.messageFromWebview({ id: 'F247-fragment-window', detail: {
+          __ebird: true, kind: 'rank', ok: true, sourceFragment: html,
+          data: { metric: 'spp', marker: 'F247-owned-capture' }
+        } });
+      }
+      await waitFor(() => packing.ready() || done, 'actual ' + provider + ' acquisition awaiting fragment persistence');
+      await new Promise(resolve => setTimeout(resolve, 20));
+      assert.equal(done, false, 'the real source consumer cannot publish while persistence is pending');
+      assert.equal(packing.ready(), true, 'the actual source must reach the native compression boundary');
+      assert.equal(W.localStorage.getItem('bc_rank_snapshots_v1'), null);
+      if (action === 'stop') {
+        current = false;
+        if (provider === 'http') A.cancelStalledWork();
+      }
+      packing.release();
+      const result = await pending;
+      if (action === 'save') {
+        assert.ok(result.data);
+        assert.equal(A.rankSnapshotRead().length, 1);
+      } else {
+        assert.match(result.error?.message || '', /superseded/i);
+        assert.equal(W.localStorage.getItem('bc_rank_snapshots_v1'), null);
+      }
+    } finally { packing.release(); W.close(); }
+  }
+});
+
+function holdScoutCompression(window, matches) {
+  const NativeResponse = window.Response;
+  let release;
+  window.Response = class {
+    constructor(value) {
+      if (typeof value === 'string' && matches(value)) {
+        this.body = { pipeThrough: () => ({ snapshot: value }) };
+      } else if (value && value.snapshot) {
+        this.arrayBuffer = () => new Promise(resolve => {
+          release = () => {
+            const bytes = require('node:zlib').gzipSync(value.snapshot);
+            resolve(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
+          };
+        });
+      } else return new NativeResponse(value);
+    }
+  };
+  return { ready: () => !!release, release: () => { if (release) release(); } };
+}
+
+test('F247 annual-first and discovery histories migrate and survive compressed restart without reacquisition', async () => {
+  const first = await boot({ sample: false, nativeCompression: true, fetch: url =>
+    /\/bird-list\?/.test(url) ? foySourceFixture(2) : [] });
+  let annualKey, historyKey, legacy, compressed, ctx;
+  try {
+    const A = first.window.__app, result = await A.ensureFoy(true);
+    ctx = A.foyContext();
+    annualKey = A.firstYearKey(ctx.region, ctx.year);
+    historyKey = A.foyKey(ctx);
+    assert.equal(result.saved, true);
+    legacy = { [annualKey]: JSON.stringify(result.snapshot), [historyKey]: JSON.stringify(result.record) };
+    compressed = Object.fromEntries([annualKey, historyKey].map(key => {
+      const raw = first.window.localStorage.getItem(A.bcReal(key));
+      assert.ok(raw.startsWith('z:'));
+      return [key, raw];
+    }));
+  } finally { first.window.close(); }
+  for (const storage of [legacy, compressed]) {
+    const app = await boot({ sample: false, nativeCompression: true, storage });
+    const W = app.window, A = W.__app;
+    try {
+      for (const key of [annualKey, historyKey]) assert.ok(W.localStorage.getItem(A.bcReal(key)).startsWith('z:'));
+      assert.equal(JSON.stringify(A.firstYearRead(ctx.region, ctx.year)), legacy[annualKey]);
+      assert.equal(JSON.stringify(A.foyHistoryRead()), legacy[historyKey]);
+      assert.ok(arr(await A.recoverCachedRecentRegions()).includes('wa'),
+        'recent-region recovery must inspect compressed annual-first evidence, not parse its envelope as raw JSON');
+      assert.equal((await A.ensureFoy(false)).saved, true);
+      assert.equal(app.state.fetches.filter(url => /\/bird-list\?/.test(url)).length, 0,
+        'the actual annual-first owner must reuse verified compressed histories');
+    } finally { W.close(); }
+  }
+});
+
+test('F247 annual-first saves await compression and optional memory cannot resurrect replaced or removed evidence', async () => {
+  for (const action of ['save', 'replace', 'erase', 'profile', 'generation']) {
+    const app = await boot({ sample: false, nativeCompression: true });
+    const W = app.window, A = W.__app, ctx = A.foyContext(), key = A.firstYearKey(ctx.region, ctx.year);
+    const page = A.parseFirstYearBirdList(foySourceFixture(2));
+    page.rows[0].locName = 'F247 held annual first '.repeat(50);
+    const packing = holdScoutCompression(W, json => json.includes('F247 held annual first'));
+    try {
+      if (action === 'erase') W.localStorage.removeItem(A.bcReal('ebird_identity_rev_v1'));
+      let done = false;
+      const pending = A.firstYearWrite(ctx.region, ctx.year, page).finally(() => { done = true; });
+      await waitFor(packing.ready, 'held actual annual-first metadata compression');
+      assert.equal(done, false);
+      assert.equal(W.localStorage.getItem(key), null, 'annual-first metadata cannot allocate raw-first');
+      const newer = JSON.stringify({ rows: [{ code: 'newer', locName: 'Newer annual first' }] });
+      if (action === 'replace') W.localStorage.setItem(key, newer);
+      else if (action === 'erase') A.scrubPersonalData();
+      else if (action === 'profile') W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-annual-owner');
+      else if (action === 'generation') {
+        const prototype = W.Storage.prototype, set = prototype.setItem;
+        prototype.setItem = function (k, value) {
+          if (k === key) throw new W.DOMException('annual quota', 'QuotaExceededError');
+          return set.call(this, k, value);
+        };
+        try {
+          await A.firstYearWrite(ctx.region, ctx.year, { ...page,
+            rows: [{ ...page.rows[0], locName: 'Newer annual first' }] });
+        } finally { prototype.setItem = set; }
+      }
+      packing.release();
+      await pending;
+      if (action === 'save') {
+        assert.ok(W.localStorage.getItem(key).startsWith('z:'));
+        assert.match(A.firstYearRead(ctx.region, ctx.year).rows[0].locName, /F247 held annual first/);
+        W.localStorage.removeItem(key);
+        assert.equal(A.firstYearRead(ctx.region, ctx.year), null, 'deleted durable data cannot survive as a live memory hit');
+      } else {
+        assert.equal(W.localStorage.getItem(key), action === 'replace' ? newer : null);
+        const current = A.firstYearRead(ctx.region, ctx.year);
+        if (action === 'replace' || action === 'generation') assert.equal(current.rows[0].locName, 'Newer annual first');
+        else assert.equal(current, null, 'retired metadata cannot be promoted to optional memory');
+      }
+    } finally { packing.release(); W.close(); }
+  }
+});
+
+test('F247 actual FOY ownership cannot announce durable history before native compression or after cancellation', async () => {
+  for (const action of ['save', 'replace', 'erase', 'profile', 'stop']) {
+    const app = await boot({ sample: false, nativeCompression: true, fetch: url =>
+      /\/bird-list\?/.test(url) ? foySourceFixture(2) : [] });
+    const W = app.window, A = W.__app, key = A.foyKey(A.foyContext());
+    const packing = holdScoutCompression(W, json => json.includes('"knownCodes":'));
+    let active = true;
+    try {
+      if (action === 'erase') W.localStorage.removeItem(A.bcReal('ebird_identity_rev_v1'));
+      let done = false;
+      const pending = A.ensureFoy(true, () => active).finally(() => { done = true; });
+      await waitFor(packing.ready, 'held actual discovery history compression');
+      assert.equal(done, false, 'saved discovery readiness must await native durability');
+      assert.equal(W.localStorage.getItem(A.bcReal(key)), null, 'no raw-first history allocation');
+      const newer = '{"newer":"discovery history"}';
+      if (action === 'replace') W.localStorage.setItem(A.bcReal(key), newer);
+      else if (action === 'erase') A.scrubPersonalData();
+      else if (action === 'profile') W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-FOY-owner');
+      else if (action === 'stop') active = false;
+      packing.release();
+      if (action === 'erase' || action === 'profile' || action === 'stop') {
+        await assert.rejects(pending, error => !!error.queueCancelled);
+      } else assert.equal((await pending).saved, action === 'save');
+      if (action === 'save') {
+        assert.ok(W.localStorage.getItem(A.bcReal(key)).startsWith('z:'));
+        assert.ok(A.foyHistoryRead().knownCodes.includes('comnig'));
+      } else {
+        assert.equal(W.localStorage.getItem(key), action === 'replace' ? newer : null);
+        assert.equal(W.localStorage.getItem(A.bcReal(key)), action === 'replace' ? newer : null);
+      }
+    } finally { packing.release(); W.close(); }
+  }
+});
+
+test('F247 a failed newer discovery write retires an older save while preserving the original ready history', async () => {
+  const app = await boot({ sample: false, nativeCompression: true, fetch: url =>
+    /\/bird-list\?/.test(url) ? foySourceFixture(2) : [] });
+  const W = app.window, A = W.__app, ctx = A.foyContext(), key = A.bcReal(A.foyKey(ctx));
+  const packing = holdScoutCompression(W, json => json.includes('F247 held FOY generation'));
+  try {
+    const baseline = await A.ensureFoy(true), before = W.localStorage.getItem(key);
+    const record = JSON.parse(JSON.stringify(baseline.record));
+    record.snapshot.rows[0].locName = 'F247 held FOY generation '.repeat(30);
+    const pending = A.foyHistoryWrite(ctx, record);
+    await waitFor(packing.ready, 'first discovery write generation');
+    const prototype = W.Storage.prototype, set = prototype.setItem;
+    prototype.setItem = function (k, value) {
+      if (k === key) throw new W.DOMException('discovery quota', 'QuotaExceededError');
+      return set.call(this, k, value);
+    };
+    const newer = JSON.parse(JSON.stringify(baseline.record));
+    newer.snapshot.rows[0].locName = 'Newer FOY generation';
+    try { assert.equal(await A.foyHistoryWrite(ctx, newer), false); }
+    finally { prototype.setItem = set; }
+    packing.release();
+    assert.equal(await pending, false);
+    assert.equal(W.localStorage.getItem(key), before, 'a retired save cannot replace the last ready history');
+  } finally { packing.release(); W.close(); }
+});
+
+test('F247 jargon fallback migrates legacy dictionaries and restores compressed data when the bundle is unavailable', async () => {
+  const rows = Array.from({ length: 60 }, (_, i) => ({
+    term: 'F247 legacy term ' + i, def: 'F247 retained dictionary definition ' + i, where: 'F247 cached glossary'
+  }));
+  let saved = JSON.stringify(rows), key;
+  for (const restart of [false, true]) {
+    const app = await boot({ sample: false, nativeCompression: true,
+      storage: { [key || 'bc_birder_jargon_v1:' + JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8')).version]: saved },
+      jargonFetch: () => Promise.resolve({ json: () => Promise.reject(new Error('bundle unavailable')) }) });
+    const W = app.window, A = W.__app;
+    try {
+      assert.equal(JSON.stringify(await A.loadJargon()), JSON.stringify(rows));
+      key = A.JARGON_CACHE_KEY;
+      saved = W.localStorage.getItem(A.bcReal(key));
+      assert.ok(saved.startsWith('z:'));
+      assert.equal(JSON.stringify(A.cachedJargon()), JSON.stringify(rows));
+      assert.match(W.document.querySelector('.jargontip').textContent, /F247 legacy term/);
+    } finally { W.close(); }
+  }
+});
+
+test('F247 bundled jargon awaits compression and rejects replacement, erasure and profile changes', async () => {
+  for (const action of ['save', 'replace', 'erase', 'profile']) {
+    const codec = { Response };
+    const packing = holdScoutCompression(codec, json => json.includes('"term":'));
+    const app = await boot({ sample: false, nativeCompression: true, Response: codec.Response });
+    const W = app.window, A = W.__app, key = A.JARGON_CACHE_KEY;
+    try {
+      await waitFor(packing.ready, 'held actual bundled dictionary compression');
+      if (action === 'erase') W.localStorage.removeItem(A.bcReal('ebird_identity_rev_v1'));
+      let done = false;
+      const pending = A.loadJargon().finally(() => { done = true; });
+      await new Promise(resolve => setTimeout(resolve, 10));
+      assert.equal(done, false, 'the actual glossary consumer must await native compression');
+      assert.equal(W.localStorage.getItem(A.bcReal(key)), null, 'no raw-first dictionary allocation');
+      const newer = JSON.stringify([{ term: 'Newer glossary', def: 'Keep this', where: 'Replacement' }]);
+      if (action === 'replace') W.localStorage.setItem(A.bcReal(key), newer);
+      else if (action === 'erase') A.scrubPersonalData();
+      else if (action === 'profile') W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-glossary-owner');
+      packing.release();
+      const result = await pending;
+      if (action === 'save' || action === 'replace') assert.ok(result.length >= 12);
+      else assert.equal(result.length, 0, 'retired glossary completion must not publish into its new owner');
+      if (action === 'save') assert.ok(W.localStorage.getItem(A.bcReal(key)).startsWith('z:'));
+      else {
+        assert.equal(W.localStorage.getItem(key), action === 'replace' ? newer : null);
+        assert.equal(W.localStorage.getItem(A.bcReal(key)), action === 'replace' ? newer : null);
+      }
+    } finally { packing.release(); W.close(); }
+  }
+});
+
+test('F247 arrival checkpoints migrate before consumers and resume after compressed restart without requests', async () => {
+  const key = 'bc_arrival_v1:US-MO|Missouri';
+  const legacy = { at: 1, done: Object.fromEntries(Array.from({ length: 60 }, (_, i) =>
+    ['F247 cached arrival ' + i, i % 2 ? null : { day: '04-20', records: 247, months: 3 }])) };
+  let saved = JSON.stringify(legacy);
+  for (const restart of [false, true]) {
+    const app = await boot({ sample: false, nativeCompression: true, storage: { [key]: saved } });
+    const W = app.window, A = W.__app;
+    try {
+      saved = W.localStorage.getItem(A.bcReal(key));
+      assert.ok(saved.startsWith('z:'));
+      const store = A.loadArrivalStore('US-MO', 'Missouri');
+      assert.equal(JSON.stringify(store), JSON.stringify(legacy), 'acquisition time and negative answers must survive migration');
+      const rows = Object.keys(legacy.done).map(sci => ({ sci, name: sci }));
+      assert.equal(await A.sweepArrivals(rows, 'US-MO', 'Missouri', store, () => true), 0);
+      assert.equal(app.state.fetches.filter(url => /api\.gbif/.test(url)).length, 0,
+        'the actual resumable sweep must not acquire already answered species');
+    } finally { W.close(); }
+  }
+});
+
+test('F247 arrival sweep awaits its checkpoint and rejects replacement, Stop, erasure, profile and newer sweeps', async () => {
+  const key = 'bc_arrival_v1:US-MO|Missouri';
+  for (const action of ['save', 'replace', 'stop', 'erase', 'profile', 'generation']) {
+    const app = await boot({ sample: false, nativeCompression: true, fetch: url =>
+      /api\.gbif/.test(url) ? { usageKey: 0 } : [] });
+    const W = app.window, A = W.__app;
+    const store = { at: 0, done: Object.fromEntries(Array.from({ length: 60 }, (_, i) =>
+      ['F247 held arrivals ' + i, null])) };
+    const packing = holdScoutCompression(W, json => json.includes('F247 held arrivals'));
+    let active = true;
+    try {
+      if (action === 'erase') W.localStorage.removeItem(A.bcReal('ebird_identity_rev_v1'));
+      let done = false;
+      const pending = A.sweepArrivals([{ sci: 'F247 new arrival', name: 'F247 arrival' }],
+        'US-MO', 'Missouri', store, () => active).finally(() => { done = true; });
+      await waitFor(packing.ready, 'held actual arrival checkpoint');
+      assert.equal(done, false, 'the sweep cannot finish while its checkpoint is still packing');
+      assert.equal(W.localStorage.getItem(A.bcReal(key)), null, 'no raw-first checkpoint allocation');
+      const newer = JSON.stringify({ at: 2, done: { 'Newer arrival': null } });
+      if (action === 'replace') W.localStorage.setItem(A.bcReal(key), newer);
+      else if (action === 'stop') active = false;
+      else if (action === 'erase') A.scrubPersonalData();
+      else if (action === 'profile') W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-arrival-owner');
+      else if (action === 'generation') await A.sweepArrivals([], 'US-MO', 'Missouri', { done: {} }, () => true);
+      packing.release();
+      await pending;
+      if (action === 'save') {
+        assert.ok(W.localStorage.getItem(A.bcReal(key)).startsWith('z:'));
+        assert.equal(A.loadArrivalStore('US-MO', 'Missouri').done['F247 new arrival'], null);
+      } else {
+        assert.equal(W.localStorage.getItem(key), action === 'replace' ? newer : null);
+        assert.equal(W.localStorage.getItem(A.bcReal(key)), action === 'replace' ? newer : null,
+          'cancelled checkpoint must not recreate or overwrite either profile namespace');
+      }
+    } finally { packing.release(); W.close(); }
+  }
+});
+
+test('F247 an arrival response after cancellation cannot enter the resume cursor or report progress', async () => {
+  for (const action of ['stop', 'erase', 'profile', 'generation']) {
+    let release, active = true, ticks = 0;
+    const app = await boot({ sample: false, nativeCompression: true, fetch: url =>
+      /api\.gbif.*species\/match/.test(url) ? new Promise(resolve => { release = resolve; }) : [] });
+    const W = app.window, A = W.__app, store = { at: 0, done: {} };
+    try {
+      W.localStorage.removeItem(A.bcReal('ebird_identity_rev_v1'));
+      const pending = A.sweepArrivals([{ sci: 'F247 delayed arrival', name: 'F247 delayed' }],
+        'US-MO', 'Missouri', store, () => active, () => { ticks++; });
+      await waitFor(() => !!release, 'delayed arrival source');
+      if (action === 'stop') active = false;
+      else if (action === 'erase') A.scrubPersonalData();
+      else if (action === 'profile') W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-arrival-owner');
+      else await A.sweepArrivals([], 'US-MO', 'Missouri', { done: {} }, () => true);
+      release({ usageKey: 0 });
+      await pending;
+      assert.equal(Object.keys(store.done).length, 0, 'a retired response is not a completed negative answer');
+      assert.equal(ticks, 0);
+      assert.equal(W.localStorage.getItem('bc_arrival_v1:US-MO|Missouri'), null);
+    } finally { W.close(); }
+  }
+});
+
+test('F247 GBIF legacy facets migrate before consumers and a compressed restart preserves lifetime and hits', async () => {
+  const key = 'ebird_gbif_v1', ck = 'boxfacet|all|' + BL.gbifBoxWkt(47.6, -122.3);
+  const value = { all: 247001, sp: Object.fromEntries(Array.from({ length: 60 }, (_, i) => [i + 1, i + 10])) };
+  const legacy = { [ck]: { at: Date.now(), v: value } };
+  let saved = JSON.stringify(legacy);
+  for (const restart of [false, true]) {
+    const app = await boot({ sample: false, nativeCompression: true, storage: { [key]: saved } });
+    const W = app.window, A = W.__app;
+    try {
+      saved = W.localStorage.getItem(key);
+      assert.ok(saved.startsWith('z:'));
+      assert.equal(JSON.stringify(await A.iconicBoxFacet(47.6, -122.3)), JSON.stringify(value));
+      assert.equal(app.state.fetches.filter(url => /api\.gbif.*facet=speciesKey/.test(url)).length, 0,
+        'the actual Iconic provider must reuse the durable compressed facet');
+      legacy[ck].at = Date.now() - 31 * 86400000;
+      W.localStorage.setItem(key, JSON.stringify(legacy));
+      assert.equal(A.gbifFacetGet(ck), undefined, 'migration must not refresh old acquisition timestamps');
+      legacy[ck].at = Date.now();
+    } finally { W.close(); }
+  }
+});
+
+test('F247 GBIF acquisition awaits native persistence and rejects replaced, erased and foreign owners', async () => {
+  const key = 'ebird_gbif_v1';
+  for (const action of ['save', 'replace', 'erase', 'profile']) {
+    const app = await boot({ sample: false, nativeCompression: true, fetch: url =>
+      /api\.gbif.*facet=speciesKey/.test(url) ? { count: 247001,
+        facets: [{ field: 'SPECIES_KEY', counts: Array.from({ length: 60 }, (_, i) => ({ name: i + 1, count: i + 10 })) }]
+      } : [] });
+    const W = app.window, A = W.__app;
+    const packing = holdScoutCompression(W, json => json.includes('"all":247001'));
+    try {
+      if (action === 'erase') W.localStorage.removeItem(A.bcReal('ebird_identity_rev_v1'));
+      let done = false;
+      const pending = A.iconicBoxFacet(47.6, -122.3).finally(() => { done = true; });
+      await waitFor(packing.ready, 'held actual GBIF persistence');
+      assert.equal(done, false, 'the actual historical provider must await compression');
+      assert.equal(W.localStorage.getItem(key), null, 'no raw-first GBIF allocation');
+      const newer = JSON.stringify({ newer: { at: Date.now(), v: 123 } });
+      if (action === 'replace') W.localStorage.setItem(key, newer);
+      else if (action === 'erase') A.scrubPersonalData();
+      else if (action === 'profile') W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-GBIF-owner');
+      packing.release();
+      assert.equal((await pending).all, 247001);
+      if (action === 'save') assert.ok(W.localStorage.getItem(key).startsWith('z:'));
+      else assert.equal(W.localStorage.getItem(key), action === 'replace' ? newer : null,
+        'obsolete providers must not recreate or overwrite shared cache data');
+    } finally { packing.release(); W.close(); }
+  }
+});
+
+test('F247 GBIF concurrent provider completions serialize and merge separate evidence without lost updates', async () => {
+  const app = await boot({ sample: false, nativeCompression: true, fetch: url =>
+    /api\.gbif.*facet=speciesKey/.test(url) ? { count: 247001,
+      facets: [{ field: 'SPECIES_KEY', counts: Array.from({ length: 60 }, (_, i) => ({ name: i + 1, count: i + 10 })) }]
+    } : [] });
+  const W = app.window, A = W.__app, key = 'ebird_gbif_v1';
+  let held = false;
+  const packing = holdScoutCompression(W, json =>
+    !held && json.includes('"all":247001') && (held = true));
+  try {
+    const first = A.iconicBoxFacet(47.6, -122.3);
+    await waitFor(packing.ready, 'first GBIF compression');
+    let done = false;
+    const second = A.iconicBoxFacet(48.6, -122.3).finally(() => { done = true; });
+    await waitFor(() => app.state.fetches.filter(url => /api\.gbif.*facet=speciesKey/.test(url)).length === 2,
+      'second independent source completion');
+    await new Promise(resolve => setTimeout(resolve, 20));
+    assert.equal(done, false, 'a concurrent save must wait behind the held encoded predecessor');
+    assert.equal(W.localStorage.getItem(key), null);
+    packing.release();
+    await Promise.all([first, second]);
+    const cache = A.gbifCache();
+    assert.equal(cache['boxfacet|all|' + BL.gbifBoxWkt(47.6, -122.3)].v.all, 247001);
+    assert.equal(cache['boxfacet|all|' + BL.gbifBoxWkt(48.6, -122.3)].v.all, 247001);
+    assert.ok(W.localStorage.getItem(key).startsWith('z:'));
+  } finally { packing.release(); W.close(); }
+});
+
+test('F247 GBIF captures persistence ownership before the provider response, not after it', async () => {
+  let release;
+  const app = await boot({ sample: false, nativeCompression: true, fetch: url =>
+    /api\.gbif.*facet=speciesKey/.test(url) ? new Promise(resolve => { release = resolve; }) : [] });
+  const W = app.window, A = W.__app;
+  try {
+    W.localStorage.removeItem(A.bcReal('ebird_identity_rev_v1'));
+    const pending = A.iconicBoxFacet(47.6, -122.3);
+    await waitFor(() => !!release, 'delayed GBIF source');
+    A.scrubPersonalData();
+    release({ count: 247001, facets: [{ field: 'SPECIES_KEY', counts: [{ name: '247', count: 100 }] }] });
+    assert.equal((await pending).all, 247001);
+    assert.equal(W.localStorage.getItem('ebird_gbif_v1'), null,
+      'a response acquired before erasure must not assume the post-erasure identity');
+  } finally { W.close(); }
+});
+
+test('F247 reference directories migrate before consumers and compressed restart never acquires them again', async () => {
+  const path = 'ref/hotspot/US-WA-033?fmt=json', key = 'bc_ref:' + path;
+  const legacy = { t: Date.now(), v: Array.from({ length: 60 }, (_, i) => ({
+    locId: 'LF247REF' + i, locName: 'F247 cached reference shore ' + i,
+    lat: 47.6, lng: -122.3, subnational2Code: 'US-WA-033'
+  })) };
+  let saved = JSON.stringify(legacy);
+  for (const restart of [false, true]) {
+    const app = await boot({ sample: false, nativeCompression: true, storage: { [key]: saved } });
+    const A = app.window.__app;
+    try {
+      saved = app.window.localStorage.getItem(key);
+      assert.ok(saved.startsWith('z:'));
+      assert.equal(A.ebRefGet(path).length, 60);
+      assert.equal(A.cachedHotspots({ stateCode: 'US-WA', counties: [{ code: 'US-WA-033' }] }).length, 60);
+      assert.equal((await A.ebird(path)).length, 60);
+      assert.equal(app.state.fetches.filter(url => url.includes(path)).length, 0,
+        'the actual governor consumer must use the hydrated durable reference');
+      app.window.localStorage.setItem(key, JSON.stringify({ ...legacy, t: Date.now() - 8 * 86400000 }));
+      assert.equal(A.ebRefGet(path), null, 'migration must not extend the seven-day lifetime');
+    } finally { app.window.close(); }
+  }
+});
+
+test('F247 actual reference acquisition awaits compression and rejects obsolete persistence owners', async () => {
+  const path = 'ref/hotspot/US-KS-173?fmt=json', key = 'bc_ref:' + path;
+  for (const action of ['save', 'replace', 'newer', 'failed-newer', 'purge', 'erase', 'profile', 'work']) {
+    const app = await boot({ sample: false, nativeCompression: true, fetch: url =>
+      url.includes(path) ? Array.from({ length: 60 }, (_, i) => ({
+        locId: 'LF247REF' + i, locName: 'F247 held reference ' + i
+      })) : [] });
+    const W = app.window, A = W.__app;
+    const packing = holdScoutCompression(W, json => json.includes('F247 held reference'));
+    let active = true;
+    try {
+      if (action === 'erase') W.localStorage.removeItem(A.bcReal('ebird_identity_rev_v1'));
+      let done = false;
+      const pending = A.ebird(path, false, false, false, { current: () => active })
+        .finally(() => { done = true; });
+      await waitFor(packing.ready, 'held actual reference compression');
+      assert.equal(done, false, 'the actual request promise must await encoded durability');
+      assert.equal(W.localStorage.getItem(key), null, 'reference metadata cannot allocate raw-first');
+      const newer = JSON.stringify({ t: Date.now(), v: [{ locId: 'newer' }] });
+      if (action === 'replace') W.localStorage.setItem(key, newer);
+      else if (action === 'newer') assert.equal(await A.ebRefPut(path, [{ locId: 'newer' }]), true);
+      else if (action === 'failed-newer') {
+        const prototype = W.Storage.prototype, set = prototype.setItem;
+        prototype.setItem = function (k, value) {
+          if (k === key) throw new W.DOMException('reference quota', 'QuotaExceededError');
+          return set.call(this, k, value);
+        };
+        try { assert.equal(await A.ebRefPut(path, [{ locId: 'failed-newer' }]), false); }
+        finally { prototype.setItem = set; }
+      }
+      else if (action === 'purge') A.ebRefPurge();
+      else if (action === 'erase') A.scrubPersonalData();
+      else if (action === 'profile') W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-reference-owner');
+      else if (action === 'work') active = false;
+      packing.release();
+      if (action === 'work') await assert.rejects(pending, error => !!error.queueCancelled);
+      else assert.equal((await pending).length, 60, 'a cancelled optional cache cannot poison provider data');
+      if (action === 'save') assert.ok(W.localStorage.getItem(key).startsWith('z:'));
+      else if (action === 'newer') assert.equal(A.ebRefGet(path)[0].locId, 'newer');
+      else assert.equal(W.localStorage.getItem(key), action === 'replace' ? newer : null,
+        'late persistence must not replace a newer, purged, erased or foreign slot');
+    } finally { packing.release(); W.close(); }
+  }
+});
+
+test('F247 reference writes compare the pre-request slot and preserve the last good directory on quota failure', async () => {
+  const path = 'ref/hotspot/US-KS-173?fmt=json', key = 'bc_ref:' + path;
+  let release;
+  const app = await boot({ sample: false, nativeCompression: true, fetch: url =>
+    url.includes(path) ? new Promise(resolve => { release = resolve; }) : [] });
+  const W = app.window, A = W.__app;
+  try {
+    const pending = A.ebird(path);
+    await waitFor(() => !!release, 'reference request before its response');
+    assert.equal(await A.ebRefPut(path, [{ locId: 'newer' }]), true);
+    release([{ locId: 'old-response', locName: 'Old reference '.repeat(100) }]);
+    await pending;
+    assert.equal(A.ebRefGet(path)[0].locId, 'newer', 'capture the slot before, not after, the request');
+    const before = W.localStorage.getItem(key), prototype = W.Storage.prototype, set = prototype.setItem;
+    prototype.setItem = function (k, value) {
+      if (k === key) throw new W.DOMException('reference quota', 'QuotaExceededError');
+      return set.call(this, k, value);
+    };
+    try {
+      assert.equal(await A.ebRefPut(path, [{ locId: 'failed', locName: 'Failed replacement '.repeat(100) }]), false);
+      assert.equal(W.localStorage.getItem(key), before, 'failed writes must not delete the readable last-good value');
+      assert.equal(A.ebRefGet(path)[0].locId, 'newer');
+    } finally { prototype.setItem = set; }
+  } finally { W.close(); }
+});
+
+test('F247 hotspot directories migrate before initial consumers and survive compressed restart without acquisition', async () => {
+  const key = 'ebird_hotspots_v2:US-WA';
+  const legacy = { at: Date.now(), rows: Array.from({ length: 60 }, (_, i) => ({
+    locId: 'LF247HOT' + i, locName: 'F247 cached public shore ' + i,
+    lat: 47.6, lng: -122.3, co: 'US-WA-033'
+  })) };
+  let saved = JSON.stringify(legacy);
+  for (const restart of [false, true]) {
+    const app = await boot({ sample: false, nativeCompression: true, storage: { [key]: saved } });
+    const A = app.window.__app;
+    try {
+      saved = app.window.localStorage.getItem(key);
+      assert.ok(saved.startsWith('z:'), 'initial synchronous consumers require hydrated, migrated metadata');
+      assert.equal((await A.loadHotspotIndex('US-WA')).length, 60);
+      assert.equal(A.cachedHotspots({ stateCode: 'US-WA', counties: [] }).length, 60);
+      assert.equal(Object.keys(A.hotspotCoordSet('US-WA')).length, 60);
+      assert.equal(Object.keys(await A.hotspotNameSet('US-WA')).length, 60);
+      assert.equal(app.state.fetches.filter(url => /ref\/hotspot\/US-WA/.test(url)).length, 0,
+        'restart and public identity projections must not spend an eBird request');
+    } finally { app.window.close(); }
+  }
+});
+
+test('F247 hotspot directory saves await native compression and reject replaced, erased and foreign owners', async () => {
+  for (const action of ['save', 'replace', 'erase', 'profile']) {
+    const app = await boot({ sample: false, nativeCompression: true, fetch: url =>
+      /ref\/hotspot\/US-WA/.test(url) ? Array.from({ length: 60 }, (_, i) => ({
+        locId: 'LF247HOT' + i, locName: 'F247 held directory ' + i, lat: 47.6, lng: -122.3
+      })) : [] });
+    const W = app.window, A = W.__app, key = 'ebird_hotspots_v2:US-WA';
+    const packing = holdScoutCompression(W, json => json.includes('F247 held directory'));
+    try {
+      if (action === 'erase') W.localStorage.removeItem(A.bcReal('ebird_identity_rev_v1'));
+      let done = false;
+      const pending = A.loadHotspotIndex('US-WA').finally(() => { done = true; });
+      await waitFor(packing.ready, 'held hotspot directory compression');
+      assert.equal(done, false, 'the provider consumer must await its durable save');
+      assert.equal(W.localStorage.getItem(key), null, 'no raw-first allocation is permitted');
+      const newer = JSON.stringify({ at: Date.now(), rows: [{ locId: 'newer', locName: 'Newer directory' }] });
+      if (action === 'replace') W.localStorage.setItem(key, newer);
+      if (action === 'erase') A.scrubPersonalData();
+      if (action === 'profile') W.localStorage.setItem(A.BC_PROFILE_PTR, 'F247-other-directory-owner');
+      packing.release();
+      if (action === 'erase' || action === 'profile') await assert.rejects(pending, error => !!error.queueCancelled);
+      else assert.equal((await pending).length, 60);
+      const raw = W.localStorage.getItem(key);
+      if (action === 'save') assert.ok(raw.startsWith('z:'));
+      else assert.equal(raw, action === 'replace' ? newer : null,
+        'obsolete public metadata must not be persisted by an erased or changed owner');
+    } finally { packing.release(); W.close(); }
+  }
+});
+
+test('F247 a failed newer hotspot refresh retires an older in-flight save without deleting its usable response', async () => {
+  let requests = 0;
+  const app = await boot({ sample: false, nativeCompression: true, fetch: url => {
+    if (!/ref\/hotspot\/US-WA/.test(url)) return [];
+    if (++requests > 1) return { invalid: true };
+    return Array.from({ length: 60 }, (_, i) => ({
+      locId: 'LF247GEN' + i, locName: 'F247 held generation ' + i
+    }));
+  } });
+  const W = app.window, A = W.__app, key = 'ebird_hotspots_v2:US-WA';
+  const packing = holdScoutCompression(W, json => json.includes('F247 held generation'));
+  try {
+    const pending = A.loadHotspotIndex('US-WA');
+    await waitFor(packing.ready, 'first hotspot generation compression');
+    await assert.rejects(A.loadHotspotIndex('US-WA', null, true), /Unreadable hotspot directory/);
+    packing.release();
+    assert.equal((await pending).length, 60);
+    assert.equal(W.localStorage.getItem(key), null, 'the older generation must not fill the retired durable slot');
+  } finally { packing.release(); W.close(); }
+});
+
+test('F247 location evidence migrates legacy data and survives a compressed restart without fetching', async () => {
+  const key = 'ebird_locsp_v2:LF247LOCATION:3';
+  const legacy = { d: new Date().toLocaleDateString('en-CA'), v: Array.from({ length: 60 }, (_, i) => ({
+    code: 'amerob', name: 'American Robin', subId: 'SF247LOCATION' + i,
+    dateStr: recentObsStamp(), subnational1Code: 'CA-BC'
+  })) };
+  let saved;
+  for (const restart of [false, true]) {
+    const app = await boot({ sample: false, nativeCompression: true, storage: { [key]: saved || JSON.stringify(legacy) } });
+    try {
+      const A = app.window.__app;
+      legacy.d = A.todayStr();
+      if (!restart) app.window.localStorage.setItem(A.bcReal(key), JSON.stringify(legacy));
+      const before = app.state.fetches.length;
+      assert.equal(JSON.stringify(await A.locRecentSpecies('LF247LOCATION')), JSON.stringify(legacy.v));
+      saved = app.window.localStorage.getItem(A.bcReal(key));
+      assert.ok(saved.startsWith('z:'), 'legacy evidence must be automatically compressed');
+      assert.equal(app.state.fetches.length, before, 'a current durable location feed requires no requests');
+    } finally { app.window.close(); }
+  }
+});
+
+test('F247 held location compression preserves newer data and cannot survive erasure or profile changes', async () => {
+  for (const action of ['replace', 'erase', 'profile']) {
+    const app = await boot({ sample: false, nativeCompression: true, fetch: url =>
+      /data\/obs\/LF247LOCATION\/recent/.test(url) ? Array.from({ length: 60 }, (_, i) => ({
+        speciesCode: 'amerob', comName: 'F247 location American Robin', obsDt: recentObsStamp(),
+        locId: 'LF247LOCATION', subId: 'SF247LOCATION' + i
+      })) : [] });
+    const W = app.window, A = W.__app, key = A.bcReal('ebird_locsp_v2:LF247LOCATION:3');
+    const packing = holdScoutCompression(W, json => json.includes('F247 location'));
+    try {
+      let finished = false;
+      const pending = A.locRecentSpecies('LF247LOCATION').finally(() => { finished = true; });
+      await waitFor(packing.ready, 'held actual location compression');
+      assert.equal(finished, false, 'the actual location consumer must await compression');
+      assert.equal(W.localStorage.getItem(key), null, 'no uncompressed allocation may precede compression');
+      const newer = JSON.stringify({ d: A.todayStr(), v: [{ code: 'newer', name: 'Newer evidence' }] });
+      if (action === 'replace') W.localStorage.setItem(key, newer);
+      else if (action === 'erase') A.scrubPersonalData();
+      else A.bcSetProfile('2');
+      packing.release();
+      if (action === 'replace') await pending;
+      else await assert.rejects(pending, error => !!error.queueCancelled);
+      assert.equal(W.localStorage.getItem(key), action === 'replace' ? newer : null);
+      if (action === 'profile') assert.equal(W.localStorage.getItem(A.bcReal('ebird_locsp_v2:LF247LOCATION:3')), null);
+    } finally { packing.release(); W.close(); }
+  }
+});
+
+test('F247 Scout migrates a retained legacy slot and restores it after a compressed restart', async () => {
+  const first = await boot({ sample: false, nativeCompression: true });
+  const key = 'bc_scout_v1', A = first.window.__app;
+  const legacy = { v: 1, at: Date.now(), label: 'Legacy Scout', lat: 47.75, lng: -122.16,
+    scopeKey: A.activeScope().cacheIdentity, hotspots: [],
+    rows: [{ speciesCode: 'amerob', comName: 'American Robin', comments: 'retained source '.repeat(300) }] };
+  let saved;
+  try {
+    first.window.localStorage.setItem(A.bcReal(key), JSON.stringify(legacy));
+    assert.equal(JSON.stringify(await A.loadScout()), JSON.stringify(legacy));
+    saved = first.window.localStorage.getItem(A.bcReal(key));
+    assert.ok(saved.startsWith('z:'));
+  } finally { first.window.close(); }
+  const restarted = await boot({ sample: false, nativeCompression: true, storage: { [key]: saved } });
+  try {
+    await waitFor(() => /Legacy Scout/.test(restarted.$('scoutStatus').textContent),
+      'actual asynchronous Scout boot restoration');
+    assert.equal(JSON.stringify(await restarted.window.__app.loadScout()), JSON.stringify(legacy));
+  } finally { restarted.window.close(); }
+});
+
+test('F247 delayed Scout compression respects replacement, Clear, erasure, profile and scope ownership', async () => {
+  for (const action of ['replace', 'clear', 'erase', 'profile', 'scope']) {
+    const app = await boot({ sample: false, nativeCompression: true });
+    const W = app.window, A = W.__app, key = 'bc_scout_v1', originalKey = A.bcReal(key);
+    const packing = holdScoutCompression(W, json => json.includes('"label":"held Scout"'));
+    try {
+      if (action === 'erase') W.localStorage.removeItem(A.bcReal('ebird_identity_rev_v1'));
+      const scopeBefore = A.activeScope().cacheIdentity, reportBefore = A.getReportSlug();
+      const value = { v: 1, at: Date.now(), label: 'held Scout', lat: 47.75, lng: -122.16,
+        rows: [{ comments: 'held retained source '.repeat(100) }], hotspots: [] };
+      const pending = A.saveScout(value);
+      await waitFor(packing.ready, 'held actual Scout persistence');
+      assert.equal(W.localStorage.getItem(A.bcReal(key)), null, 'raw JSON must not be allocated first');
+      if (action === 'replace') assert.equal(await A.saveScout({ ...value, label: 'Newest Scout' }), true);
+      else if (action === 'clear') A.clearScout();
+      else if (action === 'erase') {
+        assert.equal(A.identityRevision(), 0, 'isolate the monotonic erasure barrier at revision zero');
+        A.scrubPersonalData();
+        W.localStorage.setItem(A.bcReal('ebird_report'), reportBefore);
+        assert.equal(A.activeScope().cacheIdentity, scopeBefore,
+          'reselecting the same region at revision zero must isolate the monotonic erasure barrier');
+      }
+      else if (action === 'profile') A.bcSetProfile('2');
+      else A.setActiveReport('mo');
+      packing.release();
+      assert.equal(await pending, false, 'an obsolete save must not report a durable replacement');
+      if (action === 'replace') assert.equal((await A.loadScout()).label, 'Newest Scout');
+      else {
+        assert.equal(await A.loadScout(), null);
+        assert.equal(W.localStorage.getItem(originalKey), null, 'the original slot must remain empty');
+        assert.equal(W.localStorage.getItem(A.bcReal(key)), null, 'no save may leak into the new owner');
+      }
+    } finally { packing.release(); W.close(); }
+  }
+});
+
+test('F247 actual Find scouting awaits its compressed save and cannot paint after Clear', async () => {
+  const app = await boot({ sample: false, nativeCompression: true, fetch: url => {
+    if (/data\/obs\/geo\/recent\?/.test(url)) return [{ speciesCode: 'amerob', comName: 'American Robin',
+      locId: 'LF247SCOUT', lat: 47.75, lng: -122.16, obsDt: recentObsStamp(), subId: 'SF247SCOUT' }];
+    return [];
+  } });
+  const W = app.window, A = W.__app;
+  const packing = holdScoutCompression(W, json => json.includes('"label":"held actual Scout"'));
+  try {
+    A.showSection('sec-destBtn', { load: false });
+    let finished = false;
+    const pending = A.autoScoutForAnchor({ label: 'held actual Scout', lat: 47.75, lng: -122.16 })
+      .then(value => { finished = true; return value; });
+    await waitFor(packing.ready, 'held actual Find Scout save');
+    assert.equal(finished, false, 'the real acquisition caller must await native persistence');
+    A.clearScout();
+    packing.release();
+    assert.equal(await pending, null, 'Clear must retire the real acquisition before it paints');
+    assert.equal(W.document.querySelector('.scoutinline'), null);
+    assert.equal(W.localStorage.getItem(A.bcReal('bc_scout_v1')), null);
+  } finally { packing.release(); W.close(); }
 });
 
 test('a scout ranks what you need first, measured from THERE', () => {
@@ -63968,7 +76906,7 @@ test('F475/F992/F1133 the main menu keeps one cached rotating jargon tip after S
   const cacheKey = Object.keys(app.window.localStorage)
     .find((key) => key.startsWith('bc_birder_jargon_v1:'));
   assert.ok(cacheKey, 'the parsed dictionary was not cached for later menu opens');
-  assert.ok(JSON.parse(app.window.localStorage.getItem(cacheKey)).length >= 12,
+  assert.ok((await app.window.__app.unpackJson(app.window.localStorage.getItem(cacheKey))).length >= 12,
     'the cached dictionary is a stub');
   const initialFetches = jargonFetches;
   const terms = [term];
@@ -64041,41 +76979,29 @@ test('Happening now is buzz, not the rarities list again (F144)', () => {
     'the crowd gate has not been raised ahead of the F124 unification');
 });
 
-test('the first badge is wired, and opening a section ages its news (F134)', () => {
+test('the first badge is wired, and opening a section ages its news (F134)', async () => {
   // The mechanism shipped in v1.13.0 with an EMPTY registry, so it was live
   // but inert - nothing badged, and nothing called seenMark, which meant every
   // badge would have read "0 new" forever. This is the line that turns it on.
-  const m = HTML.match(/MENU_BADGES\.abaBtn = function \(id\) \{[\s\S]*?\n      \};/);
-  assert.ok(m, 'the ABA badge entry exists');
-  const fn = new Function('newSince', 'localStorage',
-    'var MENU_BADGES = {};' + m[0] + ' return MENU_BADGES.abaBtn;');
-
-  const store = (v) => ({ getItem: () => v });
-
-  // Unknown is not zero. Nothing cached yet must show NO badge rather than a 0.
-  assert.strictEqual(fn(() => 0, store(null))('abaBtn'), null,
-    'an empty archive yields no badge at all');
-  assert.strictEqual(fn(() => 0, store('not json'))('abaBtn'), null,
-    'and unreadable storage degrades to no badge, never an exception');
-
-  // Species codes come off the archive KEY, so the badge needs nothing about
-  // the record shape.
-  const arc = JSON.stringify({ 'US-WA': { 'tersan|S1': {}, 'wantat1|S2': {}, 'tersan|S3': {} } });
-  const withNew = fn((id, ids) => ids.length, store(arc))('abaBtn');
-  assert.deepStrictEqual(withNew.ids.sort(), ['tersan', 'wantat1'],
-    'two distinct species from three archive rows - deduplicated by code');
-  assert.strictEqual(withNew.kind, 'new');
-
-  // Nothing new still returns the ids, because showSection marks from them.
-  const none = fn(() => 0, store(arc))('abaBtn');
-  assert.strictEqual(none.n, 0, 'no news, no badge drawn');
-  assert.ok(none.ids.length, 'but the ids are still returned, so opening the ' +
-    'section can mark them as seen');
-
-  // And the marker must read the badge's OWN ids, not a second lookup, or the
-  // two drift and the badge sticks forever.
-  assert.ok(/seenMark\(_b\.seenId \|\| id, \{ ids: _b\.ids/.test(HTML),
-    'showSection marks from the badge it just computed');
+  const app = await boot({ sample: false }), W = app.window, A = W.__app, id = 'sec-abaBtn';
+  try {
+    W.localStorage.removeItem(A.ABA_ARCHIVE_KEY);
+    assert.equal(A.menuBadge('abaBtn', id), null, 'unknown archive is not a verified zero');
+    W.localStorage.setItem(A.ABA_ARCHIVE_KEY, 'not json');
+    assert.equal(A.menuBadge('abaBtn', id), null);
+    W.localStorage.setItem(A.ABA_ARCHIVE_KEY, JSON.stringify({
+      'US-WA': { 'tersan|S1': {}, 'wantat1|S2': {}, 'tersan|S3': {} }
+    }));
+    W.localStorage.setItem(A.seenKey(id), '{"ids":[]}');
+    const badge = A.menuBadge('abaBtn', id);
+    assert.deepEqual(Array.from(badge.ids).sort(), ['tersan', 'wantat1']);
+    assert.equal(badge.kind, 'new'); assert.equal(badge.n, 2);
+    A.showSection(id, { load: false });
+    assert.equal(await app.$(id)._menuSeenSave, true);
+    const none = A.menuBadge('abaBtn', id);
+    assert.equal(none.n, 0); assert.equal(none.ids.length, 2);
+    assert.deepEqual(readPersistedFixture(W, A.seenKey(id)).ids.sort(), ['tersan', 'wantat1']);
+  } finally { W.close(); }
 });
 
 test('state records ship as a bundled asset and rank by THIS month (F137)', () => {
@@ -66576,12 +79502,12 @@ test('mega snapshots enrich official hotspot ids from the cached directory', asy
       rows: [{ locId: 'L7706326', lat: 48.318233, lng: -122.8410187 }],
     }),
   } });
-  app.window.__app.saveMegaSnapshot([{
+  await app.window.__app.saveMegaSnapshot([{
     speciesCode: 'nazboo1', comName: 'Nazca Booby',
     obsDt: '2026-09-01 17:50', locName: 'Smith Island',
     subId: 'S388997009', lat: 48.318233, lng: -122.8410187,
   }], true, 'US-WA', 'SN10489');
-  const saved = JSON.parse(app.window.localStorage.getItem('ebird_mega_snapshot_v1'));
+  const saved = readPersistedFixture(app.window, 'ebird_mega_snapshot_v1');
   assert.equal(saved.rows[0].locId, 'L7706326',
     'the public hotspot identity available in cache was discarded from the snapshot');
   app.window.close();
@@ -66596,9 +79522,9 @@ test('F1461 shared Mega snapshot and archive retain conflicting administrative a
       { ...f1012StakeoutRow(), subnational2Code: 'US-WA-033', county: 'US-WA-061',
         subnational1: 'US-OR', country: 'CA' },
     ];
-    assert.equal(A.saveMegaSnapshot(rows, true, 'US-WA', 'SN10489'), true);
-    assert.equal(A.abaArchiveAdd('US-WA', rows), true);
-    const snapshot = JSON.parse(app.window.localStorage.getItem(A.MEGA_SNAP_KEY));
+    assert.equal(await A.saveMegaSnapshot(rows, true, 'US-WA', 'SN10489'), true);
+    assert.equal(await A.abaArchiveAdd('US-WA', rows), true);
+    const snapshot = readPersistedFixture(app.window, A.MEGA_SNAP_KEY);
     assert.equal(snapshot.rows.length, rows.length, 'shared raw evidence is not locally filtered');
     for (const row of rows) {
       const saved = snapshot.rows.find(report => report.speciesCode === row.speciesCode);
@@ -66616,7 +79542,7 @@ test('F720 publishing Mega evidence repaints an already-loaded Bird Gen model', 
   const saveAt = HTML.indexOf('function saveMegaSnapshot');
   const save = HTML.slice(saveAt, HTML.indexOf('\n      function ', saveAt + 1));
   assert.match(save,
-    /localStorage\.setItem\(MEGA_SNAP_KEY[\s\S]*typeof _surgeRepaint === 'function'[\s\S]*_surgeRepaint\(\)/,
+    /await _persistence\.putJson\(MEGA_SNAP_KEY[\s\S]*typeof _surgeRepaint === 'function'[\s\S]*_surgeRepaint\(\)/,
     'Mega can update its archive and snapshot while loaded Bird Gen stays stale');
   const loadAt = HTML.indexOf('function loadSurge(');
   const load = HTML.slice(loadAt, HTML.indexOf('\n      function ', loadAt + 1));
@@ -67113,13 +80039,13 @@ test('F816 obsolete ownership cannot publish rows, status or completion controls
   } });
   const A = app.window.__app;
   const owner = A.personalListOwner(),period = String(new Date().getFullYear());
-  ['spp','cl'].forEach(metric=>{
-    A.rankCachePut(A.rankCacheOwnerKey({region:'US-WA',metric,max:500,rowLimit:500},period,A.getDisplayName()), {
+  for (const metric of ['spp','cl']) {
+    await A.rankCachePut(A.rankCacheOwnerKey({region:'US-WA',metric,max:500,rowLimit:500},period,A.getDisplayName()), {
       region:'US-WA',period,metric,profile:owner.profile,ownerRevision:owner.identityRevision,
       rows:metric==='spp'?[{profileId:'synthetic',name:'Synthetic birder',rank:1,
         recent:'Snow Goose (Oct 6, 2026)'}]:[],
     });
-  });
+  }
   const loading = A.loadLastNew();
   await waitFor(() => resolveCodes, 'pending code index');
   app.window.localStorage.setItem('ebird_report', 'or');
@@ -67403,7 +80329,7 @@ test('F880 clickable birds retain Stakeout actions without automatic checklist s
   assert.equal(row.querySelector('.lastNewSummary'),null);
   row.dispatchEvent(new app.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
   assert.equal(app.$('spLookup').value, 'Bald Eagle');
-  app.$('lastNewSort').querySelector('[data-ticksort="count"]').click();
+  await clickLastNewControl(app, app.$('lastNewSort').querySelector('[data-ticksort="count"]'));
   assert.deepEqual(names(), ['Bald Eagle', 'Mallard']);
   assert.doesNotMatch(app.$('lastNewResults').textContent,/S816[123]|Newest checklist|Nearest/);
   app.window.close();
@@ -67930,8 +80856,8 @@ test('F419 exports bounded scrubbed coverage through Copy all and Debug Clear', 
     ['todays_patches', 'failed'],
     ['half_day_patches', 'not-opened'],
   ];
-  states.forEach(([section, state], i) => {
-    A.recordCoverage({
+  for (const [i, [section, state]] of states.entries()) {
+    await A.waitCoverage(A.recordCoverage({
       section,
       state,
       report: 'hi',
@@ -67958,8 +80884,8 @@ test('F419 exports bounded scrubbed coverage through Copy all and Debug Clear', 
       counts: { listRows: 2, mapMarkers: 1 },
       apiKey: 'SECRET-API-KEY',
       capturedAt: '2026-09-30T09:03:19.579Z',
-    });
-  });
+    }));
+  }
 
   const exported = A.coverageAuditExport();
   const parsed = JSON.parse(exported);
@@ -68020,10 +80946,10 @@ test('F419 exports bounded scrubbed coverage through Copy all and Debug Clear', 
   'Copy all appends the one parseable coverage artifact');
 
   for (let i = 0; i < 30; i++) {
-    A.recordCoverage({
+    await A.waitCoverage(A.recordCoverage({
       section: 'nemesis', state: 'results', report: 'hi', region: 'US-HI',
       filter: 'f' + i, visibleSpecies: [{ code: 'hawgoo' }],
-    });
+    }));
   }
   const stored = app.window.__coverageAudit.read();
   assert.ok(stored.history.length <= 12, 'retained history is bounded');
@@ -68033,12 +80959,14 @@ test('F419 exports bounded scrubbed coverage through Copy all and Debug Clear', 
   const storageProto = Object.getPrototypeOf(app.window.localStorage);
   const originalSet = storageProto.setItem;
   storageProto.setItem = function () { throw new Error('quota'); };
-  assert.doesNotThrow(() => A.recordCoverage({
+  let failedRow;
+  assert.doesNotThrow(() => { failedRow = A.recordCoverage({
     section: 'dawn_dusk', state: 'results', visibleSpecies: ['iiwi'],
-  }), 'diagnostic storage failure cannot break a render boundary');
+  }); }, 'diagnostic storage failure cannot break a render boundary');
+  assert.equal(await A.waitCoverage(failedRow), false);
   storageProto.setItem = originalSet;
 
-  A.clearCoverageAudit();
+  await A.clearCoverageAudit();
   assert.equal(app.window.localStorage.getItem('ebird_coverage_audit_v1'), null,
     'the existing Debug Clear action can remove the coverage store');
   assert.match(HTML.slice(HTML.indexOf('function clearDebug'),
@@ -68068,7 +80996,7 @@ test('F533 diagnostics count only visible photos and export each section sort', 
   const app = await boot({ storage: { ebird_report: 'hi' } });
   const A = app.window.__app, doc = app.window.document;
 
-  A.showSection('sec-easyBtn');
+  A.showSection('sec-easyBtn', { load: false });
   const common = app.$('easyBtn').closest('section');
   const nemesis = app.$('allUnseenBtn').closest('section');
   common.insertAdjacentHTML('beforeend',
@@ -68085,8 +81013,8 @@ test('F533 diagnostics count only visible photos and export each section sort', 
 
   A.setRaritySort('distance');
   A.setEasySort('dist');
-  A.recordSectionCoverage(nemesis, true);
-  A.recordSectionCoverage(common, true);
+  await A.waitCoverage(A.recordSectionCoverage(nemesis, true));
+  await A.waitCoverage(A.recordSectionCoverage(common, true));
   const sections = JSON.parse(A.coverageAuditExport()).sections;
   assert.equal(sections.find((row) => row.section === 'nemesis').sort, 'distance');
   assert.equal(sections.find((row) => row.section === 'common_birds').sort, 'dist');
@@ -68094,21 +81022,22 @@ test('F533 diagnostics count only visible photos and export each section sort', 
 });
 
 test('F330 previous-session persistence batches writes instead of writing per event', async () => {
-  const app = await boot();
+  const app = await boot({ nativeCompression: true });
   const D = app.window.__dbg;
   assert.equal(typeof D.flush, 'function',
     'the durable log has no explicit flush seam to prove its write bound');
+  await D.flush();
   const before = D.metrics().persistWrites;
 
   for (let i = 0; i < 120; i++) D.push('net', ['queued completion ' + i]);
-  D.flush();
+  await D.flush();
 
   assert.equal(D.metrics().persistWrites - before, 1,
     'a 120-event burst wrote localStorage more than once');
 });
 
 test('F330 the bounded scrubbed previous session survives restart and erase removes it', async () => {
-  const app = await boot({ storage: { bc_profile: 'p1' } });
+  const app = await boot({ nativeCompression: true, storage: { bc_profile: 'p1' } });
   const D = app.window.__dbg;
   const key = D.storageKey();
   assert.match(key, /^bcp:p1:/,
@@ -68119,20 +81048,23 @@ test('F330 the bounded scrubbed previous session survives restart and erase remo
   D.push('error', [
     'apiKey=SUPER-SECRET Authorization: Bearer TOKEN-123 user@example.test',
   ]);
-  D.flush();
+  await D.flush();
 
   const saved = app.window.localStorage.getItem(key);
   assert.ok(saved, 'the current session was not persisted for the next launch');
-  const parsed = JSON.parse(saved);
+  assert.ok(saved.startsWith('z:'), 'previous-session diagnostics must use native compression');
+  const parsed = await app.window.__app.unpackJson(saved);
   assert.ok(parsed.entries.length <= 200,
     'the durable snapshot is unbounded and can grow with a cache loop');
-  assert.match(saved, /diagnostic row 229/,
+  const decoded = JSON.stringify(parsed);
+  assert.match(decoded, /diagnostic row 229/,
     'the bounded snapshot discarded the newest evidence instead of the oldest');
-  assert.doesNotMatch(saved, /SUPER-SECRET|TOKEN-123|user@example\.test|47\.75|-122\.16/,
+  assert.doesNotMatch(decoded, /SUPER-SECRET|TOKEN-123|user@example\.test|47\.75|-122\.16/,
     'the durable snapshot persisted a key, token, account, or precise coordinate');
 
   app.window.close();
-  const restarted = await boot({ storage: { bc_profile: 'p1', [key]: saved } });
+  const restarted = await boot({ nativeCompression: true, storage: { bc_profile: 'p1', [key]: saved } });
+  await restarted.window.__dbg.ready;
   restarted.$('openDebugBtn').click();
   await new Promise((resolve) => setTimeout(resolve, 30));
   assert.match(restarted.$('dbgLog').textContent,
@@ -68146,6 +81078,53 @@ test('F330 the bounded scrubbed previous session survives restart and erase remo
     'Erase all my data left the previous-session diagnostic on the device');
   assert.equal(restarted.window.__dbg.previous, null,
     'Erase all my data removed storage but left the personal log in memory');
+});
+
+test('F247 previous debug sessions migrate automatically and erasure cancels pending compression', async () => {
+  const key = 'ebird_debug_previous_v1';
+  const legacy = { entries: [{ t: '12:00', level: 'info', msg: 'legacy diagnostic '.repeat(30) }],
+    verdicts: {}, startedAt: '2026-10-01T12:00:00Z' };
+  let migrated = 0;
+  const app = await boot({ nativeCompression: true, storage: { [key]: JSON.stringify(legacy) },
+    Response: class {
+      constructor(value) {
+        if (typeof value === 'string' && value === JSON.stringify(legacy)) migrated++;
+        return new Response(value);
+      }
+    } });
+  const W = app.window, D = W.__dbg;
+  let release;
+  try {
+    await D.ready;
+    assert.match(D.previous.entries[0].msg, /legacy diagnostic/);
+    assert.equal(migrated, 1, 'the actual legacy record must reach native compression automatically');
+    assert.ok(W.localStorage.getItem(key).startsWith('z:'),
+      'legacy diagnostics must migrate without requiring a purge');
+    const NativeResponse = W.Response;
+    W.Response = class {
+      constructor(value) {
+        if (typeof value === 'string' && value.includes('held previous-session')) {
+          this.body = { pipeThrough: () => ({ snapshot: value }) };
+        } else if (value && value.snapshot) {
+          this.arrayBuffer = () => new Promise(resolve => {
+            release = () => {
+              const bytes = require('node:zlib').gzipSync(value.snapshot);
+              resolve(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
+            };
+          });
+        } else return new NativeResponse(value);
+      }
+    };
+    D.push('info', ['held previous-session '.repeat(20)]);
+    const pending = D.flush();
+    await waitFor(() => release, 'held actual previous-session compression');
+    D.clear();
+    release();
+    assert.equal(await pending, false);
+    assert.equal(W.localStorage.getItem(key), null,
+      'delayed compression must not resurrect erased diagnostics');
+    assert.equal(D.previous, null);
+  } finally { if (release) release(); W.close(); }
 });
 
 test('F672 current Debug copy scrubs live credentials before rendering', async () => {
@@ -68349,10 +81328,10 @@ test('a checklist hour is recorded even when the species pair is a duplicate', a
   ls.setItem(A.todKey(), JSON.stringify({ seen, hours, chk, names: {},
     v: A.TOD_SAMPLE_V }));
 
-  A.todAccumulate([{ speciesCode: 'amecro', subId: 'S1',
+  await A.todAccumulate([{ speciesCode: 'amecro', subId: 'S1',
     obsDt: '2026-08-24 20:15', comName: 'American Crow' }]);
 
-  const after = JSON.parse(ls.getItem(A.todKey()));
+  const after = readPersistedFixture(app.window, A.todKey());
   // DECODED, not compared raw: the stored value now carries the solar tag as
   // well as the hour. Asserting the literal would pin the ENCODING rather than
   // the ordering property this test is actually about.
@@ -69126,7 +82105,7 @@ test('a sample gathered under the old rule is rebuilt, not blended', () => {
   // that the version EXISTS, is an integer, and gates the rebuild.
   const ver = /var TOD_SAMPLE_V = (\d+)/.exec(HTML);
   assert.ok(ver, 'the sampling rule is versioned');
-  const start = HTML.indexOf('function todLoad');
+  const start = HTML.indexOf('function todState');
   const src = HTML.slice(start, HTML.indexOf('\n      function ', start + 1));
   assert.match(src, /s\.v !== TOD_SAMPLE_V/,
     'a state stamped with an older sampling rule is rebuilt');
@@ -69850,7 +82829,7 @@ test('F1528 bird identifiers preserve forms and do not invent missing four-lette
   } finally { app.window.close(); }
 });
 
-test('F563/F570 Top 100 places tight movement below rank and NEW after the date', async () => {
+test('F563/F570/F1540 Top 100 places tight movement below rank and NEW beside the bird name', async () => {
   const now = new Date();
   const yesterday = new Date(now);
   yesterday.setDate(yesterday.getDate() - 1);
@@ -69905,7 +82884,7 @@ test('F563/F570 Top 100 places tight movement below rank and NEW after the date'
     'a lower position lost its down arrow');
   const birdRow = rows[0].querySelector('.ntext');
   const bird = birdRow.querySelector('.rankbirdline');
-  const link = bird.querySelector('a');
+  const link = bird.querySelector('.ntext > a.splink');
   const details = bird.querySelector('.rankdetail');
   const mark = birdRow.querySelector('.ranknew');
   const movement = rows[0].querySelector(':scope > .name > .rankstack > .mv');
@@ -69922,9 +82901,11 @@ test('F563/F570 Top 100 places tight movement below rank and NEW after the date'
     'the recent tick does not use the shared textual NEW tag');
   assert.ok(movement && movement.parentElement.classList.contains('rankstack'),
     'movement must share the fixed first-column stack with the rank');
-  assert.ok(details && mark && (details.compareDocumentPosition(mark)
-    & app.window.Node.DOCUMENT_POSITION_FOLLOWING),
-  'NEW must follow the date in DOM order: ' + birdRow.outerHTML);
+  assert.ok(details && mark && link
+    && mark.parentElement === link.parentElement
+    && (link.compareDocumentPosition(mark) & app.window.Node.DOCUMENT_POSITION_FOLLOWING)
+    && mark.nextElementSibling && mark.nextElementSibling.contains(details),
+  'NEW must follow the bird name before the identifier/date: ' + birdRow.outerHTML);
   assert.doesNotMatch(HTML,
     /\.rankrow \.rankbirdline[^}]*text-overflow: ellipsis;/,
     'the species link still replaces its ending with an ellipsis');
@@ -70240,15 +83221,17 @@ test('F792 persisted badge preference suppresses initial and progressive report 
   assert.equal(tile.querySelector('.tilebadge'), null, 'late refresh cannot restore hidden badges');
   field.value = 'show';
   field.dispatchEvent(new app.window.Event('change', { bubbles: true }));
-  assert.equal(app.window.localStorage.getItem('bc_report_menu_badges_v1'), 'show');
+  assert.equal(await field._menuBadgePreferenceSave, true);
+  assert.equal(readPersistedFixture(app.window, 'bc_report_menu_badges_v1'), 'show');
   assert.ok(tile.querySelector('.tilebadge'), 're-enabling restores cached report news');
   assert.equal(A.menuBadge('targetsBtn', 'sec-targetsBtn').n, 2);
   field.value = 'hide';
   field.dispatchEvent(new app.window.Event('change', { bubbles: true }));
+  assert.equal(await field._menuBadgePreferenceSave, true);
   assert.equal(tile.querySelector('.tilebadge'), null);
   assert.equal(app.state.fetches.length, before, 'badge settings must remain cache-only');
-  assert.equal(app.window.localStorage.getItem('ebird_aba_archive_v1'), storage.ebird_aba_archive_v1);
-  assert.equal(app.window.localStorage.getItem('bc_seen_v1:sec-abaBtn'), storage['bc_seen_v1:sec-abaBtn']);
+  assert.deepEqual(readPersistedFixture(app.window, 'ebird_aba_archive_v1'), JSON.parse(storage.ebird_aba_archive_v1));
+  assert.deepEqual(readPersistedFixture(app.window, 'bc_seen_v1:sec-abaBtn'), JSON.parse(storage['bc_seen_v1:sec-abaBtn']));
   app.window.close();
 });
 
@@ -70556,7 +83539,7 @@ test('F669 county scope owns observation requests and exact year evidence', asyn
   assert.equal(A.countySeenEvidenceReady(), false,
     'missing exact county evidence is being treated as complete');
 
-  A.firstYearWrite('US-WA-033', new Date().getFullYear(), {
+  await A.firstYearWrite('US-WA-033', new Date().getFullYear(), {
     declared: 1,
     rows: [{ code: 'kingfixture', name: 'King Fixture Bird',
       date: '2026-05-01', subId: 'S1', locName: 'King Park', locId: 'L1' }],
@@ -70912,7 +83895,7 @@ test('F1447 the header opens the shared Region chooser without scrolling or chan
     app.$('regionChooserCountyList').querySelector('summary').click();
     app.click(app.$('regionChooserCounties').querySelector('[data-region-choice="county:wa:US-WA-033"]'));
     assert.equal(app.$('regionChooser').hidden, true, 'selection closes the same chooser');
-    assert.equal(chip.textContent, 'US-WA-033');
+    assert.equal(chip.textContent, 'All US-WA-033');
     assert.equal(A.activeScope().effectiveRegion, 'US-WA-033');
     assert.equal(A.personalPeriod(), 'all');
     assert.equal(JSON.stringify(A.getHome()), home);
@@ -70920,7 +83903,7 @@ test('F1447 the header opens the shared Region chooser without scrolling or chan
   } finally { app.window.close(); }
 });
 
-test('F853/F1447 the top bar separates exact scope and period and opens their own pickers', async () => {
+test('F853/F1447/F1536 the top bar combines exact scope and period in the shared chooser', async () => {
   const app = await boot();
   const A = app.window.__app;
   const doc = app.window.document;
@@ -70932,11 +83915,8 @@ test('F853/F1447 the top bar separates exact scope and period and opens their ow
 
   A.headerScopeRefresh();
   assert.equal(chip.hidden, false, 'it is shown once a region is known');
-  const period = doc.getElementById('hdrPeriod');
-  assert.equal(chip.textContent, 'US-WA');
-  assert.equal(period.textContent, String(new Date().getFullYear()));
-  assert.equal(period.hidden, false);
-  assert.ok(period.compareDocumentPosition(chip) & 4, 'period precedes region');
+  assert.equal(doc.getElementById('hdrPeriod'),null);
+  assert.equal(chip.textContent, String(new Date().getFullYear())+' US-WA');
   assert.equal(A.scopeCode(),'US-WA','the machine scope code remains separate from its human-readable label');
 
   // A code is an abbreviation; the sentence is on aria-label.
@@ -70944,36 +83924,30 @@ test('F853/F1447 the top bar separates exact scope and period and opens their ow
   assert.match(lab, /scope/i, 'the chip says what it is');
   assert.match(lab, /change|settings/i, 'and what tapping it does');
 
-  // Region opens the shared chooser; the independent period control is unchanged.
+  // Both year and region are edited in the shared chooser.
   const det = doc.getElementById('menuScope');
   const picker = doc.querySelector('.quicksettings .periodpick');
   const scrolled = [];
   picker.scrollIntoView = () => scrolled.push('period');
   det.scrollIntoView = () => scrolled.push('region');
   assert.equal(app.$('regionChooserCountyList').open, false, 'closed to begin with');
-  period.click();
-  assert.deepEqual(scrolled, ['period']);
-  assert.equal(app.$('regionChooser').hidden, true, 'period must not open region settings');
-  assert.equal(doc.activeElement, picker.querySelector('[aria-pressed="true"]'));
   chip.click();
-  assert.deepEqual(scrolled, ['period']);
+  assert.deepEqual(scrolled, []);
   assert.equal(app.$('regionChooserCountyList').open, false, 'the Region chip does not expand all counties');
   assert.equal(app.$('regionChooser').hidden, false);
   assert.equal(doc.activeElement, doc.getElementById('regionChooserClose'));
   app.click(app.$('regionChooserClose'));
   assert.equal(app.$('regionChooser').hidden, true, '"after dismissed it can disappear"');
   A.setPersonalPeriod('all');
-  assert.equal(period.textContent, 'All Time');
-  assert.equal(chip.textContent, 'US-WA');
+  assert.equal(chip.textContent, 'All US-WA');
   A.setCountyView('US-WA-033');
   A.headerScopeRefresh();
-  assert.equal(chip.textContent, 'US-WA-033');
+  assert.equal(chip.textContent, 'All US-WA-033');
   assert.match(chip.getAttribute('aria-label'), /King/i);
   A.setActiveReport('aba');
   A.headerScopeRefresh();
   assert.equal(A.scopeCode().toLowerCase(), 'aba');
-  assert.equal(chip.textContent, 'ABA Area');
-  assert.equal(period.textContent, 'All Time');
+  assert.equal(chip.textContent, 'All ABA');
   app.window.close();
 });
 
@@ -71077,7 +84051,7 @@ test('F722 a county switch immediately replaces the parent standing with labelle
   const app = await boot({ storage: { ebird_display_name: 'Sample Observer' } });
   const A = app.window.__app;
   const owner = A.personalListOwner();
-  A.rankCachePut('fixture-wa', {
+  await A.rankCachePut('fixture-wa', {
     region:'US-WA',period:String(new Date().getFullYear()),metric:'spp',
     profile:owner.profile,ownerRevision:owner.identityRevision,
     me:{name:'Sample Observer',rank:12,species:222},
@@ -71134,7 +84108,7 @@ test('F1389 header separates verified zero species, absent published rank and un
   try {
     await seedSeen(app,[],[]);
     const owner=A.personalListOwner(), period=String(new Date().getFullYear());
-    A.rankCachePut('f1389',{region:'US-WA',period,metric:'spp',profile:owner.profile,
+    await A.rankCachePut('f1389',{region:'US-WA',period,metric:'spp',profile:owner.profile,
       ownerRevision:owner.identityRevision,rows:[{rank:1,name:'Synthetic leader',species:10}],me:null});
     A.headerIdentityRefresh();
     assert.match(app.$('hdrId').textContent,/No rank/);
@@ -71413,7 +84387,7 @@ test('F1507 Home lookup reviews a map and cannot save through generic Settings, 
     assert.match(app.$('geocodeStatus').textContent,/could not be verified/);
     A.persistSettings();
     assert.equal(A.getHome(),null,'unrelated settings saved the unapproved Home');
-    app.click(app.$('homeCandidateCancel'));
+    app.click(app.$('clearHomeBtn'));
     assert.equal(A.getHome(),null);
     assert.equal(app.$('homeCandidateReview').hidden,true);
     await find('47.6, -122.3');
@@ -71798,6 +84772,9 @@ test('F1397 Major Regions expose searchable unsupported names without selectable
     assert.equal(details.open,true);
     assert.deepEqual(items().filter(item=>!item.hidden).map(item=>item.textContent),['Australasia','Australasia (ABA)']);
     assert.match(app.$('regionChooserSearchStatus').textContent,/2 observed Major Regions match; not supported/);
+    assert.equal(app.$('regionChooserSearchResults').hidden,false);
+    assert.match(app.$('regionChooserUnsupportedResults').textContent,/Not supported yet.*Australasia/);
+    assert.equal(app.$('regionChooserUnsupportedResults').querySelector('button,a,[data-region-choice]'),null);
     app.click(items().find(item=>item.textContent==='Australasia'));
     assert.equal(A.getReportSlug(),initial);
     assert.equal(app.state.fetches.length,calls,'browsing unsupported names cannot acquire data');
@@ -71815,6 +84792,71 @@ test('F1397 Major Regions expose searchable unsupported names without selectable
     app.click(app.$('regionChooserClose'));A.openRegionChooser();
     assert.equal(details.open,false);
     assert.equal(app.$('regionChooserSearchStatus').textContent,'');
+  }finally{app.window.close();}
+});
+
+test('F1534 live region search puts exact Kansas first directly below the field and restores browsing', async()=>{
+  const app=await boot();
+  try {
+    const A=app.window.__app;
+    A.openRegionChooser();
+    const search=app.$('regionChooserSearch'), results=app.$('regionChooserResults');
+    const original=A.getReportSlug();
+    search.value='Kansas';search.dispatchEvent(new app.window.Event('input'));
+    assert.equal(app.$('regionChooserSearchResults').hidden,false);
+    assert.equal(app.$('regionChooserSearchForm').nextElementSibling,app.$('regionChooserSearchResults'),
+      'results must follow the search controls, not the current region or catalog introductions');
+    assert.equal(results.firstElementChild.dataset.regionChoice,'ks');
+    assert.match(results.children[1].textContent,/Arkansas/);
+    assert.equal(new Set([...results.children].map(row=>row.dataset.regionChoice)).size,results.children.length);
+    assert.equal(app.$('regionChooserBody').hidden,false,'the filtered catalog remains available below direct results');
+    assert.equal(app.$('regionChooserAll').querySelector('[data-region-choice="ks"]').hidden,false);
+    assert.equal(app.$('regionChooserAll').querySelector('[data-region-choice="wa"]').hidden,true);
+    assert.equal(A.getReportSlug(),original,'typing does not select a region');
+    search.value='unmatched synthetic region';search.dispatchEvent(new app.window.Event('input'));
+    assert.equal(results.children.length,0);
+    assert.match(app.$('regionChooserResultsStatus').textContent,/No matching regions/);
+    app.click(app.$('regionChooserClear'));
+    assert.equal(search.value,'');
+    assert.equal(app.document.activeElement,search);
+    assert.equal(app.$('regionChooserSearchResults').hidden,true);
+    assert.equal(app.$('regionChooserBody').hidden,false);
+    assert.equal(app.$('regionChooserStateList').open,false);
+    assert.equal(A.getReportSlug(),original,'clearing search must not change the selected region');
+    search.value='Kansas';search.dispatchEvent(new app.window.Event('input'));
+    app.click(app.$('regionChooserClose'));A.openRegionChooser();
+    assert.equal(search.value,'');
+    assert.equal(app.$('regionChooserSearchResults').hidden,true);
+    assert.equal(app.$('regionChooserBody').hidden,false);
+  }finally{app.window.close();}
+});
+
+test('F1534 Go and form submission show direct code and county matches without selecting until clicked', async()=>{
+  const app=await boot();
+  try {
+    const A=app.window.__app;
+    A.openRegionChooser();
+    const search=app.$('regionChooserSearch'), results=app.$('regionChooserResults');
+    const original=A.getReportSlug(), home=JSON.stringify(A.getHome()), period=A.personalPeriod();
+    search.value='US-KS';
+    app.click(app.$('regionChooserGo'));
+    assert.ok(results.firstElementChild,'Go must refresh the direct result list');
+    assert.equal(results.firstElementChild.dataset.regionChoice,'ks');
+    assert.equal(app.$('regionChooserSearchResults').hidden,false);
+    assert.equal(app.$('regionChooser').hidden,false);
+    assert.equal(A.getReportSlug(),original);
+    search.value='US-WA-033';
+    app.$('regionChooserSearchForm').requestSubmit();
+    assert.equal(results.children.length,1);
+    assert.equal(results.firstElementChild.dataset.regionChoice,'county:wa:US-WA-033');
+    assert.match(results.firstElementChild.textContent,/County/);
+    assert.equal(A.getCountyView(),'');
+    search.value='US-KS';app.click(app.$('regionChooserGo'));
+    app.click(results.firstElementChild);
+    assert.equal(A.activeScope().effectiveRegion,'US-KS');
+    assert.equal(app.$('regionChooser').hidden,true);
+    assert.equal(JSON.stringify(A.getHome()),home);
+    assert.equal(A.personalPeriod(),period);
   }finally{app.window.close();}
 });
 
@@ -71868,8 +84910,117 @@ test('F1385 F1533 aggregate helper jurisdictions remain distinct from unverified
   }
 });
 
+test('F247 leaderboard legacy migration uses native gzip and parallel writes survive restart', async () => {
+  const key = 'ebird_rank_cache_v2';
+  const legacy = { legacy: { date: '2026-01-01', data: {
+    rows: Array.from({ length: 100 }, (_, i) => ({ rank: i + 1, name: 'Synthetic migration birder ' + i }))
+  } } };
+  const app = await boot({ sample: false, nativeCompression: true, storage: { [key]: JSON.stringify(legacy) } });
+  const W = app.window, A = W.__app;
+  try {
+    await A.loadRankCache();
+    const migrated = W.localStorage.getItem(A.bcReal(key));
+    assert.ok(migrated.startsWith('z:'), 'cold load must automatically replace legacy JSON with native gzip');
+    assert.ok(migrated.length < JSON.stringify(legacy).length / 2);
+    assert.deepEqual(JSON.parse(JSON.stringify(A.rankCacheEntries())), legacy);
+    assert.deepEqual(await Promise.all([
+      A.rankCachePut('spp', { rows: [{ name: 'Species board '.repeat(50) }] }),
+      A.rankCachePut('cl', { rows: [{ name: 'Checklist board '.repeat(50) }] })
+    ]), [true, true]);
+    const durable = W.localStorage.getItem(A.bcReal(key));
+    assert.ok(durable.startsWith('z:'));
+    const restarted = await boot({ sample: false, nativeCompression: true, storage: { [key]: durable } });
+    try {
+      const R = restarted.window.__app;
+      await R.loadRankCache();
+      assert.deepEqual(Object.keys(R.rankCacheEntries()).sort(), ['cl', 'legacy', 'spp']);
+      assert.equal(restarted.window.localStorage.getItem(R.bcReal(key)), durable,
+        'compressed restart must not rewrite or discard stored boards');
+    } finally { restarted.window.close(); }
+  } finally { W.close(); }
+});
+
+test('F247 leaderboard migration preserves legacy bytes on quota failure and newer data during compression', async () => {
+  for (const mode of ['blocked', 'newer']) {
+    const app = await boot({ sample: false, nativeCompression: true });
+    const W = app.window, A = W.__app, originalSet = W.Storage.prototype.setItem;
+    let release;
+    try {
+      await A.loadRankCache();
+      const key = A.bcReal(A.RANK_CACHE_KEY);
+      const legacy = JSON.stringify({ old: { data: { rows: ['F247 legacy '.repeat(100)] } } });
+      W.localStorage.setItem(key, legacy);
+      const NativeResponse = W.Response;
+      W.Response = class {
+        constructor(value) {
+          if (typeof value === 'string' && value.includes('F247 legacy')) {
+            this.body = { pipeThrough: () => ({ snapshot: value }) };
+          } else if (value && value.snapshot) {
+            this.arrayBuffer = () => new Promise(resolve => {
+              release = () => {
+                const bytes = require('node:zlib').gzipSync(value.snapshot);
+                resolve(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
+              };
+            });
+          } else return new NativeResponse(value);
+        }
+      };
+      const pending = A.loadRankCache(true);
+      await waitFor(() => release, 'legacy migration held before its persistence boundary');
+      const newer = 'j:{"newer":{"data":{"rows":["new source"]}}}';
+      if (mode === 'newer') W.localStorage.setItem(key, newer);
+      else W.Storage.prototype.setItem = function (k, value) {
+        if (k === key) throw new W.DOMException('Controlled migration quota', 'QuotaExceededError');
+        return originalSet.call(this, k, value);
+      };
+      release();
+      await pending;
+      assert.equal(W.localStorage.getItem(key), mode === 'newer' ? newer : legacy);
+      assert.equal(A.rankCacheEntries().old.data.rows[0], 'F247 legacy '.repeat(100),
+        'failed migration must still return readable legacy data');
+    } finally { W.Storage.prototype.setItem = originalSet; if (release) release(); W.close(); }
+  }
+});
+
+test('F247 leaderboard ownership and erasure cancel queued writes during native compression', async () => {
+  for (const action of ['erase', 'identity']) {
+    const app = await boot({ sample: false, nativeCompression: true });
+    const W = app.window, A = W.__app;
+    let release;
+    try {
+      await A.loadRankCache();
+      const NativeResponse = W.Response;
+      W.Response = class {
+        constructor(value) {
+          if (typeof value === 'string' && value.includes('held-board')) {
+            this.body = { pipeThrough: () => ({ snapshot: value }) };
+          } else if (value && value.snapshot) {
+            this.arrayBuffer = () => new Promise(resolve => {
+              release = () => {
+                const bytes = require('node:zlib').gzipSync(value.snapshot);
+                resolve(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
+              };
+            });
+          } else return new NativeResponse(value);
+        }
+      };
+      const pending = A.rankCachePut('held-board', { rows: [{ name: 'Queued original owner '.repeat(50) }] });
+      await waitFor(() => release, 'held actual leaderboard compression');
+      const queued = A.rankCachePut('queued-board', { rows: [{ name: 'Queued second board' }] });
+      if (action === 'erase') A.scrubPersonalData();
+      else A.applyCapturedIdentity({ status: 'ok', displayName: 'Different fixture observer',
+        profileId: 'different-fixture-owner' });
+      release();
+      assert.deepEqual(await Promise.all([pending, queued]), [false, false]);
+      assert.equal(W.localStorage.getItem(A.bcReal(A.RANK_CACHE_KEY)), null,
+        action + ' must not be undone by an in-flight save');
+      assert.deepEqual(Object.keys(A.rankCacheEntries()), []);
+    } finally { if (release) release(); W.close(); }
+  }
+});
+
 test('F1388 quota pressure expires older boards but persists the complete current board and personal data', async()=>{
-  const app=await boot({storage:{ebird_display_name:'Synthetic owner'}}),W=app.window,A=W.__app;
+  const app=await boot({nativeCompression:true,storage:{ebird_display_name:'Synthetic owner'}}),W=app.window,A=W.__app;
   const original=W.Storage.prototype.setItem;
   const period=String(new Date().getFullYear()), owner=A.personalListOwner();
   const board=i=>({region:i%2?'CA-BC':'US-WA',period:i%3?period:'AAAA',metric:i%2?'cl':'spp',
@@ -71877,7 +85028,7 @@ test('F1388 quota pressure expires older boards but persists the complete curren
     rows:Array.from({length:15},(_,j)=>({rank:j+1,species:100-j,name:'Synthetic birder '+j})),
     me:{rank:20,species:50,name:'Synthetic owner'}});
   try {
-    for(let i=0;i<8;i++)A.rankCachePut('older-'+i,board(i));
+    for(let i=0;i<8;i++)await A.rankCachePut('older-'+i,board(i));
     const personalKeys=['ebird_seen','ebird_watch','ebird_home_lat','ebird_display_name'];
     const before=Object.fromEntries(personalKeys.map(key=>[key,W.localStorage.getItem(key)]));
     let attempts=0;
@@ -71886,16 +85037,18 @@ test('F1388 quota pressure expires older boards but persists the complete curren
     W.Storage.prototype.setItem=function(k,v){
       if(k===A.bcReal(A.RANK_CACHE_KEY)){
         attempts++;
-        if(Object.keys(JSON.parse(v)).length>2)throw new W.DOMException('Synthetic quota','QuotaExceededError');
+        assert.ok(v.startsWith('z:'),'quota attempts must compress before writing, not repack raw JSON later');
+        const decoded = require('node:zlib').gunzipSync(Buffer.from(v.slice(2),'base64')).toString('utf8');
+        if(Object.keys(JSON.parse(decoded)).length>2)throw new W.DOMException('Synthetic quota','QuotaExceededError');
       }
       return original.call(this,k,v);
     };
-    assert.equal(A.rankCachePut(key,current),true);
+    assert.equal(await A.rankCachePut(key,current),true);
     assert.ok(attempts>=3&&attempts<=9,'quota recovery must be bounded');
-    const durable=JSON.parse(W.localStorage.getItem(A.RANK_CACHE_KEY));
+    const durable=await A.unpackJson(W.localStorage.getItem(A.RANK_CACHE_KEY));
     assert.equal(Object.keys(durable).length,2);
     assert.ok(durable[key],'the current board must be the first retained entry');
-    assert.deepEqual(durable[key].data,current,'retention must not truncate the current board');
+    assert.deepEqual(JSON.parse(JSON.stringify(durable[key].data)),current,'retention must not truncate the current board');
     assert.deepEqual(Object.fromEntries(personalKeys.map(k=>[k,W.localStorage.getItem(k)])),before);
     assert.ok(W.__dbg.buf.some(row=>/older board snapshots expired/.test(row.msg)));
     W.Storage.prototype.setItem=original;
@@ -71921,7 +85074,7 @@ test('F929 an acquired standing survives failed persistence and later becomes du
   const original = W.Storage.prototype.setItem;
   let blocked = false;
   try {
-    A.rankCachePut(key,board(12));
+    await A.rankCachePut(key,board(12));
     W.Storage.prototype.setItem = function (k,v) {
       if (blocked && k === A.bcReal(A.RANK_CACHE_KEY)) {
         throw new W.DOMException('Synthetic quota control','QuotaExceededError');
@@ -71929,10 +85082,10 @@ test('F929 an acquired standing survives failed persistence and later becomes du
       return original.call(this,k,v);
     };
     blocked = true;
-    A.rankCachePut(key,board(27));
+    await A.rankCachePut(key,board(27));
     A.headerIdentityRefresh();
     assert.match(app.$('hdrId').textContent,/#27/);
-    const persisted = JSON.parse(W.localStorage.getItem(A.RANK_CACHE_KEY)||'{}')[key];
+    const persisted = (await A.unpackJson(W.localStorage.getItem(A.RANK_CACHE_KEY)) || {})[key];
     assert.notEqual(persisted && persisted.data.me.rank,27);
     const before = app.state.fetches.length;
     assert.equal((await A.fetchRank(request,period,'Sample Observer',false)).me.rank,27);
@@ -71941,12 +85094,13 @@ test('F929 an acquired standing survives failed persistence and later becomes du
       'failed persistence must be reported, not mistaken for a durable write');
 
     blocked = false;
-    A.rankCachePut('another-board',{region:'US-MO',period,metric:'spp'});
-    assert.equal(JSON.parse(W.localStorage.getItem(A.RANK_CACHE_KEY))[key].data.me.rank,27,
+    await A.rankCachePut('another-board',{region:'US-MO',period,metric:'spp'});
+    assert.equal((await A.unpackJson(W.localStorage.getItem(A.RANK_CACHE_KEY)))[key].data.me.rank,27,
       'a recovered write must persist the acquired standing too');
-    const durable = JSON.parse(W.localStorage.getItem(A.RANK_CACHE_KEY));
+    const durable = await A.unpackJson(W.localStorage.getItem(A.RANK_CACHE_KEY));
     durable[key].data.me.rank = 31;
     W.localStorage.setItem(A.RANK_CACHE_KEY,JSON.stringify(durable));
+    await A.loadRankCache(true);
     A.headerIdentityRefresh();
     assert.match(app.$('hdrId').textContent,/#31/,'successful persistence must clear stale memory');
   } finally {W.Storage.prototype.setItem=original;W.close();}
@@ -71971,19 +85125,19 @@ test('F929 session standings retain ownership, metric, period, day and entry bou
       {region:'US-MO'}, {metric:'cl'}, {period:'all'}, {profile:'another-profile'},
       {ownerRevision:owner.identityRevision+1}, {me:{name:'Another Birder',rank:27}},
     ]) {
-      A.rankCachePut('fixture',Object.assign(board(),change));
+      await A.rankCachePut('fixture',Object.assign(board(),change));
       A.headerIdentityRefresh();
       assert.doesNotMatch(app.$('hdrId').textContent,/#27/,
         'session data must not bypass '+Object.keys(change).join(','));
     }
-    A.rankCachePut('fixture',board());
+    await A.rankCachePut('fixture',board());
     A.headerIdentityRefresh();
     assert.match(app.$('hdrId').textContent,/#27/);
-    for (let i=0;i<80;i++) A.rankCachePut('other-'+i,Object.assign(board(),{region:'US-MO'}));
+    for (let i=0;i<80;i++) await A.rankCachePut('other-'+i,Object.assign(board(),{region:'US-MO'}));
     A.headerIdentityRefresh();
     assert.equal(Object.keys(A.rankCacheEntries()).length,80,
       'session cache must keep the existing 80-entry bound');
-    A.rankCachePut('fixture',board());
+    await A.rankCachePut('fixture',board());
     const tomorrow = NativeDate.now()+86400000;
     W.Date = class extends NativeDate {
       constructor(...args) {super(...(args.length ? args : [tomorrow]));}
@@ -72004,9 +85158,9 @@ test('F926 header has no decorative top strip and keeps its explicit period labe
         A.setPersonalPeriod(period);
         A.headerScopeRefresh();
         assert.equal(parseFloat(W.getComputedStyle(header).borderTopWidth)||0,0);
-        assert.match(app.$('hdrPeriod').textContent,
-          period==='all' ? /All Time/ : new RegExp(String(new Date().getFullYear())));
-        assert.match(app.$('hdrPeriod').getAttribute('aria-label'),/Time period:/);
+        assert.match(app.$('hdrScope').textContent,
+          period==='all' ? /^All / : new RegExp('^'+new Date().getFullYear()+' '));
+        assert.match(app.$('hdrScope').getAttribute('aria-label'),/Year List|Life List/i);
       }
     }
   } finally {W.close();}
@@ -72077,11 +85231,11 @@ test('Leader Board Ticks: Date and Count actually reorder the list', async () =>
   assert.ok(doc.getElementById('lastNewSort'), 'the sort pair is painted from the first render');
   const pick = (v) => doc.querySelector('#lastNewSort [data-ticksort="'+v+'"]');
 
-  pick('count').click();
+  await clickLastNewControl(app, pick('count'));
   assert.deepEqual(names(), ['Old Near', 'New Far', 'No Feed'],
     'Count orders participants, with source dates as tie-breakers');
 
-  pick('date').click();
+  await clickLastNewControl(app, pick('date'));
   assert.deepEqual(names(), ['New Far', 'No Feed', 'Old Near'],
     'and back, off rows already in hand — re-sorting must never cost 47 calls');
   app.window.close();
@@ -72537,7 +85691,7 @@ test('an old partial species cache is refreshed instead of preserving Latin icon
   const rows = await app.window.__app.loadSpeciesIndex('US-WA');
   assert.equal(Array.from(rows, (r) => r.name).join('|'),
     'Warbling Vireo|Yellow Warbler');
-  const cached = JSON.parse(app.window.localStorage.getItem('ebird_species_v2:US-WA'));
+  const cached = readPersistedFixture(app.window, 'ebird_species_v2:US-WA');
   assert.equal(cached.expected, 2);
   assert.equal(cached.rows.length, 2);
   app.window.close();
@@ -74069,29 +87223,29 @@ test('F194: a wall that is gone stops being reported', async () => {
   const app = await boot();
   const A = app.window.__app;
 
-  A.noteWall('eBird\u2019s bot filter', 'ebird.org/region/US-WA');
+  await A.noteWall('eBird\u2019s bot filter', 'ebird.org/region/US-WA');
   const seen = A.wallSeen();
   assert.ok(seen && seen.kind, 'a real block is still recorded');
   assert.match(seen.url, /region\/US-WA/);
 
-  A.clearWall('ebird.org/region/US-WA');
+  await A.clearWall('ebird.org/region/US-WA');
   assert.equal(A.wallSeen(), null,
     'and reaching the page retracts it — the app must not assert a state it '
     + 'can observe to be false');
 
   // Clearing when nothing was set is a no-op, not a log line about a wall
   // that was never there.
-  A.clearWall('ebird.org/region/US-WA');
+  await A.clearWall('ebird.org/region/US-WA');
   assert.equal(A.wallSeen(), null);
 
   // ...and both readers of the verdict actually call it.
   const wf = HTML.slice(HTML.indexOf('function wallFetch()'),
                         HTML.indexOf('function probeWall()'));
-  assert.match(wf, /wallVerdict\(b\) === 'OPEN'\) clearWall/,
+  assert.match(wf, /wallVerdict\(b\) === 'OPEN'.*await clearWall/,
     'the probe may retract the banner, not only raise it');
   const wk = HTML.slice(HTML.indexOf('function ebirdWebKey()'),
                         HTML.indexOf('function ebirdWebKey()') + 1200);
-  assert.match(wk, /clearWall\('ebird\.org\/region\/US-WA'\)/,
+  assert.match(wk, /clearWall\('ebird\.org\/region\/US-WA', current\)/,
     'and so may an ordinary successful read');
   app.window.close();
 });
@@ -74835,12 +87989,15 @@ test('F445 a stale-snapshot caller neither waits for nor rivals its background r
   let releaseFeeds;
   const feedGate = new Promise((resolve) => { releaseFeeds = resolve; });
   const app = await boot({
+    sample: false,
     fetch(url) {
       if (/data\/obs\//.test(String(url))) return feedGate.then(() => []);
       return null;
     },
   });
   const A = app.window.__app;
+  A.showSection('sec-settings', {load:false});
+  await A.ensurePatchScope(A.activeScope());
   const profile = A.chaseProfile();
   const stale = {
     t: 0,
@@ -76790,8 +89947,10 @@ test('F356 live and cached eBird cost follows the request owner after navigation
 require('./migration-setup-controls.cjs')({
   test, assert, boot, seedSeen, seedRarityChase, fixtureIsoWeek, sampleDateForWeek, foySourceFixture,
   formatObsStamp, IDBFactory, waitFor, HTML, f821Page, f821Hotspots, otherStateMegaAlertHtml, surgeSourceRoot,
+  readPersistedFixture,
 });
 const { preparedKeyNative } = require('./key-acquisition-controls.cjs')({ test, assert, boot, waitFor, JSDOM });
 require('./release172-controls.cjs')({
-  test, assert, boot, waitFor, seedSeen, FIRST_YEAR_HTML, megaAlertHtml, recentObsStamp, preparedKeyNative, surgeSourceRoot
+  test, assert, boot, waitFor, seedSeen, FIRST_YEAR_HTML, megaAlertHtml, recentObsStamp, preparedKeyNative, surgeSourceRoot,
+  readPersistedFixture
 });

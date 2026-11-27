@@ -304,11 +304,13 @@ test('F1177 F1180 real Chrome keeps edits usable and cannot inherit a pointer or
               return box.width > 100 && Math.abs(box.width / box.height - 8 / 5) < .025
                 && credits.getBoundingClientRect().top >= box.bottom - .5;
             }));
-            await evaluate(() => {
-              const draft = JSON.parse(localStorage.getItem('bc_setup_home_draft_v1'));
+            await evaluate(async () => {
+              const draft = window.__app.setupHomeDraft();
               draft.approved = true;
               draft.region = { status: 'ok', code: 'US-WA', label: 'Washington', ...draft.point };
-              localStorage.setItem('bc_setup_home_draft_v1', JSON.stringify(draft));
+              if (!await window.__app.saveSetupRecord('bc_setup_home_draft_v1', draft)) {
+                throw new Error('Controlled approved Home draft did not persist');
+              }
               localStorage.setItem('bc_setup_step_v1', 'region');
               window.__app.renderSetupSheet();
             });
@@ -1531,7 +1533,7 @@ test('F868 and F870 gallery fixtures use production Ticks, F976 screenshot birds
   assert.match(foy, /await fillFixturePhotos\(host, document\)/);
 });
 
-test('F856 gallery guards require visible checklist evidence and shared compact bird icons', () => {
+test('F856 F1540 gallery guards require checklist evidence and approved enlarged bird icons', () => {
   assert.match(source, /renderScale = Number\(document\.defaultView\.getComputedStyle\([\s\S]*?getPropertyValue\('--s'\)\)/,
     'geometry must use the selected app profile, not the legacy renderer argument');
   const birdGen = source.slice(source.indexOf("if (spec.kind === 'birdgen')"),
@@ -1542,10 +1544,10 @@ test('F856 gallery guards require visible checklist evidence and shared compact 
   assert.match(birdGen, /await fillFixturePhotos\(host, document\)/);
   const rank = source.slice(source.indexOf("} else if (at === 'rankBtn')"),
     source.indexOf("} else if (spec.kind === 'patches')"));
-  for (const dimension of ['width', 'height']) {
-    assert.ok(rank.includes(`Math.abs(recentThumbBox.${dimension} - compactIconSize) > 1`),
-      `gallery does not measure ${dimension} against the shared compact icon size`);
-  }
+  assert.match(rank, /recentThumbBox\.width < compactIconSize \* 1\.25/,
+    'gallery must reject the old photo size against the shared compact reference');
+  assert.match(rank, /Math\.abs\(recentThumbBox\.height - recentThumbBox\.width\) > 1/,
+    'gallery must retain square photos');
   assert.match(rank, /compactReference\.className = 'convoysppl'/);
 });
 

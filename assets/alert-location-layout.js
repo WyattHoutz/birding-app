@@ -98,11 +98,20 @@ async function alertLocationLayout(scan, mutation, view) {
       if (mutation === 'cascade-outline') Object.assign(badge.style,{
         webkitTextStrokeWidth:'0px',textShadow:'none'
       });
+      const shape = badge.querySelector('.surgetickcheck path');
+      check(shape,'F1539 checkmark must use an explicit shape, not platform emoji');
+      if (mutation === 'cascade-checkmark') shape.style.fill = '#000';
+      if (mutation === 'cascade-check-outline') shape.style.strokeWidth = '.1px';
+      const shapeStyle = getComputedStyle(shape);
+      check(shapeStyle.fill === 'rgb(255, 255, 255)' && shapeStyle.stroke === 'rgb(0, 0, 0)'
+        && parseFloat(shapeStyle.strokeWidth) >= 4,
+      'F1539 checkmark must be explicitly white with a thick black outline');
       const style = getComputedStyle(badge);
       check(style.backgroundColor === 'rgba(0, 0, 0, 0)'
         && parseFloat(style.borderTopWidth) === 0 && parseFloat(style.borderRadius) === 0
         && style.boxShadow === 'none', 'F1526 count glyphs must have no bubble, fill, border or box');
-      check(style.color === 'rgb(255, 255, 255)' && parseFloat(style.webkitTextStrokeWidth) > 0
+      check(style.color === 'rgb(255, 255, 255)'
+        && parseFloat(style.webkitTextStrokeWidth) >= 1.5*parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--s') || 1)
         && style.webkitTextStrokeColor === 'rgb(0, 0, 0)' && style.textShadow !== 'none',
       'F1526 white count and checkmark need black glyph outlines, not a container');
       if (mutation === 'cascade-strip') {
@@ -118,9 +127,15 @@ async function alertLocationLayout(scan, mutation, view) {
       check(badge.scrollWidth <= badge.clientWidth+1 && badge.scrollHeight <= badge.clientHeight+1,
         'F1514 one-, two- and three-digit counts must remain fully readable');
       const range = document.createRange();
-      range.selectNodeContents(badge);
+      range.selectNodeContents(badge.firstChild);
       check([...range.getClientRects()].length === 1,
         'F1514 a badge count must not wrap');
+      const number = range.getBoundingClientRect();
+      const mark = badge.querySelector('.surgetickcheck').getBoundingClientRect();
+      check(mark.left >= number.right-.5 && mark.right <= box.right+.5
+        && mark.top >= box.top-.5 && mark.bottom <= box.bottom+.5
+        && Math.abs((mark.top+mark.bottom-number.top-number.bottom)/2) <= box.height*.35,
+      'F1539 checkmark must stay beside the count on one unclipped line');
       check(badge.getAttribute('aria-label') === count+' leaderboard tick'+(count===1?'':'s'),
         'F1514 accessible count meaning must remain intact');
       const photo = thumb.querySelector('.thumb[data-bird]').getBoundingClientRect();

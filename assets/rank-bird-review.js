@@ -1,10 +1,18 @@
 'use strict';
 
-module.exports = async function prepareRankBirdReview(A, document, expanded) {
-  var W = document.defaultView, region = 'US-WA', period = A.personalBoardPeriod(), name = A.getDisplayName();
-  var birds = [['corplo','Common Ringed Plover','CRPL'],['ruff','Ruff','RUFF'],['pacloo','Pacific Loon','PALO'],
+module.exports = async function prepareRankBirdReview(A, document, expanded, preparePersonal) {
+  var W = document.defaultView, region = 'US-WA';
+  var birds = [['coripl','Common Ringed Plover','CRPL'],['ruff','Ruff','RUFF'],['pacloo','Pacific Loon','PALO'],
     ['shtsan','Sharp-tailed Sandpiper','SPTS'],['margod','Marbled Godwit','MAGO'],['snobun','Snow Bunting','SNBU'],
     ['amgplo','American Golden-Plover','AMGP'],['snoowl1','Snowy Owl','SNOW']];
+  if (preparePersonal) {
+    W.localStorage.setItem(A.PERSONAL_PERIOD_KEY,'current');
+    A.applyCapturedIdentity({status:'ok',displayName:'Sample Birder',profileId:'representative-owner'});
+    await preparePersonal(A,W,{yearList:[]},birds.map(function(bird) {
+      return {code:bird[0],name:bird[1],alpha:bird[2]};
+    }));
+  }
+  var period = A.personalBoardPeriod(), name = A.getDisplayName();
   var owner = A.rankingHistoryOwner(region, period, 'spp', name), latest;
   W.localStorage.removeItem('bc_rankbirds_v1:' + owner);
   var yesterday = new W.Date(W.Date.now() - 86400000);

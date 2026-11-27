@@ -58,6 +58,14 @@ jobs:
       - name: Install JS dependencies
         run: npm ci
 
+      - name: Enforce compressed persistence and typed binary storage
+        run: npm run check:persistence
+
+      - name: Prove native persistence byte formats, receipts and mutations on macOS
+        env:
+          BIRDGEN_REQUIRE_NATIVE_PERSISTENCE: '1'
+        run: node --test tests/native-persistence.test.js tests/birdgen-trace.test.js
+
       # The ios/ folder is gitignored and regenerated fresh each build, so a
       # Windows dev never needs Xcode/CocoaPods locally.
       - name: Add iOS platform

@@ -1,6 +1,8 @@
 (function (global) {
   'use strict';
 
+  var BirdPersistence = global.BirdPersistence
+    || (typeof module !== 'undefined' && module.exports ? require('./persistence.js') : null);
   var SCHEMA = 'birdchaser.event/1';
   var SETTINGS_SCHEMA = 'birdchaser.settings/1';
   var DB_NAME = 'birdchaser-diagnostics';
@@ -121,6 +123,10 @@
     var persistTimer = null;
     var dbPromise = openDb(options.indexedDB === undefined
       ? global.indexedDB : options.indexedDB);
+    var persistence = BirdPersistence.create({
+      text: BirdPersistence.indexedDb({ database: dbPromise, store: STORE_NAME, keyPath: 'session_id' })
+    });
+    var persistQueue = Promise.resolve(), persistGeneration = 0;
 
     function persistentEvents() {
       if (verbosePersistence) return events.slice();
@@ -166,31 +172,25 @@
       }
     }
 
-    function prune(db) {
-      return new Promise(function (resolve) {
-        var transaction;
-        try { transaction = db.transaction(STORE_NAME, 'readwrite'); }
-        catch (error) { resolve(); return; }
-        var store = transaction.objectStore(STORE_NAME);
-        var request = store.getAll();
-        request.onsuccess = function () {
-          var rows = (request.result || []).sort(function (a, b) {
+    function prune(generation) {
+      return persistence.listJson({ migrate: true,
+        shouldWrite: function () { return generation === persistGeneration; }
+      }).then(function (rows) {
+          if (generation !== persistGeneration) return;
+          rows.sort(function (a, b) {
             return String(b.updated_at || '').localeCompare(String(a.updated_at || ''));
           });
           var cutoff = clock() - MAX_AGE_MS;
           var keptBytes = 0;
-          rows.forEach(function (row, index) {
+          return Promise.all(rows.map(function (row, index) {
             var bytes = JSON.stringify(row).length;
             var old = Date.parse(row.updated_at || row.started_at || 0) < cutoff;
             if (old || index >= MAX_SESSIONS || keptBytes + bytes > MAX_SESSION_BYTES) {
-              store.delete(row.session_id);
+              return persistence.remove(row.session_id);
             } else {
               keptBytes += bytes;
             }
-          });
-        };
-        transaction.oncomplete = function () { resolve(); };
-        transaction.onerror = function () { resolve(); };
+          }));
       });
     }
 
@@ -199,19 +199,18 @@
         clearTimeout(persistTimer);
         persistTimer = null;
       }
-      return dbPromise.then(function (db) {
-        if (!db) return false;
-        return new Promise(function (resolve) {
-          var transaction;
-          try { transaction = db.transaction(STORE_NAME, 'readwrite'); }
-          catch (error) { resolve(false); return; }
-          transaction.objectStore(STORE_NAME).put(sessionRecord());
-          transaction.oncomplete = function () {
-            prune(db).then(function () { resolve(true); });
-          };
-          transaction.onerror = function () { resolve(false); };
+      var generation = persistGeneration, record = sessionRecord();
+      var pending = persistQueue.then(async function () {
+        if (generation !== persistGeneration || !await dbPromise) return false;
+        var stored = await persistence.putJson(id, record, {
+          shouldWrite: function () { return generation === persistGeneration; }
         });
-      });
+        if (!stored || generation !== persistGeneration) return false;
+        await prune(generation);
+        return generation === persistGeneration;
+      }).catch(function () { return false; });
+      persistQueue = pending;
+      return pending;
     }
 
     function schedulePersist() {
@@ -367,20 +366,16 @@
     }
 
     function clear() {
+      persistGeneration++;
       events.length = 0;
       settings.length = 0;
       settingsRev = 0;
       if (persistTimer) clearTimeout(persistTimer);
       persistTimer = null;
-      return dbPromise.then(function (db) {
-        if (!db) return false;
-        return new Promise(function (resolve) {
-          var transaction = db.transaction(STORE_NAME, 'readwrite');
-          transaction.objectStore(STORE_NAME).clear();
-          transaction.oncomplete = function () { resolve(true); };
-          transaction.onerror = function () { resolve(false); };
-        });
-      });
+      var pending = persistQueue.then(function () { return persistence.clear(); })
+        .catch(function () { return false; });
+      persistQueue = pending;
+      return pending;
     }
 
     return {

@@ -20,9 +20,10 @@ module.exports = async function top100SyncLayout(scan, preview) {
     });
   }
   A.cancelStalledWork(); A.setActiveReport('wa'); A.setCountyView('');
+  await A.drainIdentityWrites();
   var name = A.getDisplayName();
   if (!name) { name = 'Representative birder'; localStorage.setItem('ebird_display_name',name); }
-  var identity = JSON.parse(localStorage.getItem(A.IDENTITY_META_KEY) || 'null');
+  var identity = A.getIdentityMeta();
   var profileId = identity && identity.profileId || 'representative-owner';
   localStorage.setItem(A.IDENTITY_META_KEY,JSON.stringify(
     Object.assign({},identity,{profileId:profileId,source:'ebird-bird-list'})));
@@ -56,16 +57,16 @@ module.exports = async function top100SyncLayout(scan, preview) {
       url:'https://ebird.org/top100?locInfo.regionCode=US-WA&year='+period
         +'&rankedBy='+metric+'&maxResults='+(metric === 'spp' ? 5000 : 500)};
   }
-  function warm(total) {
-    ['spp','cl'].forEach(function(metric) {
+  async function warm(total) {
+    for (var metric of ['spp','cl']) {
       var request = {region:'US-WA',metric:metric,max:500,
         rowLimit:metric === 'spp' ? 500 : undefined};
-      A.rankCachePut(A.rankCacheOwnerKey(request,period,name),board(metric,total));
+      await A.rankCachePut(A.rankCacheOwnerKey(request,period,name),board(metric,total));
       if (metric === 'spp') {
-        A.rankCachePut(A.rankCacheOwnerKey(Object.assign({},request,{max:5000,rowLimit:5000}),
+        await A.rankCachePut(A.rankCacheOwnerKey(Object.assign({},request,{max:5000,rowLimit:5000}),
           period,name),board(metric,total));
       }
-    });
+    }
   }
   function html(metric) {
     return '<link rel="canonical" href="https://ebird.org/top100?locInfo.regionCode=US-WA">'
@@ -104,7 +105,7 @@ module.exports = async function top100SyncLayout(scan, preview) {
     }
     var result=scan(label);
     require(!result.releaseLayout || result.releaseLayout.latestBirdIcons !== false,
-      'retain the shared latest-bird icon geometry');
+      'retain the enlarged square bird photo geometry');
     out.push(Object.assign(result, {rankCountSync:{
       arrow:true,pull:true,recheck:true,warning:!!warning,reads:calls.length
     }}));
@@ -116,7 +117,7 @@ module.exports = async function top100SyncLayout(scan, preview) {
       text:function() { return Promise.resolve(fail ? '' : html(new URL(url).searchParams.get('rankedBy'))); }});
   };
   try {
-    personal(2); warm(2);
+    personal(2); await warm(2);
     A.showSection('sec-rankBtn',{load:false});
     await A.loadRankings();
     require(calls.length === 0, 'ordinary loading must reuse verified warm boards');
@@ -143,7 +144,7 @@ module.exports = async function top100SyncLayout(scan, preview) {
     require(calls.slice(before).every(function(call) { return call.cache === 'no-store'; }),
       'pull must bypass HTTP caches');
     await snapshot('F1493 actual fresh Top 100 pull');
-    personal(3); warm(2); published = 2; before = calls.length;
+    personal(3); await warm(2); published = 2; before = calls.length;
     await A.loadRankings();
     require(calls.length === before+1, 'a count mismatch must make one Species-only recheck');
     var warning = document.getElementById('rankCountWarning');

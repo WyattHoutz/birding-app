@@ -1,7 +1,8 @@
 'use strict';
 
 module.exports = ({
-  test, assert, boot, waitFor, seedSeen, FIRST_YEAR_HTML, megaAlertHtml, recentObsStamp, preparedKeyNative, surgeSourceRoot
+  test, assert, boot, waitFor, seedSeen, FIRST_YEAR_HTML, megaAlertHtml, recentObsStamp, preparedKeyNative, surgeSourceRoot,
+  readPersistedFixture
 }) => {
   const complete = {
     observations: 'ok', mega: 'ok', leaderboard: 'ok', hotspots: 'ok',
@@ -96,7 +97,7 @@ module.exports = ({
       assert.match(status.textContent, /Home selection is retained/);
       assert.equal(app.$('setupNext').disabled, true);
       assert.equal(app.$('setupBack').disabled, false);
-      const draft = JSON.parse(app.window.localStorage.getItem('bc_setup_home_draft_v1'));
+      const draft = readPersistedFixture(app.window, 'bc_setup_home_draft_v1');
       assert.equal(draft.approved, true);
       assert.equal(!!draft.region, false);
       assert.equal(app.window.__app.getHome(), null);
@@ -193,6 +194,7 @@ module.exports = ({
       assert.ok(app.$('regionFindBtn'));
       app.click(accept);
       await waitFor(() => A.getReportSlug() === 'wa', 'explicit Washington acceptance');
+      await accept._regionSave;
       assert.equal(A.getHome().lat,45.5,'accepting a region recommendation cannot move the shared Home');
       assert.equal(app.window.localStorage.getItem('ebird_home_lat:or'), '45.5');
       assert.equal(app.window.localStorage.getItem('ebird_home_lng:or'), '-122.6');

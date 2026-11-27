@@ -766,6 +766,11 @@
       name: 'Favorite not saved',
       reason: 'Transient persistence-error and recovery notice, not informational help.'
     },
+    'watch-save-failed': {
+      surface: 'sheet',
+      name: 'Watch not saved',
+      reason: 'Transient persistence-error and recovery notice, not informational help.'
+    },
     'set-home-anchor': {
       surface: 'sheet',
       name: 'Set Home to Here',

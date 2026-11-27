@@ -99,8 +99,8 @@ async function forwardLayout(scan, notableFixture, mutation) {
   });
 
   await record('F1375 atomic NEW badge', async () => {
-    A.setRarityFilter('year', 'all');
-    A.setRarityFilter('distance', 'near');
+    await A.setRarityFilter('year', 'all');
+    await A.setRarityFilter('distance', 'near');
     A.setRaritySort('date');
     A.setTwitchView('list');
     const profile = A.chaseProfile();

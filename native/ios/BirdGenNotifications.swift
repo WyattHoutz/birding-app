@@ -5,6 +5,130 @@ import JavaScriptCore
 import Security
 import CryptoKit
 import Capacitor
+import zlib
+
+enum BirdNotificationPersistence {
+    private static let jsonTag = Data("BCP1j:".utf8)
+    private static let gzipTag = Data("BCP1z:".utf8)
+    private static let maximumBytes = 64 * 1024 * 1024
+
+    private enum Failure: LocalizedError {
+        case invalid, storage
+        var errorDescription: String? {
+            switch self {
+            case .invalid: return "The saved notification data is invalid."
+            case .storage: return "The notification data could not be saved and verified."
+            }
+        }
+    }
+
+    private static func gzip(_ input: Data, decoding: Bool) throws -> Data {
+        var stream = z_stream()
+        let initialized = decoding
+            ? inflateInit2_(&stream, 31, ZLIB_VERSION, Int32(MemoryLayout<z_stream>.size))
+            : deflateInit2_(&stream, Z_DEFAULT_COMPRESSION, Z_DEFLATED, 31, 8,
+                           Z_DEFAULT_STRATEGY, ZLIB_VERSION, Int32(MemoryLayout<z_stream>.size))
+        guard initialized == Z_OK else { throw Failure.invalid }
+        defer {
+            if decoding { inflateEnd(&stream) }
+            else { deflateEnd(&stream) }
+        }
+        return try input.withUnsafeBytes { bytes in
+            stream.next_in = UnsafeMutablePointer(mutating: bytes.bindMemory(to: Bytef.self).baseAddress)
+            stream.avail_in = uInt(input.count)
+            var result = Data()
+            var buffer = [UInt8](repeating: 0, count: 16_384)
+            while true {
+                let capacity = buffer.count
+                let status = buffer.withUnsafeMutableBytes { output in
+                    stream.next_out = output.bindMemory(to: Bytef.self).baseAddress
+                    stream.avail_out = uInt(capacity)
+                    return decoding ? inflate(&stream, Z_NO_FLUSH) : deflate(&stream, Z_FINISH)
+                }
+                let count = capacity - Int(stream.avail_out)
+                guard result.count + count <= maximumBytes else { throw Failure.invalid }
+                result.append(contentsOf: buffer.prefix(count))
+                if status == Z_STREAM_END {
+                    guard stream.avail_in == 0 else { throw Failure.invalid }
+                    return result
+                }
+                guard status == Z_OK, count > 0 else { throw Failure.invalid }
+            }
+        }
+    }
+
+    static func pack<T: Encodable>(_ value: T) throws -> Data {
+        let json = try JSONEncoder().encode(value)
+        guard json.count <= maximumBytes else { throw Failure.invalid }
+        if json.count >= 256 {
+            let compressed = try gzip(json, decoding: false)
+            if compressed.count < json.count { return gzipTag + compressed }
+        }
+        return jsonTag + json
+    }
+
+    static func unpack<T: Decodable>(_ data: Data, as type: T.Type) throws -> T {
+        guard data.count <= maximumBytes + jsonTag.count else { throw Failure.invalid }
+        let json: Data
+        if data.starts(with: gzipTag) {
+            json = try gzip(Data(data.dropFirst(gzipTag.count)), decoding: true)
+        } else if data.starts(with: jsonTag) {
+            json = Data(data.dropFirst(jsonTag.count))
+        } else {
+            json = data
+        }
+        return try JSONDecoder().decode(type, from: json)
+    }
+
+    private static func isTagged(_ data: Data) -> Bool {
+        data.starts(with: jsonTag) || data.starts(with: gzipTag)
+    }
+
+    static func readFile<T: Codable>(_ url: URL, as type: T.Type,
+                                     onMigrationFailure: (() -> Void)? = nil) throws -> T? {
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        let data = try Data(contentsOf: url)
+        let value = try unpack(data, as: type)
+        if !isTagged(data) {
+            do { try writeFile(value, to: url) }
+            catch { onMigrationFailure?() }
+        }
+        return value
+    }
+
+    static func writeFile<T: Encodable>(_ value: T, to url: URL) throws {
+        let data = try pack(value)
+        #if os(iOS)
+        let options: Data.WritingOptions = [.atomic, .completeFileProtectionUntilFirstUserAuthentication]
+        #else
+        let options: Data.WritingOptions = [.atomic]
+        #endif
+        try data.write(to: url, options: options)
+        var resource = url
+        var properties = URLResourceValues()
+        properties.isExcludedFromBackup = true
+        try resource.setResourceValues(properties)
+        guard try Data(contentsOf: url) == data else { throw Failure.storage }
+    }
+
+    static func readDefaults<T: Codable>(_ defaults: UserDefaults, key: String, as type: T.Type,
+                                         onMigrationFailure: (() -> Void)? = nil) throws -> T? {
+        guard let stored = defaults.object(forKey: key) else { return nil }
+        guard let data = stored as? Data else { throw Failure.invalid }
+        let value = try unpack(data, as: type)
+        if !isTagged(data) {
+            do { try writeDefaults(value, to: defaults, key: key) }
+            catch { onMigrationFailure?() }
+        }
+        return value
+    }
+
+    static func writeDefaults<T: Encodable>(_ value: T, to defaults: UserDefaults, key: String) throws {
+        let data = try pack(value)
+        defaults.set(data, forKey: key)
+        guard defaults.data(forKey: key) == data else { throw Failure.storage }
+    }
+}
 
 private let birdGenNotificationPendingOpenKey = "birdgen-notification-open-v1"
 
@@ -79,13 +203,14 @@ final class BirdNotificationTrace {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        if let data = defaults.data(forKey: key) {
-            do {
-                entries = Array(try JSONDecoder().decode([Entry].self, from: data).suffix(64))
+        do {
+            if let stored = try BirdNotificationPersistence.readDefaults(defaults, key: key, as: [Entry].self,
+                    onMigrationFailure: { self.storageFailed = true }) {
+                entries = Array(stored.suffix(64))
                 attempt = entries.last?.attempt ?? UUID()
-            } catch {
-                record(.storage, .failed, background: false)
             }
+        } catch {
+            record(.storage, .failed, background: false)
         }
     }
 
@@ -97,9 +222,8 @@ final class BirdNotificationTrace {
             stage: stage, outcome: outcome, background: background, counts: safeCounts))
         entries = Array(entries.suffix(64))
         do {
-            let data = try JSONEncoder().encode(entries)
-            defaults.set(data, forKey: key)
-            storageFailed = defaults.data(forKey: key) != data
+            try BirdNotificationPersistence.writeDefaults(entries, to: defaults, key: key)
+            storageFailed = false
         } catch {
             storageFailed = true
         }
@@ -374,21 +498,16 @@ final class BirdGenNotificationService: NSObject, UNUserNotificationCenterDelega
         return directory.appendingPathComponent(digest(config.context) + "." + suffix + ".json")
     }
 
-    private func read<T: Decodable>(_ config: BirdNotificationConfiguration, _ suffix: String, as type: T.Type) throws -> T? {
+    private func read<T: Codable>(_ config: BirdNotificationConfiguration, _ suffix: String, as type: T.Type) throws -> T? {
         let url = try fileURL(config, suffix)
-        if !FileManager.default.fileExists(atPath: url.path) { return nil }
-        return try JSONDecoder().decode(type, from: Data(contentsOf: url))
+        return try BirdNotificationPersistence.readFile(url, as: type, onMigrationFailure: {
+            self.diagnostics.record(.storage, .failed, background: self.backgroundWork != nil)
+        })
     }
 
     private func write<T: Encodable>(_ value: T, _ config: BirdNotificationConfiguration, _ suffix: String) throws {
         let url = try fileURL(config, suffix)
-        try JSONEncoder().encode(value).write(
-            to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication]
-        )
-        var resource = url
-        var properties = URLResourceValues()
-        properties.isExcludedFromBackup = true
-        try resource.setResourceValues(properties)
+        try BirdNotificationPersistence.writeFile(value, to: url)
     }
 
     private func clearFiles(_ config: BirdNotificationConfiguration) throws {

@@ -79,6 +79,9 @@ jobs:
       - name: Install exact-source native dependencies
         working-directory: source
         run: npm ci
+      - name: Enforce exact-source persistence compression policy
+        working-directory: source
+        run: npm run check:persistence
       - name: Download the already prepared native project
         uses: actions/download-artifact@v4
         with:

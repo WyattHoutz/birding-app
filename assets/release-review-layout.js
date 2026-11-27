@@ -135,7 +135,7 @@ async function releaseReviewLayout(scan, mutation, stage=()=>{}) {
       return {county:'US-WA-033',explicitSelection:true};
     } finally {document.getElementById('regionChooserClose').click();A.setCountyView('');}
   });
-  await record('F1507 actual Home map, explicit Save and Cancel',async capture=>{
+  await record('F1507 F1535 actual Home map, explicit Save and Clear cancellation',async capture=>{
     A.openSavedLocationEditor('home');
     const saved=JSON.stringify(A.getHome()),place=document.getElementById('homePlace');
     place.value='47.7, -122.2';place.dispatchEvent(new Event('input',{bubbles:true}));
@@ -147,14 +147,14 @@ async function releaseReviewLayout(scan, mutation, stage=()=>{}) {
     fits(document.getElementById('homeCandidateConsent'));
     check(box.height>=180&&map.querySelector('.mapcanvas,svg'),'candidate map has no usable area');
     check(JSON.stringify(A.getHome())===saved,'map review saved an unapproved Home');
-    for(const id of ['homeDeviceSave','homeCandidateCancel']) {
+    for(const id of ['homeDeviceSave','clearHomeBtn']) {
       const button=document.getElementById(id);button.scrollIntoView({block:'center'});await paint();
       const rect=fits(button),hit=document.elementFromPoint(rect.left+rect.width/2,rect.top+rect.height/2);
       check(rect.height>=43.5&&rect.width>=43.5&&hit&&button.contains(hit),'Home approval is not usable: '+id
         +' '+JSON.stringify({rect:rect.toJSON(),hit:hit&&hit.outerHTML.slice(0,140)}));
     }
-    capture();document.getElementById('homeCandidateCancel').click();
-    check(review.hidden&&JSON.stringify(A.getHome())===saved,'Cancel changed saved Home');
+    capture();document.getElementById('clearHomeBtn').click();
+    check(review.hidden&&JSON.stringify(A.getHome())===saved,'Clear cancellation changed saved Home');
     return {mapHeight:box.height,explicitSave:true,cancelPreserved:true};
   });
   await record('F1508 actual unsupported ABA Twitches',async capture=>{

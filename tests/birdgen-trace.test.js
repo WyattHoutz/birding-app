@@ -79,7 +79,11 @@ test('F1010 production Foundation recorder persists a bounded redacted trace', {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'birdgen-trace-'));
   try {
     const file = path.join(directory, 'trace.swift');
-    fs.writeFileSync(file, 'import Foundation\n' + source.slice(start, end) + `
+    const adapterStart = source.indexOf('enum BirdNotificationPersistence {');
+    const adapterEnd = source.indexOf('private let birdGenNotificationPendingOpenKey', adapterStart);
+    assert.ok(adapterStart >= 0 && adapterEnd > adapterStart);
+    fs.writeFileSync(file, 'import Foundation\nimport zlib\n'
+      + source.slice(adapterStart, adapterEnd) + source.slice(start, end) + `
 let suite = "birdgen-trace-test-" + UUID().uuidString
 let defaults = UserDefaults(suiteName: suite)!
 defer { defaults.removePersistentDomain(forName: suite) }

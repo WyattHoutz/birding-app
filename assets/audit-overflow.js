@@ -30,6 +30,8 @@ const HEIGHT = 844;
 const SCALE = process.argv[3] || '1';
 const PROFILE = +SCALE > 1.3 ? 'high-visibility'
   : +SCALE > 1 ? 'large' : 'standard';
+const BOUNDARY_PROBE = process.env.AUDIT_BOUNDARY_PROBE
+  ? JSON.parse(fs.readFileSync(process.env.AUDIT_BOUNDARY_PROBE, 'utf8')) : null;
 
 // F245/F251. LABELS WHOSE MID-WORD BREAK IS ACCEPTED.
 //
@@ -273,8 +275,8 @@ const AUDIT = `<script>
       result.latestBirdIcons = compactSize > 0 && icons.length > 0
         && icons.length === panel.querySelectorAll('.rankbirdline').length && icons.every(function (icon) {
         var box = icon.getBoundingClientRect();
-        return Math.abs(box.width - compactSize) < 0.5
-          && Math.abs(box.height - compactSize) < 0.5;
+        return box.width >= compactSize * 1.25
+          && Math.abs(box.height - box.width) < 0.5;
       });
     }
     return result;
@@ -1358,7 +1360,7 @@ const AUDIT = `<script>
     }
     if (${process.env.AUDIT_FOCUS === 'rank-birds'}) {
       try { out.push(...await rankBirdLayout(scan, prepareRankBirdReview,
-        ${JSON.stringify(process.env.AUDIT_RANK_BIRDS_MUTATION || '')}, auditStage)); }
+        ${JSON.stringify(process.env.AUDIT_RANK_BIRDS_MUTATION || '')}, auditStage, preparePersonalFixture)); }
       catch(error) { out.push({label:'F1528 observed bird history',fixtureError:String(error.stack || error)}); }
       finish(out);
       return;
@@ -1398,7 +1400,8 @@ const AUDIT = `<script>
       return;
     }
     if (${process.env.AUDIT_FOCUS === 'saved-locations'}) {
-      out.push(...await savedLocationLayout(scan, ${JSON.stringify(process.env.AUDIT_SAVED_MUTATION || '')}));
+      out.push(...await savedLocationLayout(scan, ${JSON.stringify(process.env.AUDIT_SAVED_MUTATION || '')},
+        ${JSON.stringify(BOUNDARY_PROBE)}, auditStage));
       finish(out);
       return;
     }
@@ -1422,6 +1425,12 @@ const AUDIT = `<script>
     if (${process.env.AUDIT_FOCUS === 'forward'}) {
       out.push.apply(out, await forwardLayout(scan, verifiedNotableFixture,
         ${JSON.stringify(process.env.AUDIT_FORWARD_MUTATION || '')}));
+      finish(out);
+      return;
+    }
+    if (${process.env.AUDIT_FOCUS === 'ticks'}) {
+      try { await tickSettingsLayout(out); }
+      catch(error) { out.push({label:'F247 Ticks settings',fixtureError:String(error.stack || error)}); }
       finish(out);
       return;
     }
@@ -1766,22 +1775,32 @@ const AUDIT = `<script>
     async function finalFixtures() {
       auditStage('final fixtures');
       A.showSection('sec-rankBtn');
+      var rankFixtureSpecies=[
+        {name:'Common Ringed Plover',code:'coripl'},
+        {name:'American Golden-Plover',code:'amgplo'}
+      ];
       localStorage.setItem(A.speciesCacheKey(A.getObsRegion()), JSON.stringify({
-        t:Date.now(), rows:[
-          {name:'Common Ringed Plover',code:'coripl'},
-          {name:'American Golden-Plover',code:'amgplo'}
-        ]
+        t:Date.now(), rows:rankFixtureSpecies
       }));
       A.renderRankings({rows:[
         {rank:1,name:'Birder with a long display name',species:356,checklists:484,
-          recent:'Common Ringed Plover (Oct. 1, 2026)'},
+          recent:rankFixtureSpecies[0].name+' (Oct. 1, 2026)'},
         {rank:100,name:'Another birder',species:200,checklists:800,
-          recent:'American Golden-Plover (Oct. 1, 2026)'}
+          recent:rankFixtureSpecies[1].name+' (Oct. 1, 2026)'}
       ]},'US-WA','https://ebird.org/top100','');
-      var populatedRankLinks=Array.from(document.querySelectorAll('#rankResults .rankrow .rankbirdline a.splink'));
-      if(JSON.stringify(populatedRankLinks.map(function(link){return link.dataset.sp;}))!=='["coripl","amgplo"]')
+      var populatedRankBirds=Array.from(document.querySelectorAll('#rankResults .rankrow .rankbirdline'));
+      if(populatedRankBirds.length!==rankFixtureSpecies.length || populatedRankBirds.some(function(bird,index){
+        var links=Array.from(bird.querySelectorAll('a.splink'));
+        return !bird.querySelector('.rankbirdicon a.splink') || !links.some(function(link){
+            return link.textContent.trim()===rankFixtureSpecies[index].name;
+          }) || links.some(function(link){
+            return link.dataset.sp!==rankFixtureSpecies[index].code;
+          });
+      }))
         throw new Error('F1289 actual populated Top 100 links are required before geometry: '
-          +JSON.stringify(populatedRankLinks.map(function(link){return link.dataset.sp;})));
+          +JSON.stringify(populatedRankBirds.map(function(bird){
+            return Array.from(bird.querySelectorAll('a.splink')).map(function(link){return link.dataset.sp;});
+          })));
       out.push(scan('(F851 compact Top100)'));
       var previousIdentity=localStorage.getItem(A.IDENTITY_META_KEY);
       localStorage.setItem(A.IDENTITY_META_KEY,JSON.stringify({profileId:'F857-owner'}));
@@ -1845,7 +1864,7 @@ const AUDIT = `<script>
       }));
       var priorWatch = A.getWatchlist();
       var yearSpeciesKey=A.speciesCacheKey(A.getObsRegion()), savedYearSpecies=localStorage.getItem(yearSpeciesKey);
-      var yearSpecies=JSON.parse(savedYearSpecies || '{"rows":[]}');
+      var yearSpecies=A.cachedSpeciesIndex(A.getObsRegion()) || {rows:[]};
       var scientificNames={amerob:'Turdus migratorius',bktgwa:'Setophaga nigrescens',lewwoo:'Melanerpes lewis'};
       yearSpecies.rows=(yearSpecies.rows || []).filter(function(row){return !scientificNames[row.code];})
         .concat(yearRows.map(function(row){return {code:row.code,name:row.name,sci:scientificNames[row.code]};}));
@@ -1966,56 +1985,7 @@ const AUDIT = `<script>
       A.setWatchlist(priorWatch);
       if(savedYear===null)localStorage.removeItem(A.personalListKey(yearOwner));
       else localStorage.setItem(A.personalListKey(yearOwner),savedYear);
-      A.showSection('sec-lastNewBtn');
-      localStorage.setItem('bc_lastnew_display_v1',JSON.stringify({sort:'date'}));
-      var tickEarlier = new Date(); tickEarlier.setDate(tickEarlier.getDate()-20);
-      A.renderLastNew({'Western Grebe':{birders:[
-        {name:'Representative with a long contributor name',profileId:'F868',rank:120,date:A.todayStr()},
-        {name:'Earlier representative',profileId:'F970',rank:2,date:tickEarlier.toISOString().slice(0,10)}
-      ],latest:A.todayStr()}},
-        {'Western Grebe':{code:'wesgre',obs:[]}},'US-WA',{});
-      var tickScan=scan('(F868 compact ticks)');
-      tickScan.tickPhoto=document.querySelector('#lastNewResults .thumb').getBoundingClientRect().width;
-      var tickReference=document.createElement('ul');
-      tickReference.className='obs big xl';
-      tickReference.innerHTML=SpeciesCards.medium({name:'Shared medium image reference',
-        icon:'<span class="thumb"></span>'});
-      document.getElementById('sec-lastNewBtn').appendChild(tickReference);
-      tickScan.tickSharedPhoto=tickReference.querySelector('.thumb').getBoundingClientRect().width;
-      tickReference.remove();
-      var tickPrimary=document.querySelector('#lastNewResults .spprimary');
-      tickScan.tickPrimaryOffset=A.getDisplayProfile()==='high-visibility' ? null
-        : tickPrimary.getBoundingClientRect().top
-          -document.querySelector('#lastNewResults .thumb').getBoundingClientRect().top;
-      out.push(tickScan);
-      var tickRoster = document.querySelector('#lastNewResults details.tickwho');
-      if (!tickRoster || tickRoster.open) throw new Error('F970 roster must start collapsed');
-      tickRoster.querySelector('summary').click();
-      var expandedTicks=scan('(F970 expanded contributors)');
-      expandedTicks.tickContributors={
-        open:tickRoster.open,
-        ranks:[].map.call(tickRoster.querySelectorAll('[data-tick-birder-rank]'),function(row){
-          return row.getAttribute('data-tick-birder-rank');
-        }).join(','),
-        recent:tickRoster.querySelectorAll('[data-tick-recent="true"]').length,
-        total:tickRoster.querySelector('[data-tick-total]').getAttribute('data-tick-total'),
-        tapHeight:tickRoster.querySelector('summary').getBoundingClientRect().height,
-        visibleRows:[].every.call(tickRoster.querySelectorAll('.tickcontributors > li'),function(row){
-          var rect=row.getBoundingClientRect();
-          return rect.height>0 && rect.left>=0 && rect.right<=expandedTicks.vw+0.5;
-        })
-      };
-      out.push(expandedTicks);
-      document.querySelector('#lastNewSort [data-ticksort="count"]').click();
-      var countRoster=document.querySelector('#lastNewResults details.tickwho');
-      var countTicks=scan('(F974 Count contributors)');
-      countTicks.tickRankOrder=[].map.call(countRoster.querySelectorAll('[data-tick-birder-rank]'),function(row){
-        return row.getAttribute('data-tick-birder-rank');
-      }).join(',');
-      countTicks.tickRosterOpen=countRoster.open;
-      countTicks.tickMetric=document.querySelector('#lastNewResults [data-tick-metric]').getAttribute('data-tick-metric');
-      out.push(countTicks);
-      document.querySelector('#lastNewSort [data-ticksort="date"]').click();
+      await tickSettingsLayout(out);
       A.showSection('sec-surgeBtn',{load:false});
       A.cancelStalledWork();
       document.getElementById('surgeResults').innerHTML='<ul id="surgeFeed" class="obs card-sm surgefeed">'
@@ -2279,9 +2249,9 @@ const AUDIT = `<script>
         acquiredAt:sensitiveNow.getTime(),state:'ok',acquired:true,inventoryComplete:true,
         sensitiveRows:[{code:'grgowl',name:'Great Gray Owl',region:sensitiveScope.effectiveRegion}]
       };
-      A.birdGenSensitiveJournal(Object.assign({},sensitiveSource,{
+      await A.birdGenSensitiveJournalAsync(Object.assign({},sensitiveSource,{
         acquiredAt:sensitiveNow.getTime()-1,sensitiveRows:[]}),sensitiveNow);
-      A.birdGenSensitiveJournal(sensitiveSource,sensitiveNow);
+      await A.birdGenSensitiveJournalAsync(sensitiveSource,sensitiveNow);
       var sensitiveRows=A.birdGenSensitiveRows(sensitiveNow);
       var sensitivePeriod=new Date(sensitiveMonth+'-01T12:00:00Z').toLocaleDateString('en-US',
         {month:'long',year:'numeric',timeZone:'UTC'});
@@ -2495,30 +2465,32 @@ const AUDIT = `<script>
       var savedRanks = localStorage.getItem(A.RANK_CACHE_KEY);
       var sampleName = 'Sample Observer with a long display name';
       localStorage.setItem('ebird_display_name', sampleName);
-      ['current', 'all', 'unavailable', 'current-short', 'all-short', 'unavailable-short'].forEach(function (mode) {
+      for (var mode of ['current', 'all', 'unavailable', 'current-short', 'all-short', 'unavailable-short']) {
         var shortName = /-short$/.test(mode);
         mode = mode.replace(/-short$/, '');
         sampleName = shortName ? 'Birder Wyatt' : 'Sample Observer with a long display name';
         localStorage.setItem('ebird_display_name', sampleName);
         localStorage.setItem(A.PERSONAL_PERIOD_KEY, mode === 'all' ? 'all' : 'current');
         var period = A.personalBoardPeriod();
-        if (mode === 'unavailable') localStorage.removeItem(A.RANK_CACHE_KEY);
-        ['spp', 'cl'].forEach(function (metric) {
-          if (mode === 'unavailable') return;
+        if (mode === 'unavailable') {
+          localStorage.removeItem(A.RANK_CACHE_KEY);
+          await A.loadRankCache(true);
+        }
+        for (var metric of ['spp', 'cl']) {
+          if (mode === 'unavailable') continue;
           var me = {name:sampleName, rank:145, species:mode === 'all' ? 536 : 356,
             checklists:mode === 'all' ? 34759 : 484};
-          A.rankCachePut('F812-audit-' + mode + '-' + metric, {
+          await A.rankCachePut('F812-audit-' + mode + '-' + metric, {
             region:A.activeScope().effectiveRegion, period:period, metric:metric, profile:A.bcProfile(),
             ownerRevision:A.identityRevision(), me:me, rows:[me]
           });
-        });
+        }
         A.renderMenuIdentity();
         var header = scan('(F805/F812 shared header ' + mode + ')');
         var brand = document.querySelector('header .brand').getBoundingClientRect();
         var name = document.querySelector('#hdrId .hdrname').getBoundingClientRect();
         var scope = document.getElementById('hdrScope').getBoundingClientRect();
-        var periodButton = document.getElementById('hdrPeriod');
-        var periodBox = periodButton.getBoundingClientRect();
+        var homeBox = document.getElementById('hdrHome').getBoundingClientRect();
         var identity = document.getElementById('hdrId');
         var identityBox = identity.getBoundingClientRect();
         var headerNode = document.querySelector('header');
@@ -2538,18 +2510,19 @@ const AUDIT = `<script>
           throw new Error('F1087 padding-only header spacing changed');
         }
         header.personalHeader = {
-          mode:mode, basis:periodButton.textContent,
+          mode:mode, basis:document.getElementById('hdrScope').textContent.split(' ')[0],
           paddingOnly:parseFloat(getComputedStyle(headerNode).paddingTop)===2
             && parseFloat(getComputedStyle(headerNode).paddingLeft)===12
             && getComputedStyle(identity).rowGap==='2px',
           region:document.getElementById('hdrScope').textContent,
-          separated:periodBox.right <= scope.left && periodBox.width >= 44
-            && periodBox.height >= 44 && scope.width >= 44 && scope.height >= 44,
-          rowGap:identityBox.top - Math.max(brand.bottom, scope.bottom, periodBox.bottom),
+          homeBeforeScope:homeBox.right <= scope.left && homeBox.width >= 44
+            && homeBox.height >= 44 && scope.width >= 44 && scope.height >= 44,
+          rowGap:identityBox.top - Math.max(brand.bottom, scope.bottom, homeBox.bottom),
           headerHeight:compactHeight, spacingControlHeight:spacedHeight,
           topBorder:parseFloat(getComputedStyle(headerNode).borderTopWidth),
           spacingSaved:spacedHeight - compactHeight,
-          twoRows:name.top >= Math.max(brand.bottom, scope.bottom, periodBox.bottom) - 1,
+          identityBelowControls:name.top >= Math.max(brand.bottom, scope.bottom, homeBox.bottom) - 1,
+          gridRows:getComputedStyle(headerNode).gridTemplateRows.split(/\\s+/).length,
           nameWidth:name.width,
           nameClipped:identity.querySelector('.hdrname').scrollWidth > name.width + 1,
           displayName:sampleName,
@@ -2575,13 +2548,14 @@ const AUDIT = `<script>
           })
         };
         out.push(header);
-      });
+      }
       if (savedPeriod == null) localStorage.removeItem(A.PERSONAL_PERIOD_KEY);
       else localStorage.setItem(A.PERSONAL_PERIOD_KEY, savedPeriod);
       if (savedName == null) localStorage.removeItem('ebird_display_name');
       else localStorage.setItem('ebird_display_name', savedName);
       if (savedRanks == null) localStorage.removeItem(A.RANK_CACHE_KEY);
       else localStorage.setItem(A.RANK_CACHE_KEY, savedRanks);
+      await A.loadRankCache(true);
       A.renderMenuIdentity();
       var savedRecentRegions = localStorage.getItem('bc_recent_regions_v1');
       localStorage.setItem('bc_recent_regions_v1', JSON.stringify([
@@ -2977,7 +2951,7 @@ const AUDIT = `<script>
             out.push(twitch);
             A.setTwitchView('list');
             A.refresh();
-            return new Promise(function (resolve) { setTimeout(resolve, 1000); }).then(function () {
+            return new Promise(function (resolve) { setTimeout(resolve, 1000); }).then(async function () {
             var megaRows = [
               { speciesCode: 'tersan', comName: 'Terek Sandpiper', sciName: 'Xenus cinereus',
                 subnational1Code: 'US-WA',
@@ -3129,7 +3103,7 @@ const AUDIT = `<script>
             var foyDay = foyNow.getFullYear() + '-'
               + String(foyNow.getMonth() + 1).padStart(2, '0') + '-'
               + String(foyNow.getDate()).padStart(2, '0');
-            var foySnapshot = A.firstYearWrite(foyCtx.region, foyCtx.year, {
+            var foySnapshot = await A.firstYearWrite(foyCtx.region, foyCtx.year, {
               valid:true,declared:3,evidenceComplete:true,
               source:{kind:'annual-first',region:foyCtx.region,year:foyCtx.year,
                 url:A.firstYearUrl(foyCtx.region),updatedAt:foyNow.toISOString()},
@@ -3177,14 +3151,15 @@ const AUDIT = `<script>
               else A.setActiveReport('aba');
               A.headerScopeRefresh();
               var scoped = scan('(F853 ' + scopeMode + ' shortcuts)');
-              var periodNode = document.getElementById('hdrPeriod');
+              var homeNode = document.getElementById('hdrHome');
               var regionNode = document.getElementById('hdrScope');
-              var pb = periodNode.getBoundingClientRect(), rb = regionNode.getBoundingClientRect();
+              var hb = homeNode.getBoundingClientRect(), rb = regionNode.getBoundingClientRect();
               scoped.scopeHeader = {
                 region:regionNode.textContent,
-                expected:scopeMode === 'county' ? 'US-WA-033' : 'ABA Area',
-                separate:pb.right <= rb.left,
-                touch:pb.width >= 44 && pb.height >= 44 && rb.width >= 44 && rb.height >= 44,
+                expected:(A.personalPeriod()==='all'?'All':String(new Date().getFullYear()))
+                  +' '+(scopeMode === 'county' ? 'US-WA-033' : 'ABA'),
+                homeBeforeScope:hb.right <= rb.left,
+                touch:hb.width >= 44 && hb.height >= 44 && rb.width >= 44 && rb.height >= 44,
                 within:rb.right <= document.documentElement.clientWidth
               };
               out.push(scoped);
@@ -3681,7 +3656,7 @@ const AUDIT = `<script>
         label + ': replaced existing row/photo');
     }
     A.setActiveReport('wa'); A.setCountyView('');
-    A.setRarityFilter('year','all'); A.setRarityFilter('distance','near'); A.setRaritySort('date');
+    await A.setRarityFilter('year','all'); await A.setRarityFilter('distance','near'); A.setRaritySort('date');
     document.documentElement.style.overflowAnchor = 'none';
     document.body.style.overflowAnchor = 'none';
     var stamp = Date.now() - 3600000;
@@ -3926,10 +3901,10 @@ const AUDIT = `<script>
     out.push(scan('(F1051 populated Common birds)'));
     A.showSection('sec-recentBtn', {load:false});
     A.renderRecentChecklistBatch([
-      {subId:'SF1074NEAR',isoObsDate:'2026-10-23 08:00',numSpecies:30,
+      {subId:'SF1074NEAR',isoObsDate:'2026-10-23 08:00',numSpecies:30,subnational1Code:'US-WA',
         locId:'LF1074NEAR',loc:{name:'Public nearby park',latitude:47.751,longitude:-122.16}},
-      {subId:'SF1074FAR',isoObsDate:'2026-10-23 09:00',numSpecies:50,
-        locId:'LF1074FAR',loc:{name:'Public distant park',latitude:49.5,longitude:-122.3}}
+      {subId:'SF1074FAR',isoObsDate:'2026-10-23 09:00',numSpecies:50,subnational1Code:'US-WA',
+        locId:'LF1074FAR',loc:{name:'Public distant park',latitude:48.99,longitude:-122.3}}
     ],1,1);
     var recentPicker = document.getElementById('recentSortPick');
     measurePill(recentPicker,3);
@@ -4247,6 +4222,67 @@ const AUDIT = `<script>
         .forEach(function(pair){if(!pair[0])return;if(pair[1]===null)localStorage.removeItem(pair[0]);else localStorage.setItem(pair[0],pair[1]);});
       A.getReportSeen();
     }
+  }
+  async function tickSettingsLayout(out) {
+    var A=window.__app;
+    A.showSection('sec-lastNewBtn',{load:false});
+    await A.setLastNewSetting('sort','date');
+    await A.setLastNewSetting('hideSeen',false);
+    var tickEarlier = new Date(); tickEarlier.setDate(tickEarlier.getDate()-20);
+    A.renderLastNew({'Western Grebe':{birders:[
+      {name:'Representative with a long contributor name',profileId:'F868',rank:120,date:A.todayStr()},
+      {name:'Earlier representative',profileId:'F970',rank:2,date:tickEarlier.toISOString().slice(0,10)}
+    ],latest:A.todayStr()}},
+      {'Western Grebe':{code:'wesgre',obs:[]}},'US-WA',{});
+    var tickScan=scan('(F868 compact ticks)');
+    tickScan.tickPhoto=document.querySelector('#lastNewResults .thumb').getBoundingClientRect().width;
+    var tickReference=document.createElement('ul');
+    tickReference.className='obs big xl';
+    tickReference.innerHTML=SpeciesCards.medium({name:'Shared medium image reference',
+      icon:'<span class="thumb"></span>'});
+    document.getElementById('sec-lastNewBtn').appendChild(tickReference);
+    tickScan.tickSharedPhoto=tickReference.querySelector('.thumb').getBoundingClientRect().width;
+    tickReference.remove();
+    var tickPrimary=document.querySelector('#lastNewResults .spprimary');
+    tickScan.tickPrimaryOffset=A.getDisplayProfile()==='high-visibility' ? null
+      : tickPrimary.getBoundingClientRect().top
+        -document.querySelector('#lastNewResults .thumb').getBoundingClientRect().top;
+    out.push(tickScan);
+    var tickRoster = document.querySelector('#lastNewResults details.tickwho');
+    if (!tickRoster || tickRoster.open) throw new Error('F970 roster must start collapsed');
+    tickRoster.querySelector('summary').click();
+    var expandedTicks=scan('(F970 expanded contributors)');
+    expandedTicks.tickContributors={
+      open:tickRoster.open,
+      ranks:[].map.call(tickRoster.querySelectorAll('[data-tick-birder-rank]'),function(row){
+        return row.getAttribute('data-tick-birder-rank');
+      }).join(','),
+      recent:tickRoster.querySelectorAll('[data-tick-recent="true"]').length,
+      total:tickRoster.querySelector('[data-tick-total]').getAttribute('data-tick-total'),
+      tapHeight:tickRoster.querySelector('summary').getBoundingClientRect().height,
+      visibleRows:[].every.call(tickRoster.querySelectorAll('.tickcontributors > li'),function(row){
+        var rect=row.getBoundingClientRect();
+        return rect.height>0 && rect.left>=0 && rect.right<=expandedTicks.vw+0.5;
+      })
+    };
+    out.push(expandedTicks);
+    document.querySelector('#lastNewSort [data-ticksort="count"]').click();
+    await document.getElementById('lastNewControlsHost')._lastNewSave;
+    await Promise.resolve();
+    var countRoster=document.querySelector('#lastNewResults details.tickwho');
+    var countTicks=scan('(F974 Count contributors)');
+    countTicks.tickRankOrder=[].map.call(countRoster.querySelectorAll('[data-tick-birder-rank]'),function(row){
+      return row.getAttribute('data-tick-birder-rank');
+    }).join(',');
+    countTicks.tickRosterOpen=countRoster.open;
+    countTicks.tickMetric=document.querySelector('#lastNewResults [data-tick-metric]').getAttribute('data-tick-metric');
+    var receipt=localStorage.getItem(A.bcReal(A.LAST_NEW_DISPLAY_KEY));
+    countTicks.tickSettingsReceipt=receipt && receipt.startsWith('j:')
+      && JSON.parse(receipt.slice(2)).sort==='count';
+    out.push(countTicks);
+    document.querySelector('#lastNewSort [data-ticksort="date"]').click();
+    await document.getElementById('lastNewControlsHost')._lastNewSave;
+    await Promise.resolve();
   }
   async function batchRegression(out) {
     var A=window.__app;
@@ -4717,7 +4753,7 @@ const AUDIT = `<script>
         'missing Settings approval');
       require(requests === 2 && JSON.stringify(A.getHome()) === savedHome,'Settings candidate saved itself');
       record('Settings Home candidate');
-      document.getElementById('homeFindCancel').click();
+      document.getElementById('clearHomeBtn').click();
       require(JSON.stringify(A.getHome()) === savedHome,'cancellation changed saved Home');
     } finally {
       window.fetch = fetch;
@@ -5403,13 +5439,13 @@ const AUDIT = `<script>
   const prepareRankBirdReview = ${require('./rank-bird-review').toString()};
   const rankBirdLayout = ${require('./rank-bird-layout').toString()};
   async function finish(out) {
-    if (!${['batch','logout','forward','maps','rank-climb','next-release','scope-headers','release-review','bird-reports','top100-sync','rank-birds','alert-locations','patch-boundaries','cold-patches','saved-locations'].includes(process.env.AUDIT_FOCUS)}) {
+    if (!${['batch','logout','forward','ticks','maps','rank-climb','next-release','scope-headers','release-review','bird-reports','top100-sync','rank-birds','alert-locations','patch-boundaries','cold-patches','saved-locations'].includes(process.env.AUDIT_FOCUS)}) {
     if (!out.some(function (result) { return result.fixtureError; })) {
       try { out.push(...await coldPatchLayout(scan,preparePersonalFixture,auditStage)); }
       catch(error) { out.push({label:'F1532 cold patches',fixtureError:String(error.stack || error)}); }
     }
     if (!out.some(function (result) { return result.fixtureError; })) {
-      try { out.push(...await savedLocationLayout(scan)); }
+      try { out.push(...await savedLocationLayout(scan, '', ${JSON.stringify(BOUNDARY_PROBE)}, auditStage)); }
       catch(error) { out.push({label:'F1515 F1517 saved locations and region scroll',fixtureError:String(error)}); }
     }
     if (!out.some(function (result) { return result.fixtureError; })) {
@@ -5483,7 +5519,7 @@ const AUDIT = `<script>
       out.push.apply(out, await alertLocationLayout(scan, ''));
       out.push.apply(out, await patchBoundaryLayout(scan, ''));
       out.push.apply(out, await releaseReviewLayout(scan, '', auditStage));
-      try { out.push.apply(out, await rankBirdLayout(scan, prepareRankBirdReview, '', auditStage)); }
+      try { out.push.apply(out, await rankBirdLayout(scan, prepareRankBirdReview, '', auditStage, preparePersonalFixture)); }
       catch(error) { out.push({label:'F1528 observed bird history',fixtureError:String(error.stack || error)}); }
       try {
         var aggregateApp = window.__app;
@@ -5885,7 +5921,7 @@ server.listen(0, '127.0.0.1', () => {
     }
     if (process.env.AUDIT_FOCUS === 'saved-locations') {
       console.log(JSON.stringify(report,null,2));
-      process.exit(report.length===7 && report.every(r=>r.savedLocationGeometry
+      process.exit(report.length===10 && report.every(r=>r.savedLocationGeometry
         && !r.fixtureError && r.over<=.5 && r.docScrollW<=WIDTH+.5
         && !['items','small','clipped','midword','crushed'].some(key=>(r[key]||[]).length)) ? 0 : 1);
     }
@@ -5910,6 +5946,19 @@ server.listen(0, '127.0.0.1', () => {
       console.log(JSON.stringify(report, null, 2));
       process.exit(report.length === 3 && report.every(r => r.forwardGeometry
         && !r.fixtureError && r.over <= .5 && r.docScrollW <= WIDTH + .5) ? 0 : 1);
+    }
+    if (process.env.AUDIT_FOCUS === 'ticks') {
+      console.log(JSON.stringify(report,null,2));
+      const compact=report.find(r=>r.tickPhoto!=null), expanded=report.find(r=>r.tickContributors);
+      const count=report.find(r=>r.tickRankOrder!=null);
+      process.exit(report.length===3 && compact && compact.tickPhoto>0
+        && Math.abs(compact.tickPhoto-compact.tickSharedPhoto)<=.5
+        && expanded && expanded.tickContributors.open && expanded.tickContributors.visibleRows
+        && expanded.tickContributors.ranks==='120,2' && expanded.tickContributors.total==='2'
+        && count && count.tickRankOrder==='2,120' && count.tickRosterOpen
+        && count.tickMetric==='count' && count.tickSettingsReceipt
+        && report.every(r=>!r.fixtureError && r.over<=.5 && r.docScrollW<=WIDTH+.5
+          && !['items','small','clipped','midword','crushed'].some(k=>(r[k]||[]).length)) ? 0 : 1);
     }
     if (process.env.AUDIT_FOCUS === 'logout') {
       console.log(JSON.stringify(report));
@@ -6095,19 +6144,19 @@ server.listen(0, '127.0.0.1', () => {
           + JSON.stringify(r.personalBackup));
       }
       if (r.scopeHeader && (r.scopeHeader.region !== r.scopeHeader.expected
-          || !r.scopeHeader.separate || !r.scopeHeader.touch || !r.scopeHeader.within)) {
+          || !r.scopeHeader.homeBeforeScope || !r.scopeHeader.touch || !r.scopeHeader.within)) {
         bad++;
         console.log('   F853 scoped shortcut geometry failed: ' + JSON.stringify(r.scopeHeader));
       }
       if (r.personalHeader) {
         const header = r.personalHeader;
         console.log('   F852/F853 HEADER GEOMETRY ' + JSON.stringify(header));
-        if (!header.twoRows || header.nameWidth <= 0 || !header.regionFirst
+        if (!header.identityBelowControls || header.nameWidth <= 0 || !header.regionFirst
             || !header.justified || header.nameClipped || !header.fullWidth || !header.compact || !header.fullCounts
             || header.topBorder !== 0
-            || header.basis !== (header.mode === 'all' ? 'All Time' : String(new Date().getFullYear()))
-            || header.region !== 'US-WA' || !header.separated || Math.abs(header.rowGap) > 1
-            || Math.abs(header.spacingSaved - 12) > 1
+            || header.basis !== (header.mode === 'all' ? 'All' : String(new Date().getFullYear()))
+            || header.region !== header.basis+' US-WA' || !header.homeBeforeScope || Math.abs(header.rowGap) > 1
+            || Math.abs(header.spacingSaved - (8+4*(header.gridRows-1))) > 1
             || header.controls.length !== (header.mode === 'unavailable' ? 2 : 3)
             || header.controls.some((control) => control.width < 44 || control.height < 44
               || control.right > r.vw + 0.5 || control.underlined || !control.bold || !control.label)
@@ -6559,7 +6608,7 @@ server.listen(0, '127.0.0.1', () => {
           layoutProblems.push('F857 compact neighborhood lost its eleven source rows');
         }
         if (layout.latestBirdIcons === false) {
-          layoutProblems.push('Top 100 latest-bird icons must match the shared compact-list size');
+          layoutProblems.push('Top 100 bird photos must be square and larger than the compact-list reference');
         }
         if (!layout.reloadInline) layoutProblems.push('reload icon wrapped below heading');
         if (layout.emptyMinHeight > 0.5) {

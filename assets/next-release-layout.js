@@ -226,16 +226,63 @@ async function nextReleaseLayout(scan, mutation, focus) {
     check(document.activeElement===button,'F1502 chooser dismissal must restore scope-link focus');
     window.scrollTo(0,0);
     A.showMenu();
-    document.getElementById('hdrPeriod').click();
+    const mainScope=document.getElementById('hdrScope'),home=document.getElementById('hdrHome');
+    check(!document.getElementById('hdrPeriod')&&home.nextElementSibling===mainScope,
+      'F1536 Home must precede the single main-menu year-region chooser');
+    const mainHeader=[];
+    for (const period of ['current','all']) {
+      A.setPersonalPeriod(period);await paint();
+      const expected=(period==='all'?'All':year)+' US-WA-033';
+      check(mainScope.textContent===expected&&mainScope.textContent===tag.textContent,
+        'F1536 main and submenu labels must share exact year and county context');
+      if(mutation==='header-home-small')
+        Object.assign(home.style,{minWidth:'0',minHeight:'0',width:'20px',height:'20px'});
+      if(mutation==='header-scope-small')
+        Object.assign(mainScope.style,{minHeight:'0',height:'20px'});
+      if(mutation==='header-overlap')home.style.transform='translateX(60px)';
+      const mainTag=mainScope.querySelector('.tag');
+      if(mutation==='header-pill-mismatch')mainTag.style.padding='0';
+      if(mutation==='header-pill-short') {
+        mainTag.style.paddingTop='0';mainTag.style.paddingBottom='0';
+        tag.style.paddingTop='0';tag.style.paddingBottom='0';
+      }
+      const hr=home.getBoundingClientRect(),sr=mainScope.getBoundingClientRect();
+      check(hr.width>=43.5&&hr.height>=43.5&&sr.width>=43.5&&sr.height>=43.5,
+        'F1536 Home and combined scope must retain 44px touch targets');
+      check(hr.left>=0&&sr.right<=innerWidth+.5&&hr.right<=sr.left+.5
+        &&Math.abs(hr.top+hr.height/2-sr.top-sr.height/2)<1,
+        'F1536 Home must precede the combined scope without overlap or clipping');
+      for (const target of [home,mainScope]) {
+        const rect=target.getBoundingClientRect();
+        check(target.contains(document.elementFromPoint(rect.left+rect.width/2,rect.top+rect.height/2)),
+          'F1536 each main header action must be independently hit-testable');
+      }
+      const mainStyle=getComputedStyle(mainTag),subStyle=getComputedStyle(tag);
+      check(['padding','borderRadius','border','backgroundColor','fontSize','fontWeight']
+        .every(property=>mainStyle[property]===subStyle[property]),
+        'F1536 main and submenu pills must use the same style');
+      check(parseFloat(mainStyle.paddingTop)>=parseFloat(mainStyle.paddingLeft),
+        'F1536 shared scope pills must keep their taller vertical padding');
+      const range=document.createRange();range.selectNodeContents(mainTag);
+      check([...range.getClientRects()].every(r=>r.left>=sr.left-.5&&r.right<=sr.right+.5
+        &&r.top>=sr.top-.5&&r.bottom<=sr.bottom+.5),
+        'F1536 combined year-region text must remain fully visible');
+      mainHeader.push({period,home:hr.toJSON(),scope:sr.toJSON(),pill:mainTag.getBoundingClientRect().toJSON()});
+    }
+    A.setPersonalPeriod('current');await paint();
+    mainScope.focus();mainScope.click();
     await paint();
-    check(!document.getElementById('menuPanel').hidden
-      && document.activeElement.closest('.periodpick'),'F1502 main-menu year must retain the existing period picker');
+    check(!document.getElementById('regionChooser').hidden
+      &&document.getElementById('regionChooserPeriod').querySelector('[aria-pressed="true"]'),
+      'F1536 combined main-menu year-region button must open the chooser with period controls');
+    document.getElementById('regionChooserClose').click();
+    check(document.activeElement===mainScope,'F1536 chooser dismissal must restore combined-button focus');
     check(A.activeScope().cacheIdentity===owner,'F1502 opening selectors must not change the active account/scope/time');
     A.setCountyView('');A.showMenu();
     return {scopeLink:box.toJSON(),tag:tagBox.toJSON(),allTime,navbar:navBox.toJSON(),
       menuTitles:titles.length,longestTitles:titles.sort((a,b)=>b.title.length-a.title.length).slice(0,5),
       recent:recentGeometry,modeHeights,
-      selected:selected.toJSON(),disclosure:disclosure.toJSON(),homeStack};
+      selected:selected.toJSON(),disclosure:disclosure.toJSON(),homeStack,mainHeader};
   });
   if(focus==='scope-headers')return results;
   await record('F1410 grouped FOY and Home', async () => {

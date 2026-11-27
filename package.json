@@ -1,10 +1,13 @@
 {
   "name": "birding-app",
-  "version": "2.15.0",
+  "version": "2.16.0",
   "description": "",
   "main": "index.js",
   "scripts": {
+    "check:persistence": "node assets/check-persistence.js",
+    "pretest": "npm run check:persistence",
     "test": "node --test tests/*.test.js",
+    "test:persistence": "node --test tests/persistence.test.js tests/persistence-gate.test.js && npm run check:persistence",
     "info-catalog": "node assets/generate-info-catalog.js",
     "mockups": "node assets/mockups.js",
     "mockup:alertfeed": "node assets/mockup-alertfeed.js",
@@ -25,6 +28,7 @@
   },
   "devDependencies": {
     "@capacitor/assets": "^3.0.5",
+    "acorn": "^8.17.0",
     "fake-indexeddb": "^6.2.4",
     "jsdom": "^29.1.1",
     "ws": "^8.21.3",

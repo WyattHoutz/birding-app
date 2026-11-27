@@ -377,6 +377,7 @@ const EXTRA_SHOTS = [
              throw new Error('F975 Date age must be smaller than the Twitches primary value');
            }
            document.querySelector('#lastNewSort [data-ticksort="count"]').click();
+           await document.getElementById('lastNewControlsHost')._lastNewSave;
            var countMetrics = Array.from(document.querySelectorAll('#lastNewResults [data-tick-metric]'));
            if (countMetrics.length !== 4 || countMetrics.some(function(node,index) {
              return node.dataset.tickMetric !== 'count' || !node.querySelector('time')
@@ -386,6 +387,7 @@ const EXTRA_SHOTS = [
                || Number(node.querySelector('strong').textContent) !== [11,10,6,5][index];
            })) throw new Error('F971 Count mode lost its prominent distinct recent count');
            document.querySelector('#lastNewSort [data-ticksort="date"]').click();
+           await document.getElementById('lastNewControlsHost')._lastNewSave;
            await FIX.fillFixturePhotos(document.getElementById('lastNewResults'), document);
            var roster = document.querySelector('#lastNewResults details.tickwho');
            if (!roster || roster.open) throw new Error('F970 contributor lists must start collapsed');
@@ -567,7 +569,7 @@ const EXTRA_SHOTS = [
              {locId:'L999999999',locName:'Example public patch',lat:47.7,lng:-122.3}
            ]});
            var speciesKey = A.speciesCacheKey(A.getObsRegion());
-           var speciesIndex = JSON.parse(localStorage.getItem(speciesKey) || '{"rows":[]}');
+           var speciesIndex = A.cachedSpeciesIndex(A.getObsRegion()) || {rows:[]};
            [{code:'swaspa',name:'Swamp Sparrow',alpha:'SWSP'},
              {code:'verfly',name:'Vermilion Flycatcher',alpha:'VEFL'}].forEach(function(bird) {
              var existing = speciesIndex.rows.find(function(row) { return row.code === bird.code; });
@@ -941,7 +943,7 @@ const REVIEW_SHOTS = [
       A.openSavedLocationEditor(${JSON.stringify(state)}==='temporary'?'temp':'home');
       if (['default','temporary'].includes(${JSON.stringify(state)})) {
         document.getElementById(${JSON.stringify(state)}==='temporary'
-          ? 'tempHomeFindCancel':'homeFindCancel').click();
+          ? 'tempClearHomeBtn':'clearHomeBtn').click();
       }
       if (${JSON.stringify(state)}==='candidate') {
         document.getElementById('homePlace').value='47.61, -122.33';
@@ -1587,9 +1589,9 @@ const REVIEW_SHOTS = [
              sourceMonth:parts.year+'-'+String(parts.month).padStart(2,'0'),
              acquiredAt:now.getTime(),state:'ok',acquired:true,inventoryComplete:true,
              sensitiveRows:[{code:'grgowl',name:'Great Gray Owl',region:'US-WA'}]};
-           A.birdGenSensitiveJournal(Object.assign({},source,{
+           await A.birdGenSensitiveJournalAsync(Object.assign({},source,{
              acquiredAt:now.getTime()-1,sensitiveRows:[]}),now);
-           A.birdGenSensitiveJournal(source,now);
+           await A.birdGenSensitiveJournalAsync(source,now);
            A.renderSurge([],[],[],[],[],{massSource:source,mass:'ok',
              mega:'notApplicable',observations:'notApplicable',leaderboard:'notApplicable',
              hotspots:'notApplicable',favorites:'notApplicable',ppte:'notApplicable',
@@ -1637,7 +1639,7 @@ const REVIEW_SHOTS = [
            var sensitiveNow = new window.Date();
            var sensitiveParts = A.birdcastLocalParts(sensitiveNow, A.getReport());
            window.localStorage.removeItem(A.sensitiveJournalKey());
-           A.birdGenSensitiveJournal({
+           await A.birdGenSensitiveJournalAsync({
              source:'highCountPage',sourceOwner:A.surgeRetainedContext(),
              sourceRegion:A.activeScope().effectiveRegion,
              sourceMonth:sensitiveParts.year+'-'+String(sensitiveParts.month).padStart(2,'0'),
@@ -2204,7 +2206,7 @@ for (const selectedCounty of [false,true]) REVIEW_SHOTS.push({
       var current=document.getElementById('regionChooserCurrent').querySelector('[aria-current="true"]');
       if(!current || current.dataset.regionChoice!=='county:wa:US-WA-061'
           || A.activeScope().effectiveRegion!=='US-WA-061'
-          || document.getElementById('hdrScope').textContent!=='US-WA-061')
+          || !/ US-WA-061$/.test(document.getElementById('hdrScope').textContent))
         throw new Error('F1445 Current and the header must name the selected county scope');
       chooser.scrollTop=0;
     } else {
@@ -2555,7 +2557,7 @@ for (const expanded of [false, true]) REVIEW_SHOTS.push({
   host: 'rankResults', fullPage: true, scrollTo: '#rankResults',
   expects: ['#rankResults .rankbirdhistory', '#rankResults .rankplainname'],
   prep: `A.cancelStalledWork(); A.setActiveReport('wa'); A.setCountyView('');
-    await (${prepareRankBirdReview.toString()})(A, document, ${expanded});
+    await (${prepareRankBirdReview.toString()})(A, document, ${expanded}, ${preparePersonalFixture.toString()});
     var cards = document.querySelectorAll('#rankResults .rankrow:not(.rankhdr)');
     if (cards.length !== 3 || cards[0].querySelectorAll('.rankbirdline').length !== ${expanded ? 8 : 5})
       throw new Error('F1528 representative captured birds must be populated before capture');
@@ -2702,8 +2704,9 @@ for (const kind of ['home','temp']) {
       document.getElementById('${kind==='temp'?'tempGeocodeBtn':'geocodeBtn'}').click();
       await new Promise(function(resolve){setTimeout(resolve,30);});
       var review=document.getElementById('${prefix}CandidateReview');
-      if(review.hidden || !/Save/.test(review.textContent) || !/Cancel/.test(review.textContent))
-        throw new Error('F1515 actual editor must show unsaved review with explicit Save and Cancel');
+      if(review.hidden || !/Save/.test(review.textContent)
+          || !document.getElementById('${kind==='temp'?'tempClearHomeBtn':'clearHomeBtn'}'))
+        throw new Error('F1515 F1535 actual editor must show unsaved review with explicit Save and Clear cancellation');
       if(A.getHome().lat!==47.75 || A.tempHome().lat!==47.8)
         throw new Error('F1515 mockup candidate cannot alter either saved location');
       var label=document.createElement('p');label.className='mocklabel';
@@ -3439,6 +3442,11 @@ const BOOTSTRAP = `
         })
       ]);
       A.setSpeciesLookupNotes(!!options.detailsOn);
+      if (options.iconic) {
+        await waitFor(function () {
+          return document.querySelector('#spLookupUnwatched .hscard-md');
+        }, 'Stakeout historical hotspot evidence', 250);
+      }
       await new Promise(function (resolve) { setTimeout(resolve, 75); });
       if (options.detailsOn && options.rows
           && options.rows.some(function (row) { return row.hasComments; })) {
@@ -3838,7 +3846,7 @@ const BOOTSTRAP = `
     f.finderChecklist.obs = f.finderChecklist.obs.map(convert);
     return f;
   }
-  function seedMegaFixture(A, f) {
+  async function seedMegaFixture(A, f) {
     localStorage.setItem('ebird_aba_sid', f.sid);
     var gbif = {};
     gbif[f.species.sciName + '|Washington'] = {
@@ -3859,9 +3867,9 @@ const BOOTSTRAP = `
         f.species.name.toLowerCase())
     };
     localStorage.setItem('ebird_birdinfo_v2', JSON.stringify(wiki));
-    A.abaArchiveAdd(f.region, [f.sentinelArchiveRow].concat(f.stateRows));
+    await A.abaArchiveAdd(f.region, [f.sentinelArchiveRow].concat(f.stateRows));
   }
-  function fillMegaIndex(A, document, label, code, name, sci) {
+  async function fillMegaIndex(A, document, label, code, name, sci) {
     var f = megaFixture(code || 'nazboo1', name || 'Nazca Booby', sci || 'Sula granti');
     var second = megaFixture('solsan', 'Solitary Sandpiper', 'Tringa solitaria');
     second.alertRows.concat(second.stateRows, second.wideRows).forEach(function (row) {
@@ -3881,8 +3889,8 @@ const BOOTSTRAP = `
       }())
     };
     localStorage.removeItem(A.ABA_ARCHIVE_KEY);
-    seedMegaFixture(A, f);
-    A.abaArchiveAdd(f.region, second.stateRows);
+    await seedMegaFixture(A, f);
+    await A.abaArchiveAdd(f.region, second.stateRows);
     A.setAbaSort('date');
     localStorage.setItem('ebird_mega_view_v1', 'list');
     function repaint() {
@@ -4688,9 +4696,11 @@ const BOOTSTRAP = `
       var compactIconSize = compactReference.querySelector('.thumb').getBoundingClientRect().width;
       compactReference.remove();
       if (!recentThumbBox || compactIconSize <= 0
-          || Math.abs(recentThumbBox.width - compactIconSize) > 1
-          || Math.abs(recentThumbBox.height - compactIconSize) > 1) {
-        throw new Error('Top 100 latest-bird icon must match the existing compact list icon size');
+          || recentThumbBox.width < compactIconSize * 1.25
+          || Math.abs(recentThumbBox.height - recentThumbBox.width) > 1) {
+        throw new Error('Top 100 latest-bird icon must retain the approved square enlargement: '
+          + JSON.stringify({actual:recentThumbBox&&[recentThumbBox.width,recentThumbBox.height],
+            compactReference:compactIconSize}));
       }
       var contentBottom = Math.max(nameBox.bottom, rankStackRect.bottom, speciesBox.bottom);
       var contentTop = Math.min(nameBox.top, rankStackRect.top, speciesBox.top);
@@ -4758,7 +4768,7 @@ const BOOTSTRAP = `
       fixtureStatus(sec, label);
       markHost(host, label);
     } else if (spec.kind === 'mega-index') {
-      fillMegaIndex(A, document, label);
+      await fillMegaIndex(A, document, label);
       await fillFixturePhotos(host, document);
     } else if (spec.kind === 'stakeout-merged') {
       await prepareStakeoutSpts(A, document, sec, false);
@@ -4829,7 +4839,7 @@ const BOOTSTRAP = `
       var foyDay = foyNow.getFullYear() + '-'
         + String(foyNow.getMonth() + 1).padStart(2, '0') + '-'
         + String(foyNow.getDate()).padStart(2, '0');
-      A.firstYearWrite(foyCtx.region, foyCtx.year, {
+      await A.firstYearWrite(foyCtx.region, foyCtx.year, {
         valid: true, declared: 3, evidenceComplete: true,
         source: {kind:'annual-first',region:foyCtx.region,year:foyCtx.year,
           url:A.firstYearUrl(foyCtx.region),updatedAt:foyNow.toISOString()},
@@ -5079,7 +5089,7 @@ const BOOTSTRAP = `
           throw new Error('Needs proof regional scope fixture drifted: ' + JSON.stringify({
             label: scopeLabel && scopeLabel.textContent, pressed: scopeButtons[0]?.getAttribute('aria-pressed'),
             rows: host.textContent, status: document.getElementById('nvStatus').textContent,
-            evidence: JSON.parse(localStorage.getItem(A.speciesCacheKey(A.getObsRegion())) || 'null')
+            evidence: A.cachedSpeciesIndex(A.getObsRegion())
           }));
         }
         document.getElementById('nvStatus').textContent =
@@ -5450,7 +5460,7 @@ const BOOTSTRAP = `
     ]));
     var mega = megaFixture(
       'shtsan', 'Sharp-tailed Sandpiper', 'Calidris acuminata');
-    seedMegaFixture(A, mega);
+    await seedMegaFixture(A, mega);
     localStorage.removeItem(A.ABA_ARCHIVE_KEY);
     localStorage.setItem('ebird_photos_v2', JSON.stringify({
       'Sharp-tailed Sandpiper': 'assets/birds/shtsan.jpg'
