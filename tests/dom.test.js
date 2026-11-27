@@ -4288,7 +4288,9 @@ async function initialResourceFixture(options = {}) {
   let release, reject;
   const enrichment = new Promise((resolve, fail) => { release = resolve; reject = fail; });
   enrichment.catch(() => {});
-  A.seedChasePhase2(A.getReportSlug(), enrichment);
+  A.seedChasePhase2(A.chaseAcquisitionProfile().slug, enrichment);
+  assert.equal(A.chasePhase2(), enrichment,
+    'the held fixture must own the current acquisition phase, not another report');
   return { app, A, base, release, reject };
 }
 
@@ -4766,7 +4768,7 @@ test('F1310 matched legacy and resource Busy runs preserve scores coverage and p
       let result;
       if (mode === 'legacy') {
         await A.ensureCountyAcquisitionScope(A.anchorPoint(), A.chaseMaxMi(), false, work);
-        const codes = A.getCounties().map(county => county.code);
+        const codes = A.chaseAcquisitionProfile().counties.map(county => county.code);
         const registries = await Promise.all(codes.map(code =>
           A.ebird('ref/hotspot/' + code + '?fmt=json', false, false, false, work)));
         result = await A.startBusyPatches({
@@ -4828,12 +4830,12 @@ test('F1310 matched fully cold Recent and Busy schedules retain physical demand 
       const before = network.length, started = performance.now();
       let baseMs, recentCompleteMs, busyCompleteMs, busy, tasks, busyInput;
       if (mode === 'legacy-serial') {
-        await A.getChaseAll(false, null, work);
+        await A.getChaseAll(false, A.chaseAcquisitionProfile(), work);
         baseMs = performance.now() - started;
         await A.chasePhase2();
         recentCompleteMs = performance.now() - started;
         await A.ensureCountyAcquisitionScope(A.anchorPoint(), A.chaseMaxMi(), false, work);
-        const codes = A.getCounties().map(county => county.code);
+        const codes = A.chaseAcquisitionProfile().counties.map(county => county.code);
         const registries = await Promise.all(codes.map(code =>
           A.ebird('ref/hotspot/' + code + '?fmt=json', false, false, false, work)));
         busyInput = {
@@ -4857,19 +4859,19 @@ test('F1310 matched fully cold Recent and Busy schedules retain physical demand 
         baseMs = performance.now() - started;
         [, busy] = await Promise.all([recentPending, busyPending]);
       }
-      const snapshot = await A.loadChaseSnapshot(A.getReportSlug());
+      const snapshot = await A.loadChaseSnapshot(A.chaseAcquisitionProfile().slug);
       const requests = network.slice(before);
       assert.ok(requests.some(row => /\/recent\/amerob(?:\?|$)/.test(row.url)),
         'the comparison must include actual cold species enrichment, not just empty base feeds: '
         + JSON.stringify({ paths: requests.map(row => new URL(row.url).pathname),
-          unseen: (await A.getChaseAll()).cv?.unseenAll?.map(row => row.code) }));
+          unseen: (await A.getChaseAll(false, A.chaseAcquisitionProfile())).cv?.unseenAll?.map(row => row.code) }));
       assert.equal(busy.busyState.partial, false);
       const ages = JSON.stringify(snapshot.feedTimes), busyAt = busy.busyState.at;
       const warmBefore = network.length, warmStarted = performance.now();
       if (tasks) await Promise.all([tasks.sightings.acquire(false), tasks.busy.acquire(false)]);
-      else { await A.getChaseAll(); await A.startBusyPatches(busyInput); }
+      else { await A.getChaseAll(false, A.chaseAcquisitionProfile()); await A.startBusyPatches(busyInput); }
       assert.equal(network.length, warmBefore, 'healthy normal reuse cannot acquire more sources');
-      assert.equal(JSON.stringify((await A.loadChaseSnapshot(A.getReportSlug())).feedTimes), ages);
+      assert.equal(JSON.stringify((await A.loadChaseSnapshot(A.chaseAcquisitionProfile().slug)).feedTimes), ages);
       assert.equal((await A.zcGet(A.hotCacheKey(tasks
         ? {...A.activeScope(),publicEvidence:true} : undefined))).busyState.at, busyAt);
       measured.push({
@@ -4949,7 +4951,7 @@ test('F1310 actual failed Recent enrichment retains usable base but cannot certi
     assert.equal(snapshot.state, 'partial');
     assert.equal(snapshot.projection.usable, true);
     assert.equal((await A.getChase()).feedComplete, base.feedComplete);
-    assert.ok(await A.loadChaseSnapshot(A.getReportSlug()), 'valid phase-one evidence remains retained');
+    assert.ok(await A.loadChaseSnapshot(A.chaseAcquisitionProfile().slug), 'valid phase-one evidence remains retained');
     assert.deepEqual(app.state.errors, []);
   } finally { release(base); app.window.close(); }
 });
@@ -4982,7 +4984,7 @@ test('F1310 actual failed species feeds require selective recovery without renew
     assert.equal(tasks.resources.get('sightings').snapshot().projection.usable, true);
     assert.ok(app.state.fetches.some(url => /\/recent\/amerob(?:\?|$)/.test(url)),
       'actual admitted species source must execute before asserting its failure');
-    const snapshot = await A.loadChaseSnapshot(A.getReportSlug());
+    const snapshot = await A.loadChaseSnapshot(A.chaseAcquisitionProfile().slug);
     assert.ok(Object.keys(snapshot.feedTimes).length > 1, 'actual healthy feed ages must be recorded');
     const unrelated = 'data/obs/F1292-unrelated/recent';
     await A.ebird(unrelated);
@@ -4998,7 +5000,7 @@ test('F1310 actual failed species feeds require selective recovery without renew
     await A.ebird(unrelated);
     assert.equal(app.state.fetches.length, before + 1,
       'selective recovery cannot evict an unrelated healthy response');
-    const recovered = await A.loadChaseSnapshot(A.getReportSlug());
+    const recovered = await A.loadChaseSnapshot(A.chaseAcquisitionProfile().slug);
     for (const [file, at] of Object.entries(snapshot.feedTimes)) {
       assert.equal(recovered.feedTimes[file], at, 'healthy source age must not slide: ' + file);
     }
@@ -5012,7 +5014,7 @@ test('F1292 selective observation recovery checks individual source ages without
     const { app, A, tasks, recover } = await failedSpeciesResourceFixture();
     try {
       await assert.rejects(tasks.sightings.acquire(false), /enrichment coverage is incomplete/);
-      const slug = A.getReportSlug(), original = await A.loadChaseSnapshot(slug);
+      const slug = A.chaseAcquisitionProfile().slug, original = await A.loadChaseSnapshot(slug);
       const feed = BL.planFeeds((await A.getChase()).profile)
         .find(feed => feed.kind !== 'notable' && Object.hasOwn(original.feedTimes, feed.file));
       const file = feed?.file;
@@ -5062,7 +5064,7 @@ test('F1310 actual complete readiness rejects invalid retained component ages de
       const pending = tasks.sightings.acquire(false);
       await waitFor(() => tasks.resources.get('sightings').snapshot().projection?.usable,
         'usable base before retained component verification');
-      const slug = A.getReportSlug(), original = await A.loadChaseSnapshot(slug);
+      const slug = A.chaseAcquisitionProfile().slug, original = await A.loadChaseSnapshot(slug);
       const feedTimes = { ...original.feedTimes }, file = Object.keys(feedTimes)[0];
       assert.ok(file, 'a real retained component must be mutated');
       if (invalid === 'missing') delete feedTimes[file];
@@ -7045,6 +7047,7 @@ test('F1249 memory-only Busy and ranking snapshots cannot certify initial readin
   const originalSet = storagePrototype.setItem;
   let blocked = true;
   const patchScope = {...A.activeScope(),publicEvidence:true}, hotKey = A.hotCacheKey(patchScope);
+  await A.ensurePatchScope(patchScope);
   storagePrototype.setItem = function (key, value) {
     if (blocked && (String(key).includes(hotKey) || String(key).includes(A.RANK_CACHE_KEY))) {
       throw new app.window.DOMException('Controlled cache failure', 'QuotaExceededError');
@@ -7073,7 +7076,8 @@ test('F1249 memory-only Busy and ranking snapshots cannot certify initial readin
     assert.equal((await tasks.rankings.acquire(false)).state, 'ready');
     assert.ok(app.window.localStorage.getItem(hotKey));
     assert.ok(app.window.localStorage.getItem(A.RANK_CACHE_KEY));
-    assert.equal(app.state.fetches.length, downloads, 'repairing valid memory answers must not redownload them');
+    assert.equal(app.state.fetches.length, downloads,
+      `repairing valid memory answers must not redownload them: ${app.state.fetches.slice(downloads).join(' | ')}`);
   } finally { storagePrototype.setItem = originalSet; app.window.close(); }
 });
 
@@ -17069,7 +17073,7 @@ test('F1461 verified legacy state snapshots recover their original state but nev
       assert.equal(!!cold.document.querySelector(
         `#spLookupRecent [data-ev-sub="${row.subId}"], #spLookupEvidenceDetails [data-ev-sub="${row.subId}"]`),
       !county, 'the retained report itself follows its original state, independent of fresh feeds');
-      assert.equal(cold.window.localStorage.getItem(A.MEGA_SNAP_KEY), JSON.stringify(saved),
+      assert.deepEqual(readPersistedFixture(cold.window, A.MEGA_SNAP_KEY), saved,
         'local projection must not rewrite the shared legacy snapshot');
       assert.deepEqual(cold.state.errors, []);
     } finally { cold.window.close(); }
@@ -20315,7 +20319,7 @@ test('F741 search and Stakeout save beyond five, persist honestly and preserve f
   })).concat({ id: 'L-HI', locId: 'L-HI', locName: 'Other region',
     lat: 20, lng: -155, region: 'US-HI' });
   for (const count of [4, 5, 7]) {
-    A.setFavs(initial(count));
+    await A.setFavs(initial(count));
     app.$('favSearch').value = 'synthetic';
     A.runFavSearch();
     await waitFor(() => app.$('favFound').querySelector('.favadd'), 'actual Favorite search result');
@@ -20323,6 +20327,7 @@ test('F741 search and Stakeout save beyond five, persist honestly and preserve f
     assert.equal(button.textContent, '☆');
     assert.match(app.$('favStatus').textContent, /tap ☆ to pin/);
     app.click(button);
+    await A.drainPersonalChoiceWrites();
     assert.equal(A.favoriteEntriesForRegion('US-WA').length, count + 1);
     assert.ok(A.getFavs().some((f) => f.id === target.locId));
     assert.ok(button.disabled);
@@ -20331,10 +20336,11 @@ test('F741 search and Stakeout save beyond five, persist honestly and preserve f
     assert.match(app.$('favResults').textContent, /Synthetic Favorite search patch/);
     assert.match(app.$('favStatus').textContent, /New patch saved/);
     assert.equal(A.toggleFav({ ...target, locId: 'L-STAKEOUT' }), true);
+    await A.drainPersonalChoiceWrites();
     assert.equal(A.favoriteEntriesForRegion('US-WA').length, count + 2);
     assert.ok(A.getFavs().some((f) => f.region === 'US-HI'));
   }
-  A.setFavs(initial(7));
+  await A.setFavs(initial(7));
   A.runFavSearch();
   await waitFor(() => app.$('favFound').querySelector('.favadd:not(:disabled)'), 'unsaved search control');
   const before = JSON.stringify(A.getFavs());
@@ -20345,9 +20351,10 @@ test('F741 search and Stakeout save beyond five, persist honestly and preserve f
   };
   const rejected = app.$('favFound').querySelector('.favadd');
   app.click(rejected);
+  await A.drainPersonalChoiceWrites();
   assert.equal(JSON.stringify(A.getFavs()), before);
   assert.equal(rejected.disabled, false);
-  assert.match(app.$('favStatus').textContent, /Favorite not saved/);
+  assert.match(app.$('favStatus').textContent, /Favorite changes were not saved/);
   app.window.Storage.prototype.setItem = nativeSet;
   app.window.close();
 });
@@ -20996,8 +21003,11 @@ test('F687-F700 release contracts remain wired at their ownership boundaries', (
   assert.match(tasks,
     /if \(runningSources\[key\]\) return runningSources\[key\]/,
     'F695 Retry starts a rival request instead of joining an active source');
-  assert.match(converge, /var codes = countyCodes\(\)/,
+  assert.match(converge, /var codes = hotspotAcquisitionCodes\(patchScope\)/,
     'F700 Bird Gen ignores runtime-derived custom counties');
+  const acquisitionCodes = between('function hotspotAcquisitionCodes(', 'function hotspotContextKey(');
+  assert.match(acquisitionCodes, /if \(!scope\) return countyCodes\(\)/);
+  assert.match(acquisitionCodes, /chaseAcquisitionProfile\(\)\.counties\.map/);
   const busySource = between('var pConverge =', 'activeLoad.settled =');
   assert.match(busySource, /if \(countyState !== 'ok'\) return \{ state: countyState, rows: \[\] \}/,
     'F700 an unavailable derived scope is presented as a confident empty result');
@@ -22417,7 +22427,7 @@ test('F1367 matching saved seen-list refresh runs silently and still reports fai
     const A = app.window.__app, originalFetch = app.window.fetch;
     let release, reads = 0;
     const key = A.bcReal(A.personalListKey(A.personalListOwner()));
-    const saved = app.window.localStorage.getItem(key);
+    const saved = readPersistedFixture(app.window, key);
     assert.equal(A.personalListEvidence().complete, true);
     app.window.fetch = (url, options) => /\/lifelist\//.test(url)
       ? (reads++, new Promise(resolve => { release = resolve; })) : originalFetch(url, options);
@@ -22426,7 +22436,7 @@ test('F1367 matching saved seen-list refresh runs silently and still reports fai
     for (let i = 0; i < 3; i++) A.renderKeyBanner();
     assert.equal(app.$('keyBanner').hidden, true, 'routine saved-list refresh must not display a banner');
     assert.equal(app.$('keyBanner').textContent, '');
-    assert.equal(app.window.localStorage.getItem(key), saved, 'matching membership stays available');
+    assert.deepEqual(readPersistedFixture(app.window, key), saved, 'matching membership stays available');
     assert.equal(reads, 1, 'hiding feedback must not cancel or duplicate acquisition');
     release({ ok: false, status: 503, text: async () => '' });
     await assert.rejects(refreshing, /503/);
@@ -22434,7 +22444,7 @@ test('F1367 matching saved seen-list refresh runs silently and still reports fai
     assert.equal(app.$('keyBanner').hidden, false, 'refresh failures still need actionable feedback');
     assert.match(app.$('keyBanner').textContent, /Using your saved seen list.*503/s);
     assert.ok(app.$('seenFetchBtn'));
-    assert.equal(app.window.localStorage.getItem(key), saved);
+    assert.deepEqual(readPersistedFixture(app.window, key), saved);
   } finally { app.window.close(); }
 });
 
@@ -24178,7 +24188,7 @@ test('F838 exact session lists require explicit profile binding and retain last-
   assert.equal(reads,4,'one initial page plus profile/list/profile qualification');
   assert.equal(A.personalListEvidence().complete,true);
   const saved=app.window.localStorage.getItem(A.personalListKey(A.personalListOwner()));
-  assert.deepEqual(JSON.parse(saved).codes,['stable']);
+  assert.deepEqual(readPersistedFixture(app.window,A.personalListKey(A.personalListOwner())).codes,['stable']);
   list=ownedPersonalListFixture({count:2}).replace(/<header>[\s\S]*?<\/header>/,'');
   await A.ensurePersonalList(A.activeScope(),true);
   assert.equal(app.window.localStorage.getItem(A.personalListKey(A.personalListOwner())),saved,
@@ -24421,15 +24431,15 @@ test('F1334 an owned explicit zero summary needs no nonempty category container 
         text:async()=>url.endsWith('/profile')?shell:markup};
     };
     const key = A.bcReal(A.personalListKey(A.personalListOwner()));
-    const retained = app.window.localStorage.getItem(key);
+    const retained = readPersistedFixture(app.window, key);
     await assert.rejects(A.preparePersonalList(A.activeScope(),true));
-    assert.equal(app.window.localStorage.getItem(key),retained,'parser failure retains prior membership');
+    assert.deepEqual(readPersistedFixture(app.window,key),retained,'parser failure retains prior membership');
     markup = empty;
     const saved = await A.preparePersonalList(A.activeScope(),true);
     assert.equal(saved.coverage,'empty');
     assert.equal(A.personalListEvidence().complete,true);
     assert.equal(A.personalListEvidence().species.stable,undefined);
-    assert.equal(JSON.parse(app.window.localStorage.getItem(key)).declaredCount,0);
+    assert.equal(readPersistedFixture(app.window,key).declaredCount,0);
     A.headerIdentityRefresh();A.updateMyYear();
     assert.match(app.$('hdrSpeciesJump').textContent,/^0\s*sp\./);
   } finally {app.window.close();}
@@ -26923,8 +26933,9 @@ test('F811 dual boards validate source ownership, stable identities and cache-on
   assert.equal(rows[0].querySelector('.spmetric').getAttribute('aria-label'), 'checklists: 900');
   assert.equal(app.$('rankResults').querySelectorAll('.rankna').length, 0);
   const historyOwner = (metric) => ['US-WA','2026',metric,A.bcProfile(),A.identityRevision(),'Shared birder'].join('|');
-  const ranks = (metric) => JSON.parse(app.window.localStorage.getItem(
-    'ebird_rankhist:' + historyOwner(metric)) || '[]').map((row) => row.rank);
+  await A.drainRankingHistoryWrites();
+  const ranks = (metric) => (readPersistedFixture(app.window,
+    'ebird_rankhist:' + historyOwner(metric)) || []).map((row) => row.rank);
   assert.deepEqual(ranks('spp'), [1]);
   assert.deepEqual(ranks('cl'), [2], 'checklist history must not overwrite or copy species history');
   assert.doesNotMatch(app.$('rankResults').querySelector('.rankcoverage').textContent, /cross-board/);
@@ -27556,9 +27567,10 @@ test('rankings: each board read is recorded, because eBird cannot re-serve a pas
   await new Promise((r) => setTimeout(r, 150));
   const owner = ['US-WA', new Date().getFullYear(), 'spp',
     app.window.__app.bcProfile(), app.window.__app.identityRevision(), 'Birder Wyatt'].join('|');
+  await app.window.__app.drainRankingHistoryWrites();
   const raw = app.window.localStorage.getItem('ebird_rankhist:' + owner);
   assert.ok(raw, 'reading the board writes a history entry for the region');
-  const hist = JSON.parse(raw);
+  const hist = readPersistedFixture(app.window, 'ebird_rankhist:' + owner);
   assert.equal(hist.length, 1, 'one entry per day, not one per render');
   assert.equal(hist[0].rank, 211, 'and it records the rank actually shown');
   assert.ok(/^\d{4}-\d{2}-\d{2}$/.test(hist[0].d), 'stamped with the day it was read');
@@ -27567,7 +27579,8 @@ test('rankings: each board read is recorded, because eBird cannot re-serve a pas
   // its board daily too, so two opens in one afternoon are one data point.
   app.window.__app.renderRankings(
     { rows: [], me: { name: 'Birder Wyatt', rank: 208, species: 199 } }, 'US-WA', '', 'Birder Wyatt');
-  const after = JSON.parse(app.window.localStorage.getItem('ebird_rankhist:' + owner));
+  await app.window.__app.drainRankingHistoryWrites();
+  const after = readPersistedFixture(app.window, 'ebird_rankhist:' + owner);
   assert.equal(after.length, 1, 'still one entry for today');
   assert.equal(after[0].rank, 208, 'and it is the latest read of the day');
   assert.ok(app.document.querySelector('.ranktrend'),
@@ -27593,7 +27606,9 @@ test('F329 rankings show the best season rank and the first date it was reached'
     'the later tie or an invalid snapshot replaced the first real season best');
 
   const owner = ['US-WA',new Date().getFullYear(),'spp',A.bcProfile(),A.identityRevision(),'Birder Wyatt'].join('|');
-  app.window.localStorage.setItem('ebird_rankhist:' + owner, JSON.stringify(hist));
+  app.window.localStorage.setItem('ebird_rankhist:' + owner,
+    JSON.stringify(hist.filter(row => Number.isFinite(row.rank))));
+  await A.readRankingHistoryCache('ebird_rankhist:' + owner);
   A.renderRankings({
     rows: [],
     me: { name: 'Birder Wyatt', rank: 10, species: 250, checklists: 120 },
@@ -31181,7 +31196,7 @@ test('F1458 actual Watch nearest evidence excludes foreign and conflicting rows 
     try {
       const A=app.window.__app;
       A.setCountyView(county);
-      const profile=A.chaseProfile();
+      const profile=A.chaseAcquisitionProfile();
       const inside={code:'verfly',name:'Vermilion Flycatcher',loc:'Farther Selected Marsh',
         county:county || 'US-WA-061',state:'US-WA',country:'US',
         lat:47.9,lon:-122.2,distMi:12,dateStr:recentObsStamp(),subId:'S1458WATCHIN'};
@@ -36500,7 +36515,7 @@ test('the watchlist tells "never edited" apart from "emptied"', async () => {
   const emptied = await boot({ storage: { ebird_watchlist_v1: '[]' } });
   assert.deepEqual(arr(emptied.window.__app.getWatchlist()), [],
     'an emptied list must not snap back to the seed');
-  assert.equal(emptied.window.localStorage.getItem('ebird_watchlist_v1'), '[]');
+  assert.deepEqual(readPersistedFixture(emptied.window, 'ebird_watchlist_v1'), []);
   emptied.window.close();
 
   // Corrupt storage is not an instruction to erase the list.
@@ -46788,11 +46803,14 @@ test('F294 a fresh foreground snapshot supersedes an older in-flight failure', a
   } });
   const A = app.window.__app;
   let rejectLazy;
-  app.window.fetch = () => new Promise((resolve, reject) => {
+  const fetch = app.window.fetch;
+  app.window.fetch = (url, options) => /ebird\.org\/alert\/summary/.test(String(url))
+    ? new Promise((resolve, reject) => {
     rejectLazy = () => reject(new Error('late offline result'));
-  });
+  }) : fetch(url, options);
 
   const lazy = A.lazyRefreshMegaSnapshot();
+  await waitFor(() => typeof rejectLazy === 'function', 'the older lazy request starts');
   await A.saveMegaSnapshot([], true, 'US-WA', 'SN10489');
   rejectLazy();
   assert.equal(await lazy, false);
@@ -49598,6 +49616,7 @@ test('birdiest checklists resolve every name in ONE taxonomy pass', async () => 
   await seedSeen(app,[],null,['aaas1','aaas2','aaas3','shared1']
     .map(code => ({code,name:'Name ' + code})));
   const root = doc.createElement('ul');
+  doc.body.appendChild(root);
   ['S1', 'S2', 'S3'].forEach((s) => {
     const li = doc.createElement('li');
     li.innerHTML = '<div class="cklneed" data-sub="' + s + '"></div>';
@@ -55461,7 +55480,7 @@ test('F784 Close Find sheet, Quick Cancel, Scout Clear and Home Cancel invalidat
       assert.equal(app.window.localStorage.getItem('bc_scout_v1'), null);
     }
     if (surface === 'home') {
-      assert.match(app.$('geocodeStatus').textContent, /Lookup cancelled/);
+      assert.match(app.$('geocodeStatus').textContent, /editing cancelled\. Saved Home is unchanged/);
       assert.equal(app.$('homeOutsideSave').hidden, true);
     }
   }
@@ -55669,6 +55688,7 @@ test('F378/F1420/F1421 Stakeout watch action replaces redundant header labels wi
   const before = app.state.fetches.filter((url) => /data\/obs\/.*\/recent\/sem/.test(url)).length;
 
   app.click(button);
+  await A.drainPersonalChoiceWrites();
   assert.deepEqual(arr(A.getWatchlist(), (item) => ({
     code: item.code, name: item.name,
   })), [{
@@ -55682,6 +55702,7 @@ test('F378/F1420/F1421 Stakeout watch action replaces redundant header labels wi
   assert.doesNotMatch(app.$('spLookupResults').textContent, /not on your year list/i);
 
   app.click(button);
+  await A.drainPersonalChoiceWrites();
   assert.deepEqual(arr(A.getWatchlist()), []);
   button = app.document.querySelector('#spLookupResults .spLookupWatchlist');
   assert.equal(button.getAttribute('aria-label'), 'Add Watch for Semipalmated Sandpiper');
@@ -60296,7 +60317,7 @@ test('the Twitch screens fetch only their shared notable feeds', async () => {
     'Twitch loading still plans the full chase wave instead of only notable feeds');
   assert.match(src, /_chaseRarityInflight\[slug\]/,
     'Today and This week can start duplicate rarity-only waves');
-  assert.match(src, /loadChaseSnapshot\(slug\)/,
+  assert.match(src, /loadChaseAcquisitionSnapshot\(profile, true\)/,
     'a fresh launch no longer reuses its complete same-day chase snapshot');
   assert.doesNotMatch(src, /getChase\(force\)/,
     'opening a Twitch screen still launches full chase enrichment');
@@ -62229,6 +62250,8 @@ test('F304 chooses the newest report independently of feed order', async () => {
   assert.match(app.document.querySelector('#abaResults li').textContent, /9\/4 8:30a/,
     'the index summary uses the newest row even when it arrived second');
   app.click(app.document.querySelector('#abaResults .megajump'));
+  await waitFor(() => app.document.querySelector('#spLookupEvidenceDetails .megalatest'),
+    'the selected Mega evidence paints after its snapshot read');
   const latest = app.document.querySelector('#spLookupEvidenceDetails .megalatest');
   assert.match(latest.textContent, /Newest place/);
   assert.match(latest.textContent, /×4/);
@@ -62469,8 +62492,13 @@ test('F304 no-memory slot preserves navigation ownership on direct eBird reads',
     /_cklView\[sub\] = ebird\('product\/checklist\/view\/'[\s\S]{0,120}!!bg, false, false, work\)/,
     'owned checklist bodies pass work after the explicit no-memory slot');
   assert.match(HTML,
-    /recent\/notable\?detail=full&back=30&maxResults=1000'[\s\S]{0,80}false, false, false, work\)/,
+    /recent\/notable\?detail=full&back=30&maxResults=1000'[\s\S]{0,80}false, false, false, sourceWork\)/,
     'Dawn and dusk notable reads pass work after the explicit no-memory slot');
+  const timeOfDay = HTML.slice(HTML.indexOf('function loadTimeOfDay('),
+    HTML.indexOf('// --- 🐦 Common birds'));
+  assert.match(timeOfDay,
+    /var sourceWork = Object\.assign\(\{\}, work, \{ current: context\.current \}\)/,
+    'the source token retains the navigation owner and checks the captured source context');
 });
 
 test('F304 retries lazy GBIF history when detail=full supplies the scientific name', async () => {
@@ -66391,7 +66419,7 @@ test('the Go birding sections refresh observations, not the world', async () => 
   // day tiers through getTierChase, and hot/cold through their own scan.
   const app = await boot();
   const dest = String(app.window.__app.loadDestinations);
-  assert.match(dest, /getChase(?:All)?\(takeForce\(\) \? 'obs' : false(?:,|\))/,
+  assert.match(dest, /getChaseForScope\(takeForce\(\) \? 'obs' : false,/,
     'Top patches consumes only its observation refresh');
   const closest = HTML.slice(HTML.indexOf('function loadTargets'),
     HTML.indexOf('function loadTargets') + 2200);
@@ -67064,7 +67092,6 @@ test('a forced refresh joins a running wave instead of racing it', async () => {
 // dead call plus one HTML fetch each time — for a number the card simply omits
 // when it cannot be had.
 test('a number eBird will not give is asked for once a day, not once a load', () => {
-  const HTML = fs.readFileSync(path.join(__dirname, '..', 'www', 'index.html'), 'utf8');
   const fn = HTML.slice(HTML.indexOf('function ebirderCount('),
     HTML.indexOf('function rankNum('));
 
@@ -67072,7 +67099,7 @@ test('a number eBird will not give is asked for once a day, not once a load', ()
   // successes were cached and a failure was retried forever.
   assert.match(fn, /n == null \? null : Math\.round\(n\)/,
     'a null is written to the cache rather than discarded');
-  assert.match(fn, /n == null \? store\(null\) : n/,
+  assert.match(fn, /function done\(n\) \{[\s\S]*return store\(n\);/,
     'and the failing path actually calls store');
 
   // ...and it always settles. The fallback fetches a PAGE, and a request that
@@ -68056,14 +68083,21 @@ test('F979 held notification results cannot cross scope and taps never switch pr
   await waitFor(() => /On for this profile/.test(app.$('birdGenNotifyStatus').textContent), 'native opt-in');
   const original = A.birdGenNotificationConfiguration();
   let release;
-  bridge.plugin.status = () => new Promise((resolve) => { release = resolve; });
+  const configure = bridge.plugin.configure;
+  bridge.plugin.configure = options => new Promise(resolve => {
+    release = () => configure(options).then(resolve);
+  });
+  bridge.plugin.status = () => new Promise((resolve) => {
+    release = () => resolve(bridge.state());
+  });
   const held = A.syncBirdGenNotificationRows([{ kind: 'need', code: 'chclon', name: 'Longspur', time: Date.now() }]);
   await waitFor(() => !!release, 'held native status');
   app.window.localStorage.setItem(A.homeKey('lat'), '48.75');
-  release(bridge.state());
+  release();
   await held;
   assert.equal(bridge.syncs.length, 0, 'an old Home scope published after the current Home changed');
   bridge.plugin.status = () => Promise.resolve(bridge.state());
+  bridge.plugin.configure = configure;
   bridge.open(original.context);
   const profile = A.bcProfile();
   await A.openBirdGenNotification();
@@ -68578,7 +68612,7 @@ test('quick outing wires warm Today patch targets into its cards', () => {
   const end = HTML.indexOf('// --- CSV import', start);
   const fn = HTML.slice(start, end);
   assert.match(fn,
-    /quickPatchSpeciesFromChase\(_chase\[getReport\(\)\.slug\], h\.locId, scopeOwner\)/,
+    /quickPatchSpeciesFromChase\(cachedChaseForScope\(\), h\.locId, scopeOwner\)/,
     'local cards look up the matching Today patch by hotspot');
   assert.match(fn, /species:\s*scored,/,
     'the matching target rows are passed through hotspotCard');
@@ -69515,8 +69549,7 @@ test('F394 legacy ABA/Hawaii capture makes room and remains distinct from exact 
   const original = app.window.Storage.prototype.setItem;
   let blockedWrites = 0;
   app.window.Storage.prototype.setItem = function (key, value) {
-    if (String(key).endsWith('ebird_own_seen:aba')
-        && String(value).includes('"fh000"')
+    if (String(key).endsWith('ebird_own_seen:aba:meta')
         && app.window.localStorage.getItem('bc_ckl2:discard-me') != null) {
       blockedWrites++;
       throw new app.window.DOMException('fixture quota', 'QuotaExceededError');
@@ -69540,9 +69573,8 @@ test('F394 legacy ABA/Hawaii capture makes room and remains distinct from exact 
   await A.tryLifelistYear();
   A.updateMyYear();
 
-  const stored = JSON.parse(
-    app.window.localStorage.getItem(A.bcReal('ebird_own_seen:aba')) || '{}',
-  );
+  const stored = readPersistedFixture(app.window,
+    A.bcReal('ebird_own_seen:aba:meta')).codesSnapshot.codes;
   assert.ok(blockedWrites >= 1, 'the quota fixture never blocked the owned-list write');
   assert.equal(app.window.localStorage.getItem('bc_ckl2:discard-me'), null,
     'the durable owned list did not evict a replaceable cache after quota');
@@ -69574,7 +69606,7 @@ test('F394 legacy personal capture reports failure instead of claiming rejected 
   });
   const original = app.window.Storage.prototype.setItem;
   app.window.Storage.prototype.setItem = function (key, value) {
-    if (String(key).endsWith('ebird_own_seen:aba')) {
+    if (String(key).endsWith('ebird_own_seen:aba:meta')) {
       throw new app.window.DOMException('fixture quota', 'QuotaExceededError');
     }
     return original.call(this, key, value);
@@ -69591,7 +69623,7 @@ test('F394 legacy personal capture reports failure instead of claiming rejected 
     'a rejected durable capture must fail explicitly');
   A.updateMyYear();
 
-  assert.equal(app.window.localStorage.getItem('ebird_own_seen:aba'), null,
+  assert.equal(app.window.localStorage.getItem(A.bcReal('ebird_own_seen:aba:meta')), null,
     'the rejected write left a success-shaped owned list behind');
   assert.doesNotMatch(
     String((app.window.__dbg.verdicts || {})['My Ticks'] || ''),
@@ -69623,7 +69655,7 @@ test('F425 legacy capture keeps evicting disposable cache batches without claimi
   const original = app.window.Storage.prototype.setItem;
   let blockedWrites = 0;
   app.window.Storage.prototype.setItem = function (key, value) {
-    if (String(key).endsWith('ebird_own_seen:aba') && blockedWrites < 2) {
+    if (String(key).endsWith('ebird_own_seen:aba:meta') && blockedWrites < 2) {
       blockedWrites++;
       throw new app.window.DOMException('fixture quota', 'QuotaExceededError');
     }
@@ -69637,7 +69669,8 @@ test('F425 legacy capture keeps evicting disposable cache batches without claimi
   });
 
   const A = app.window.__app;
-  await A.tryLifelistYear();
+  await assert.doesNotReject(A.tryLifelistYear(),
+    'the captured list must survive multiple disposable-cache eviction batches');
   A.updateMyYear();
 
   assert.equal(blockedWrites, 2,
@@ -77406,7 +77439,7 @@ test('iconic-but-unwatched finds places the recent feed cannot', () => {
     HTML.indexOf('function hotspotNameSet') + 900);
   assert.ok(!/ebird\(|fetch\(/.test(hs),
     'hotspotNameSet spends an eBird call instead of reading the cache others fill');
-  assert.ok(/hotspotCacheKey/.test(hs), 'it does not reuse the existing hotspot cache');
+  assert.ok(/readHotspotCache\(region\)/.test(hs), 'it does not reuse the existing hotspot cache');
 
   // The empty feed is the case this matters MOST in, and it used to end the
   // conversation.
@@ -80611,12 +80644,15 @@ test('F380 Stake out a hotspot uses one compact search row and leads with place 
   assert.equal(checklistList.querySelector('[data-qr-kind="checklist"]'), null,
     'recent checklist rows still repeat a QR control on every item');
 
+  await A.hydrateChecklistEvidence(card);
   const before = app.state.fetches.length;
   app.click(favorite);
+  await A.drainPersonalChoiceWrites();
   assert.equal(favorite.textContent.trim(), '★ Remove from favorite hotspots');
   assert.equal(favorite.getAttribute('aria-pressed'), 'true');
   assert.deepEqual(arr(A.getFavs(), (item) => item.locId), ['L128530']);
   app.click(favorite);
+  await A.drainPersonalChoiceWrites();
   assert.equal(favorite.textContent.trim(), '☆ Add to favorites');
   assert.equal(favorite.getAttribute('aria-pressed'), 'false');
   assert.deepEqual(arr(A.getFavs(), (item) => item.locId), []);
@@ -82544,6 +82580,7 @@ test('F621 opening and painting Today’s patches records a results coverage sna
     dist: 4, score: 3, rare: 1,
     species: [{ code: 'hawama1', comName: 'Hawaiʻi ʻAmakihi', rare: true }],
   }], app.$('destMap'), app.$('destResults'), true, false);
+  await app.$('sec-destBtn')._coverageSave;
   const row = JSON.parse(A.coverageAuditExport()).sections
     .find((section) => section.section === 'todays_patches');
   assert.equal(row.state, 'results');
@@ -82854,7 +82891,7 @@ test('F563/F570/F1540 Top 100 places tight movement below rank and NEW beside th
   assert.equal(A.bcShared('bc_board_v1:US-WA'), true,
     'public regional boards are still isolated by account profile');
   assert.deepEqual(
-    JSON.parse(app.window.localStorage.getItem('bc_board_v1:US-WA')),
+    readPersistedFixture(app.window, 'bc_board_v1:US-WA'),
     oldBoard,
     'a profile-local board snapshot was not recovered into shared history',
   );
@@ -82862,6 +82899,7 @@ test('F563/F570/F1540 Top 100 places tight movement below rank and NEW beside th
     A.bcProfile(),A.identityRevision(),'Washington'].join('|');
   app.window.localStorage.setItem('bc_board_v1:' + boardOwner,JSON.stringify(
     [{d:day(yesterday),r:{fixtureUp:12,'Down Birder':2}}]));
+  await A.readRankingHistoryCache('bc_board_v1:' + boardOwner);
   app.window.localStorage.setItem('ebird_species_v2:' + A.getObsRegion(),
     JSON.stringify({ t: Date.now(), rows: [{ name: longBird, code: 'blcaho1' }] }));
   if (A.resetRankCodeIndex) A.resetRankCodeIndex();
@@ -86308,11 +86346,12 @@ test('F152: every section a county view narrows says that it is narrowed', async
     if (at < 0) return;                       // inline/anonymous — nothing to read
     const end = HTML.indexOf('\n      function ', at + 10);
     const body = HTML.slice(at, end < 0 ? HTML.length : end);
+    const code = body.replace(/^\s*\/\/[^\r\n]*/gm, '');
     // Watch choices stay global; only their subordinate sightings are scoped.
     const globalChoices = fn === 'loadWatchlist';
     if (globalChoices) assert.match(body,/publicEvidenceRows\(c\.cv\.merged, scope\)/);
-    const reads = !globalChoices && (/getChase\(|getChaseRarity\(|getTwitchRarity\(/.test(body)
-      || /getChaseAll\(/.test(body) && /\.then\(countyView\)/.test(body));
+    const reads = !globalChoices && (/getChase\(|getChaseForScope\(|getChaseRarity\(|getTwitchRarity\(/.test(code)
+      || /getChaseAll\(/.test(code) && /\.then\(countyView\)/.test(code));
     checked++;
     assert.equal(!!L[k].countyView, reads,
       `${k} (${fn}) ${reads ? 'reads' : 'does not read'} county-owned evidence, so `
@@ -87420,7 +87459,6 @@ test('F260: a moved home still abandons the running wave', async () => {
   const app = await boot();
   const A = app.window.__app;
 
-  const HTML = fs.readFileSync(path.join(__dirname, '..', 'www', 'index.html'), 'utf8');
   const from = HTML.indexOf('function clearChaseCache(seenOnly)');
   assert.ok(from > 0, 'clearChaseCache still takes the seenOnly flag');
   const to = HTML.indexOf('function haversineMi', from);
@@ -87444,20 +87482,22 @@ test('F260: a moved home still abandons the running wave', async () => {
   // These writers change personal choices, not the home/radius/region/profile
   // fetch inputs. Restoring WATCH also preserves the running source wave.
   const seenAxisCallers = [
-    ['harvestOwnChecklists', 'function baseCounties'],
-    ['setWatchlist', 'function addWatch'],
-    ['reconcileLastNewOwnerTicks', '// One region-wide feed'],
-    ['initPersonalListBackup', 'function getFavs'],
+    ['harvestOwnChecklists', 'function baseCounties', 1],
+    ['setWatchlist', 'function addWatch', 2],
+    ['reconcileLastNewOwnerTicks', '// One region-wide feed', 1],
+    ['initPersonalListBackup', 'function getFavs', 1],
   ];
-  seenAxisCallers.forEach(([name, next]) => {
+  seenAxisCallers.forEach(([name, next, expected]) => {
     const start = HTML.indexOf(`function ${name}(`);
     const end = HTML.indexOf(next, start + 10);
     assert.ok(start > 0 && end > start, `${name} source is addressable by name`);
     assert.match(HTML.slice(start, end), /clearChaseCache\(true\)/,
       `${name} invalidates only the seen axis`);
+    assert.equal((HTML.slice(start, end).match(/clearChaseCache\(true\)/g) || []).length, expected,
+      `${name} has only its intended update and rollback invalidations`);
   });
   const callers = HTML.match(/clearChaseCache\(true\)/g) || [];
-  assert.equal(callers.length, seenAxisCallers.length,
+  assert.equal(callers.length, seenAxisCallers.reduce((total, entry) => total + entry[2], 0),
     `only the named seen-axis writers keep a running wave, got ${callers.length}`);
   app.window.close();
 });
@@ -89663,7 +89703,8 @@ test('F320 every long section-owned history plan carries one navigation token', 
 
   const migration = HTML.slice(HTML.indexOf('function migFetchDate('),
     HTML.indexOf('// --- Birder convoys'));
-  assert.match(migration, /ebirdBg\(path, work\)/);
+  assert.match(migration, /var sourceWork = Object\.assign\(\{\}, work \|\| \{\}, \{ current: source\.context\.current \}\)/);
+  assert.match(migration, /ebirdBg\(path, sourceWork\)/);
   assert.match(migration, /var work = navWork\('Migration history'\)/);
 
   const backfill = HTML.slice(HTML.indexOf('function backfillTick('),
@@ -89674,7 +89715,7 @@ test('F320 every long section-owned history plan carries one navigation token', 
     'backfill cancellation is swallowed as an ordinary missing day');
   assert.match(backfill, /if \(!workCurrent\(work\)\) throw queueCancelledError\(work\);[\s\S]*s\.cursor/,
     'a cancelled day advances the durable backfill cursor');
-  assert.match(backfill, /if \(workCurrent\(work\)\) \{[\s\S]*setTimeout/,
+  assert.match(backfill, /if \(workCurrent\(work\) && current\(\) && durable\) \{[\s\S]*setTimeout/,
     'a cancelled backfill rearms itself');
 });
 

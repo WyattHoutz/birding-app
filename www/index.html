@@ -7775,7 +7775,7 @@
           await _persistence.getJson(key, { onRead: function (raw) { source.raw = raw; } });
           if (!current() || !draft.unchanged()) return false;
           var saved = await _persistence.putJson(key, draft.value, {
-            context: { expectedRaw: source.raw },
+            context: { expectedRaw: source.raw, maxAttempts: 6 },
             shouldWrite: function () { return current() && draft.unchanged(); }
           });
           var next = _ownEvidenceDrafts[key];
@@ -17527,7 +17527,8 @@
           nObservers: 0, anyUnconfirmed: false, distMi: null,
           emptyCurrent: false, loadError: ''
         };
-        if (!refresh) _spLookupEvidence = stakeoutEvidence(code, name, [], generation);
+        if (!refresh) _spLookupEvidence = stakeoutEvidence(code, name,
+          mega ? mega.stateRows : [], generation);
         else {
           _spLookupEvidence.generation = generation;
           _spLookupGroup.loadError = '';
@@ -65920,6 +65921,8 @@
         seedChase: function (slug, res) { _chase[slug] = res; },
         seedChasePhase2: function (slug, promise) {
           var profile = chaseProfile();
+          var acquisition = chaseAcquisitionProfile();
+          if (acquisition && acquisition.slug === slug) profile = acquisition;
           if (_chase[slug]) {
             _chase[slug].fetchBaseKey = chaseFetchBaseKey(profile);
             _chase[slug].geoNotableKm = BL.geoNotableDistKm(profile);
@@ -65954,7 +65957,7 @@
         setRankCapturePreferenceGate: function (gate) { _rankCaptureGate = gate; },
         coverageAuditExport: coverageAuditExport, clearCoverageAudit: clearCoverageAudit,
       seenCodesForRows: seenCodesForRows,
-      chasePhase2: function (slug) { return _chasePhase2[slug || getReport().slug] || null; },
+      chasePhase2: function (slug) { return _chasePhase2[slug || chaseAcquisitionProfile().slug] || null; },
       setChasePhase2: function (slug, promise) { _chasePhase2[slug] = promise; },
       setChaseRefresh: function (slug, promise, baseKey, km) {
         promise._fetchBaseKey = baseKey;

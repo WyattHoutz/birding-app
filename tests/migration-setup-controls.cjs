@@ -389,7 +389,7 @@ module.exports = function registerMigrationSetupControls({
         { code: 'newmig', name: 'New Migrant', date: day(0), observedAt: day(0) + ' 08:00',
           locId: 'L91001', locName: 'Public current patch', subId: 'S91001', isPrivate: false }
       ];
-      A.firstYearWrite(ctx.region, ctx.year, page);
+      await A.firstYearWrite(ctx.region, ctx.year, page);
       const store = { at: Date.now(), done: {
         'Current migrans': { day: day(0).slice(5), records: 100 },
         'Overdue migrans': { day: day(-3).slice(5), records: 100 },
@@ -402,7 +402,7 @@ module.exports = function registerMigrationSetupControls({
         samples['wa|' + sampleDateForWeek(now.getFullYear() - 1, week)] = ['depmig'];
       }
       const cache = { samples, names: { depmig: 'Z Departing Migrant' }, updated: now.toISOString() };
-      A.migSave(cache);
+      await A.zcPut(A.migKey(), cache);
       const before = app.state.fetches.length;
       const rows = A.migrationUnifiedRows(null, now, { arrivals: true, departures: true, tonight: true });
       assert.ok(rows.some(row => row.code === 'nextmig'));
@@ -430,11 +430,11 @@ module.exports = function registerMigrationSetupControls({
       assert.equal(app.state.fetches.length, before, 'cached qualification and grouping add no requests');
       assert.equal(A.migrationSignificantRows(new Date(now.getTime() + 60000), null)[0].notificationKey,
         news[0].notificationKey, 'repainting the same group cannot re-announce it');
-      A.migSave({ samples: {}, names: {}, updated: now.toISOString() });
+      await A.zcPut(A.migKey(), { samples: {}, names: {}, updated: now.toISOString() });
       assert.match(A.migrationSignificantRows(now, null)[0].name, /arriving now\./);
-      A.firstYearWrite(ctx.region, ctx.year, { ...page, rows: [] });
+      await A.firstYearWrite(ctx.region, ctx.year, { ...page, rows: [] });
       app.window.localStorage.setItem(A.dueBackKey('US-WA', 'Washington'), JSON.stringify({ at: Date.now(), done: {} }));
-      A.migSave(cache);
+      await A.zcPut(A.migKey(), cache);
       const departure = A.migrationSignificantRows(now, null);
       assert.equal(departure.length, 1);
       assert.match(departure[0].name, /departing now\./);
@@ -498,8 +498,9 @@ module.exports = function registerMigrationSetupControls({
         { subId: 'S1074recent', isoObsDate: '2026-09-18 10:00', numSpecies: 10,
           locId: 'L1074recent', loc: { name: 'No Coordinates' } },
         { subId: 'S1074many', isoObsDate: '2026-09-18 09:00', numSpecies: 50,
-          locId: 'L1074many', loc: { name: 'Far Park', latitude: 49.50, longitude: -122.30 } }
-      ];
+          locId: 'L1074many', loc: { name: 'Far Park', latitude: 47.50, longitude: -123.30 } }
+      ].map(row => ({ ...row, subnational1Code: 'US-WA', countryCode: 'US',
+        loc: { ...row.loc, subnational1Code: 'US-WA', countryCode: 'US' } }));
       A.renderRecentChecklistBatch(rows, 1, 1);
       const pick = app.$('recentSortPick');
       assert.ok(pick.classList.contains('multipill'), 'sort sizing diverged from established multipills');
@@ -526,14 +527,14 @@ module.exports = function registerMigrationSetupControls({
       app.window.__SEED_BIRDLIST__.watchlist = [{ code: 'leak', name: 'Bundled personal bird' }];
       storage.removeItem(A.bcReal('ebird_watchlist_v1'));
       assert.equal(A.getWatchlist().length, 0);
-      A.setWatchlist([{ code: 'amerob', name: 'American Robin' }]);
+      await A.setWatchlist([{ code: 'amerob', name: 'American Robin' }]);
       const saved = storage.getItem(A.bcReal('ebird_watchlist_v1'));
       assert.equal(A.getWatchlist()[0].code, 'amerob');
-      A.bcSetProfile('synthetic-other');
+      await A.bcSetProfile('synthetic-other');
       assert.equal(A.getWatchlist().length, 0);
-      A.setWatchlist([]);
+      await A.setWatchlist([]);
       assert.equal(A.getWatchlist().length, 0);
-      A.bcSetProfile('');
+      await A.bcSetProfile('');
       assert.equal(storage.getItem(A.bcReal('ebird_watchlist_v1')), saved);
       assert.equal(A.getWatchlist()[0].code, 'amerob');
       storage.setItem(A.bcReal('ebird_watchlist_v1'), '{broken');
@@ -726,7 +727,7 @@ module.exports = function registerMigrationSetupControls({
         assert.equal(A.personalListEvidence().complete, true, 'exact fixture must be ready');
         assert.equal(app.$('keyBanner').hidden, true, 'healthy exact evidence retires main onboarding');
         const key = A.bcReal(A.personalListKey(A.personalListOwner()));
-        const saved = app.window.localStorage.getItem(key);
+        const saved = readPersistedFixture(app.window, key);
         assert.ok(A.getHome(), 'seen dismissal requires an already configured Home');
         app.window.localStorage.setItem('bc_setup_step_v1', 'seen');
         A.openSetupSheet();
@@ -748,7 +749,7 @@ module.exports = function registerMigrationSetupControls({
         assert.equal(app.$('setupSheetBody').dataset.setupStep, 'summary');
         app.click(app.$('setupContinue'));
         assert.equal(app.$('setupSheet').hidden, true);
-        assert.equal(app.window.localStorage.getItem(key), saved);
+        assert.deepEqual(readPersistedFixture(app.window, key), saved);
         assert.equal(A.personalListEvidence().complete, true);
         const original = app.window.fetch;
         app.window.fetch = (url, options) => /\/lifelist\//.test(url)
@@ -756,7 +757,7 @@ module.exports = function registerMigrationSetupControls({
         await assert.rejects(A.ensurePersonalList(A.activeScope(), true), /503/);
         assert.equal(app.$('keyBanner').hidden, false);
         assert.match(app.$('keyBanner').textContent, /Using your saved seen list/);
-        assert.equal(app.window.localStorage.getItem(key), saved);
+        assert.deepEqual(readPersistedFixture(app.window, key), saved);
       } finally { app.window.close(); }
     }
   });
@@ -1717,7 +1718,7 @@ module.exports = function registerMigrationSetupControls({
             return nativeTimer(fn, delay, ...args);
           };
           app.click(app.$(surface === 'setup' ? 'setupHomeHere' : 'homeCurrentLocation'));
-          assert.equal(requests, 1);
+          await waitFor(() => requests === 1, 'the device request starts after its draft is saved');
           if (outcome === 'denied') fail({ code: 1, message: 'Permission denied' });
           if (outcome === 'timeout') { assert.equal(typeof timeout, 'function'); timeout(); }
           if (outcome === 'cancel') app.click(app.$(surface === 'setup' ? 'setupHomeCancel' : 'clearHomeBtn'));
@@ -1739,7 +1740,7 @@ module.exports = function registerMigrationSetupControls({
           if (surface === 'setup' && outcome === 'profile') {
             assert.equal(app.window.localStorage.getItem(A.bcReal('bc_setup_home_draft_v1')), null,
               'late location wrote a draft into the new profile');
-            const originalDraft = JSON.parse(app.window.localStorage.getItem('bc_setup_home_draft_v1'));
+            const originalDraft = readPersistedFixture(app.window, 'bc_setup_home_draft_v1');
             assert.equal(originalDraft.point, undefined, 'obsolete location entered the original draft');
           }
           assert.deepEqual(app.state.errors, []);
