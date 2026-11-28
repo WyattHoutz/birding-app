@@ -10,6 +10,13 @@ import tempfile
 
 APP = Path(__file__).resolve().parents[1]
 MUTATIONS = [
+    ("navigation leaves the hidden Full feed paint loaded",
+     "if (_surgeActiveLoad) _surgeActiveLoad.end('cancelled');\n          _autoLoaded[sectionId] = false;",
+     "if (_surgeActiveLoad) _surgeActiveLoad.end('cancelled');\n          _autoLoaded[sectionId] = true;",
+     "a hidden Bird Gen consumes"),
+    ("Full feed bypasses its owned report Home gate",
+     "resetSurgeCategory();\n        if (!activeSavedBase()) {",
+     "resetSurgeCategory();\n        if (false) {", "F706 Bird Gen rejects"),
     ("Debug Clear leaves stopped timing evidence behind",
      "_phaseCapture.epoch++;\n        _phaseCapture.samples=[];",
      "void 0;", "F1548 phase timing"),

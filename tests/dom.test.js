@@ -47646,20 +47646,30 @@ test('a hidden Bird Gen consumes the full phase-one repaint when reopened', asyn
   const app = await boot();
   const A = app.window.__app;
   A.LOADERS.surgeBtn.reachability = false;
+  let calls = 0;
   A.LOADERS.surgeBtn.fn = () => {
+    calls++;
     app.$('surgeStatus').textContent = 'Looking for twitches';
     return true;
   };
   app.open(/Bird Gen/i);
+  await waitFor(() => A.loadedSectionFor('surgeBtn'),
+    'owned Bird Gen opening handoff');
   const sec = A.loadedSectionFor('surgeBtn');
   assert.ok(sec, 'opening Bird Gen marks its section loaded');
   app.click(app.$('navBack'));
+  assert.equal(A.loadedSectionFor('surgeBtn'), null,
+    'navigation retires the partial paint before hidden phase-one completion');
   A.onChasePhaseOne(A.getReportSlug());
   assert.equal(A.loadedSectionFor('surgeBtn'), null,
     'off-screen completion marks the partial paint cold');
+  assert.equal(calls, 1, 'hidden completion must not run the full feed off-screen');
   app.open(/Bird Gen/i);
+  await waitFor(() => A.loadedSectionFor('surgeBtn'),
+    'owned Bird Gen reopening handoff');
   assert.ok(A.loadedSectionFor('surgeBtn'),
     'reopening autoloads the full phase-one result');
+  assert.equal(calls, 2, 'reopening must consume the full result exactly once');
   assert.match(app.$('surgeStatus').textContent, /Looking for twitches/,
     'the stale partial screen did not survive the reopen');
   app.window.close();
@@ -83942,6 +83952,9 @@ test('F706 Bird Gen rejects a temporary Find anchor until this report owns Home'
   const before = app.state.fetches.length;
 
   app.open(/Bird Gen/i);
+  await waitFor(() => A.loadedSectionFor('surgeBtn')
+    || app.$('surgeStatus').querySelector('button'),
+    'owned Bird Gen handoff reaching the selected-report Home gate');
 
   assert.equal(A.getHome(), null,
     'the temporary patch-search anchor became the selected report Home');
