@@ -10,6 +10,21 @@ import tempfile
 
 APP = Path(__file__).resolve().parents[1]
 MUTATIONS = [
+    ("personal completion autoloads over its compatible source owner",
+     "repaint._at === 'surgeBtn' && _surgePersonalRepaint && _surgePersonalRepaint()",
+     "false", "F1550 personal completion"),
+    ("personal completion skips current unseen eligibility repaint",
+     "paintSurgeModel();\n          return true;\n        };",
+     "return true;\n        };", "F1550 personal completion"),
+    ("obsolete source Retry silently broadens into full acquisition",
+     "function requestSurgeSourceRetry(keys) {",
+     "function requestSurgeSourceRetry(keys) { return loadSurge();",
+     "F1550 obsolete"),
+    ("geographic restoration is falsely labelled explicit",
+     "clearTempHome('geographic-home')", "clearTempHome()", "F1549 actual reset"),
+    ("failed Temp removal is reported verified absent",
+     "(cleared ? 'verified-absent' : 'absence-unverified')",
+     "'verified-absent'", "F1549 actual reset"),
     ("navigation leaves the hidden Full feed paint loaded",
      "if (_surgeActiveLoad) _surgeActiveLoad.end('cancelled');\n          _autoLoaded[sectionId] = false;",
      "if (_surgeActiveLoad) _surgeActiveLoad.end('cancelled');\n          _autoLoaded[sectionId] = true;",

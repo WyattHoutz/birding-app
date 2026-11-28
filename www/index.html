@@ -6034,7 +6034,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '2.17.0';
+      var APP_VERSION = '2.17.1';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var IMPORT_PAYLOAD_KEYS = [K.seenMeta, K.seen, 'ebird_life_names', 'ebird_year_names'];
       var _importDraft = null, _importQueues = Object.create(null), _importGenerations = Object.create(null);
@@ -8361,7 +8361,12 @@
         if (repaint) {
           paintPersonalCoverage(repaint);
           Promise.resolve().then(function () {
-            if (scopeCurrent(scope) && visibleSectionId() === openId) autoLoad(repaint);
+            if (!scopeCurrent(scope) || visibleSectionId() !== openId) return;
+            if (repaint._at === 'surgeBtn' && _surgePersonalRepaint && _surgePersonalRepaint()) {
+              _autoLoaded[repaint.id] = true;
+              return;
+            }
+            autoLoad(repaint);
           });
         }
       }
@@ -22977,17 +22982,23 @@
         _tempHomeQueue = saving;
         return saving;
       }
-      function clearTempHome() {
+      function clearTempHome(reason) {
+        reason = reason === 'geographic-home' ? reason : 'explicit-restore';
+        function result(cleared) {
+          dbg('info', 'Temp Home reset: reason ' + reason + '; outcome '
+            + (cleared ? 'verified-absent' : 'absence-unverified'));
+          return cleared;
+        }
         var owner = gbifOwner(), scope = activeScope(), generation = ++_tempHomeGeneration;
         var observed = {};
         try { localStorage.removeItem(TEMP_HOME_KEY); }
-        catch (e) { return Promise.resolve(false); }
+        catch (e) { return Promise.resolve(result(false)); }
         return readTempHome(observed, null, false).then(function () {
           if (observed.raw != null || owner !== gbifOwner()
-              || generation !== _tempHomeGeneration || !scopeCurrent(scope)) return false;
+              || generation !== _tempHomeGeneration || !scopeCurrent(scope)) return result(false);
           savedBaseChanged();
-          return true;
-        }).catch(function () { return false; });
+          return result(true);
+        }).catch(function () { return result(false); });
       }
       var _savedBaseRegionGeneration = 0;
       function reconcileSavedBase(restoreHome) {
@@ -23005,7 +23016,7 @@
               || identity !== JSON.stringify([getHome(), tempHome()]) || radius !== chaseMaxMi()) return null;
           var decision = BL.savedBaseDecision(getHome(), tempHome(), boundary, radius);
           if (restoreHome !== false && decision.choice === 'home' && tempHome()) {
-            return clearTempHome().then(function (cleared) {
+            return clearTempHome('geographic-home').then(function (cleared) {
               if (!cleared) return null;
               loadSettings();
               return decision;
@@ -50309,6 +50320,7 @@
       var _surgeHotspotRetry = null;
       var _surgeRetrySources = null;
       var _surgeRepaint = null;
+      var _surgePersonalRepaint = null;
       var _surgeLoadGeneration = 0;
       var _surgeActiveLoad = null;
       var _surgeCategory = '';
@@ -50328,9 +50340,7 @@
         if (disclosure) disclosure.open = !!opened;
         host.querySelectorAll('[data-source-retry]').forEach(function (button) {
           button.addEventListener('click', function () {
-            if (typeof _surgeRetrySources === 'function') {
-              _surgeRetrySources(button.dataset.sourceRetry.split(','));
-            } else loadSurge();
+            requestSurgeSourceRetry(button.dataset.sourceRetry.split(','));
           });
         });
         if (focused && disclosure) disclosure.querySelector('summary').focus();
@@ -50343,7 +50353,16 @@
         _surgeHotspotRetry = null;
         _surgeRetrySources = null;
         _surgeRepaint = null;
+        _surgePersonalRepaint = null;
       });
+      function requestSurgeSourceRetry(keys) {
+        if (typeof _surgeRetrySources === 'function') return _surgeRetrySources(keys);
+        var status = $('surgeStatus');
+        status.hidden = false;
+        status.textContent = 'Retry unavailable: this earlier feed no longer owns its source checks. '
+          + 'Reopen Bird Gen or use full Refresh.';
+        return Promise.resolve({ state: 'cancelled' });
+      }
       var SURGE_SOURCE_NS = 'bc_surge_sources_v1:';
       var SURGE_RETAINED_NS = 'ebird_surge_retained_v1:';
       var _surgeRetainedEpoch = 0;
@@ -51568,7 +51587,7 @@
           button.addEventListener('click', function () {
             if (typeof _surgeRetrySources === 'function') {
               var focused = document.activeElement === button;
-              _surgeRetrySources(button.getAttribute('data-source-retry').split(','));
+              requestSurgeSourceRetry(button.getAttribute('data-source-retry').split(','));
               if (focused) {
                 var replacement = box.querySelector('[data-source-retry="'
                   + button.getAttribute('data-source-retry') + '"]');
@@ -51576,7 +51595,7 @@
                 else { box.tabIndex = -1; box.focus({ preventScroll: true }); }
               }
             } else {
-              loadSurge();
+              requestSurgeSourceRetry(button.getAttribute('data-source-retry').split(','));
             }
           });
         });
@@ -54983,7 +55002,7 @@
             });
             paintSurgeModel(true);
             stopped = true;
-            _surgeRetrySources = _surgeHotspotRetry = _surgeRepaint = _surgeEarlyPaint = null;
+            _surgeRetrySources = _surgeHotspotRetry = _surgeRepaint = _surgePersonalRepaint = _surgeEarlyPaint = null;
             if (_surgeActiveLoad === activeLoad) _surgeActiveLoad = null;
             btn.disabled = false;
             releasePerformance();
@@ -55304,6 +55323,20 @@
           return n;
         }
         _surgeRepaint = paintSurgeModel;
+        _surgePersonalRepaint = function () {
+          if (!current() || loadContext !== surgeSourceContext()) return false;
+          var saved = _chase[chaseAcquisitionProfile().slug];
+          if (saved && saved.cv) {
+            var observed = surgeObservedResult(countyView(saved), Date.now());
+            // Membership reprojection is not a new source acquisition or retention receipt.
+            surgeModel.observed = Object.assign({}, surgeModel.observed, observed, {
+              state: surgeModel.observed.state
+            });
+            _merged = observed.merged;
+          }
+          paintSurgeModel();
+          return true;
+        };
         function paintObserved(observed) {
           if (!current()) return observed;
           if ((observed.state === 'failed' || observed.state === 'unavailable') && surgeModel && surgeModel.observed) {
@@ -57284,6 +57317,7 @@
           _surgeHotspotRetry = null;
           _surgeRetrySources = null;
           _surgeRepaint = null;
+          _surgePersonalRepaint = null;
         }
         var state = _performanceObservers[sectionId];
         if (state) {

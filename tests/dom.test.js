@@ -14081,6 +14081,138 @@ test('F1358 personal refresh preserves settled FOY failure, joins in-flight work
   } finally { releaseFirst?.(adjacentFirstYearHtml()); app.window.close(); }
 });
 
+for (const source of ['foy', 'mass']) test('F1550 personal completion preserves actual native ' + source + ' Retry and category', async () => {
+  const app = await boot({sample:false, storage:{
+    ebird_favs:JSON.stringify([{id:'f1550',locId:'L1550',locName:'Personal repaint control',region:'US-WA'}])
+  }, fetch:url => {
+    if (/bird-list\?/.test(url)) return '<html>anubis_challenge</html>';
+    if (/\/lifelist\//.test(url)) return ownedPersonalListFixture({codes:['amerob']});
+    if (/data\/obs\/L1550/.test(url)) return [{
+      speciesCode:'amerob',comName:'American Robin',locId:'L1550',lat:46.7064,lng:-123.972,
+      subnational1Code:'US-WA',obsDt:f801Day() + ' 00:01',subId:'S1550',howMany:2
+    }];
+    if (/ref\/hotspot\//.test(url)) return f821Hotspots().map(row => ({
+      ...row, lat:46.7064, lng:-123.972
+    }));
+    return [];
+  }});
+  const handlers = {}, opened = [], removed = [];
+  let browser, injected;
+  try {
+    const A = app.window.__app;
+    A.applyCapturedIdentity({status:'ok',displayName:'Sample Observer'});
+    await seedSeen(app, []);
+    A.setCountySeed({'US-WA':{'US-WA-061':{
+      name:'Synthetic county',bounds:{minX:-122.4,maxX:-122,minY:47.5,maxY:48}
+    }}});
+    A.LOADERS.surgeBtn.reachability = false;
+    A.showSection('sec-surgeBtn',{load:false});
+    app.window.Capacitor = {Plugins:{CapgoInAppBrowser:{
+      addListener(name,fn) {handlers[name]=fn;return {remove(){removed.push(name);}};},
+      openWebView(options) {
+        opened.push(options.url);
+        browser = new JSDOM(source === 'foy' ? adjacentFirstYearHtml() : f821Page([{count:4000}]),
+          {url:options.url,runScripts:'outside-only'});
+        browser.window.mobileApp = {postMessage(message) {
+          handlers.messageFromWebview({id:'f1550-owned',detail:message.detail});
+        }};
+        setTimeout(() => handlers.browserPageLoaded({id:'f1550-owned'}),0);
+        return Promise.resolve({id:'f1550-owned'});
+      },
+      hide(){},show(){},close(){return Promise.resolve();},
+      executeScript({code}) {injected=code;return Promise.resolve();},
+    }}};
+    await A.loadSurge('f1550-full',false,{fullRefresh:true});
+    assert.ok(app.$('surgeResults').querySelector('[data-alert-kind="favorite"]'),
+      'the actual pre-refresh unseen favorite must qualify');
+    app.click(app.$('surgeResults').querySelector('[data-count-kind="' + source + '"]'));
+    const retry = A.retrySurgeSources([source]);
+    await waitFor(() => injected,'actual held native retry');
+    const unrelated = () => app.state.fetches.filter(url => !/lifelist|bird-list\?|ref\/hotspot\/|\/historic\//.test(url)).length;
+    const before = unrelated();
+    await A.preparePersonalList(A.activeScope(),true,null,{allowBrowser:false});
+    assert.equal(A.personalListEvidence().complete,true);
+    assert.equal(A.personalListEvidence().count,1);
+    assert.equal(app.$('surgeResults').querySelector('[data-alert-kind="favorite"]'),null,
+      'personal repaint must reapply actual unseen eligibility without reacquiring Favorite');
+    assert.equal(app.$('surgeResults').querySelector('[data-count-kind="' + source + '"]')
+      .getAttribute('aria-pressed'),'true','personal repaint must preserve the pending selected category');
+    browser.window.eval(injected);
+    const outcome = await retry;
+    assert.notEqual(outcome[0].state,'cancelled','compatible personal completion must not retire targeted capture');
+    assert.equal(opened.length,1);
+    assert.equal(removed.length,4);
+    assert.equal(unrelated(),before,'personal completion must not reacquire sibling sources');
+    assert.deepEqual(app.state.errors,[]);
+  } finally {browser?.window.close();app.window.close();}
+});
+
+for (const surface of ['category','dialog']) test('F1550 obsolete ' + surface + ' Retry cannot broaden into a full acquisition', async () => {
+  const app = await boot({sample:false,fetch:() => []});
+  try {
+    const A = app.window.__app;
+    A.showSection('sec-surgeBtn',{load:false});
+    A.renderSurge([],[],[],[],[],{mass:'failed',foy:'failed'},[],[],[]);
+    app.click(app.$('surgeResults').querySelector('[data-count-kind="mass"]'));
+    const before = app.state.fetches.length;
+    const host = surface === 'dialog' ? surgeSourceRoot(app) : app.$('surgeResults');
+    app.click(host.querySelector('[data-source-retry="mass"]'));
+    assert.match(app.$('surgeStatus').textContent,/Retry unavailable.*no longer owns/);
+    assert.equal(app.$('surgeStatus').hidden,false);
+    assert.equal(app.state.fetches.length,before);
+    assert.equal(app.$('surgeResults').dataset.sourceMass,'failed');
+    assert.equal(app.$('surgeResults').querySelector('[data-count-kind="mass"]').getAttribute('aria-pressed'),'true');
+    assert.deepEqual(app.state.errors,[]);
+  } finally {app.window.close();}
+});
+
+test('F1549 actual reset reasons distinguish explicit, geographic, unknown and failed removal without private points', async () => {
+  for (const mode of ['explicit','geographic','unknown','failed','retired']) {
+    const app = await boot({sample:false,storage:{
+      ebird_temp_home_v1:JSON.stringify({lat:19.7,lng:-155.1,label:'PRIVATE-TEMP-LABEL'})
+    }});
+    const W = app.window, A = W.__app, proto = W.Storage.prototype, remove = proto.removeItem;
+    try {
+      const point = JSON.stringify(A.tempHome());
+      if (mode === 'unknown') {
+        A.setActiveReport('lower48');
+        assert.equal((await A.reconcileSavedBase()).choice,'unknown');
+        assert.equal(JSON.stringify(A.tempHome()),point);
+      } else if (mode === 'geographic') {
+        assert.equal((await A.reconcileSavedBase()).choice,'home');
+        assert.equal(A.tempHome(),null);
+      } else if (mode === 'explicit') {
+        A.openSavedLocationEditor('temp');
+        app.$('tempHomeRestore').click();
+        assert.equal(await app.$('tempHomeRestore')._tempHomeSave,true);
+        assert.equal(A.tempHome(),null);
+      } else if (mode === 'retired') {
+        const pending = A.clearTempHome();
+        assert.equal(A.tempHome(),null,'immediate removal precedes its receipt');
+        A.setPersonalPeriod('all');
+        assert.equal(await pending,false,'the previous scope cannot confirm absence');
+      } else {
+        proto.removeItem = function (key) {
+          if (key === A.TEMP_HOME_KEY) return;
+          return remove.call(this,key);
+        };
+        assert.equal(await A.clearTempHome(),false);
+        assert.equal(JSON.stringify(A.tempHome()),point);
+      }
+      const resets = W.__dbg.buf.filter(row => row.msg.startsWith('Temp Home reset:')).map(row => row.msg);
+      if (mode === 'unknown') assert.equal(resets.length,0);
+      else {
+        assert.ok(resets.length);
+        assert.equal(resets.at(-1),'Temp Home reset: reason '
+          + (mode === 'geographic' ? 'geographic-home' : 'explicit-restore')
+          + '; outcome ' + (mode === 'failed' || mode === 'retired' ? 'absence-unverified' : 'verified-absent'));
+        assert.doesNotMatch(resets.join('\n'),/PRIVATE-TEMP|19\.7|-155\.1/);
+      }
+      assert.deepEqual(app.state.errors,[]);
+    } finally {proto.removeItem=remove;W.close();}
+  }
+});
+
 for (const source of ['foy', 'mass']) {
   for (const navigate of [false, true]) {
     test('F1358 automatic full-refresh source Retry owns native ' + source
