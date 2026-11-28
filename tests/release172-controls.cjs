@@ -363,8 +363,16 @@ module.exports = ({
         A.showSection('sec-surgeBtn', { load: false });
         const retry = root.querySelector('[data-source-retry]');
         assert.ok(retry, 'cancelled source retains an explicit retry');
+        const pendingBeforeRetry = held.length;
         app.click(retry);
-        await waitFor(() => root.querySelector('.surgesourcemeter .track'), 'new owned acquisition after retry');
+        await new Promise(resolve => setTimeout(resolve, 40));
+        assert.equal(root.querySelector('.surgesourcemeter .track'), null, 'obsolete Retry cannot broaden acquisition');
+        assert.equal(held.length, pendingBeforeRetry, 'obsolete Retry starts no transports');
+        assert.match(app.$('surgeStatus').textContent, /Retry unavailable.*no longer owns/);
+        const refresh = app.$('sec-surgeBtn').querySelector('.refreshbtn');
+        assert.ok(refresh, 'explicit full Refresh remains available');
+        app.click(refresh);
+        await waitFor(() => root.querySelector('.surgesourcemeter .track'), 'new owned acquisition after explicit full Refresh');
         A.cancelStalledWork();
         assert.equal(root.querySelector('.surgesourcemeter .track'), null);
       } finally {

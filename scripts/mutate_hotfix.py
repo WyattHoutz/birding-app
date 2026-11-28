@@ -19,7 +19,7 @@ MUTATIONS = [
     ("obsolete source Retry silently broadens into full acquisition",
      "function requestSurgeSourceRetry(keys, button) {",
      "function requestSurgeSourceRetry(keys, button) { return loadSurge();",
-     "F1550 obsolete"),
+     "F1550 obsolete|F1101 cancelling a live acquisition"),
     ("source-dialog Retry feedback is hidden behind its modal",
      "var row = button.closest('[data-source-status]') || host;",
      "var row = $('surgeResults');", "F1550 obsolete dialog"),
