@@ -187,6 +187,39 @@ async function hotfixLayout(scan) {
       return {firstPaintMs, loading:box.toJSON(), lateSourceRejected:true, nativeWhiteScreenVerified:false};
     } finally { if (settle) settle(); window.fetch = original; A.clearSpeciesLookup(); A.showMenu(); }
   });
+  await record('F1550 obsolete source Retry exposes feedback inside its dialog', async () => {
+    A.showSection('sec-surgeBtn', {load:false});
+    A.renderSurge([],[],[],[],[],{mass:'failed',foy:'failed'},[],[],[]);
+    A.showInfoSheet('bird-gen-feed', {});
+    const dialog = document.getElementById('appSheet');
+    try {
+      const host = document.getElementById('birdGenSourceStatus');
+      const details = host.querySelector('details');
+      if (!details.open) details.querySelector('summary').click();
+      const button = host.querySelector('[data-source-retry="mass"]');
+      check(button, 'actual obsolete source Retry must exist');
+      button.scrollIntoView({block:'center'});
+      button.focus(); button.click();
+      await paint();
+      const message = host.querySelector('[data-source-retry-unavailable]');
+      check(message && message.getAttribute('role') === 'status'
+        && /Retry unavailable.*no longer owns/.test(message.textContent),
+        'lost-owner feedback must be inside the visible source dialog');
+      const rect = message.getBoundingClientRect();
+      check(rect.height > 0 && rect.width > 0 && rect.left >= 0 && rect.right <= innerWidth,
+        'Retry explanation must render without horizontal clipping');
+      check(document.activeElement === button, 'feedback must preserve Retry focus');
+      button.click();
+      check(host.querySelectorAll('[data-source-retry-unavailable]').length === 1,
+        'repeated Retry must not duplicate the explanation');
+      check(document.getElementById('surgeResults').dataset.sourceMass === 'failed',
+        'obsolete Retry cannot restart the full feed');
+      return {feedback:rect.toJSON(),focusPreserved:true,nativePaintVerified:false};
+    } finally {
+      dialog.querySelector('.sheetclose').click();
+      A.showMenu();
+    }
+  });
   await record('F1548 opt-in timing capture and Debug copy geometry', async () => {
     const descriptor=Object.getOwnPropertyDescriptor(navigator,'clipboard');
     const toggle=document.getElementById('dbgTimingsToggle');

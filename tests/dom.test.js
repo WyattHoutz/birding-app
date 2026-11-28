@@ -14157,6 +14157,8 @@ for (const surface of ['category','dialog']) test('F1550 obsolete ' + surface + 
     const before = app.state.fetches.length;
     const host = surface === 'dialog' ? surgeSourceRoot(app) : app.$('surgeResults');
     app.click(host.querySelector('[data-source-retry="mass"]'));
+    if (surface === 'dialog') assert.match(host.textContent,/Retry unavailable.*no longer owns/,
+      'source-dialog Retry must explain the lost owner inside the visible dialog');
     assert.match(app.$('surgeStatus').textContent,/Retry unavailable.*no longer owns/);
     assert.equal(app.$('surgeStatus').hidden,false);
     assert.equal(app.state.fetches.length,before);

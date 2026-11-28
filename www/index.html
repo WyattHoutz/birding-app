@@ -50340,7 +50340,7 @@
         if (disclosure) disclosure.open = !!opened;
         host.querySelectorAll('[data-source-retry]').forEach(function (button) {
           button.addEventListener('click', function () {
-            requestSurgeSourceRetry(button.dataset.sourceRetry.split(','));
+            requestSurgeSourceRetry(button.dataset.sourceRetry.split(','), button);
           });
         });
         if (focused && disclosure) disclosure.querySelector('summary').focus();
@@ -50355,12 +50355,25 @@
         _surgeRepaint = null;
         _surgePersonalRepaint = null;
       });
-      function requestSurgeSourceRetry(keys) {
+      function requestSurgeSourceRetry(keys, button) {
         if (typeof _surgeRetrySources === 'function') return _surgeRetrySources(keys);
         var status = $('surgeStatus');
         status.hidden = false;
         status.textContent = 'Retry unavailable: this earlier feed no longer owns its source checks. '
           + 'Reopen Bird Gen or use full Refresh.';
+        var dialog = $('appSheet'), host = $('birdGenSourceStatus');
+        if (dialog && !dialog.hidden && host && button && host.contains(button)) {
+          var row = button.closest('[data-source-status]') || host;
+          var message = row.querySelector('[data-source-retry-unavailable]');
+          if (!message) {
+            message = document.createElement('p');
+            message.className = 'status';
+            message.setAttribute('role', 'status');
+            message.setAttribute('data-source-retry-unavailable', '');
+            row.appendChild(message);
+          }
+          message.textContent = status.textContent;
+        }
         return Promise.resolve({ state: 'cancelled' });
       }
       var SURGE_SOURCE_NS = 'bc_surge_sources_v1:';
@@ -51587,7 +51600,7 @@
           button.addEventListener('click', function () {
             if (typeof _surgeRetrySources === 'function') {
               var focused = document.activeElement === button;
-              requestSurgeSourceRetry(button.getAttribute('data-source-retry').split(','));
+              requestSurgeSourceRetry(button.getAttribute('data-source-retry').split(','), button);
               if (focused) {
                 var replacement = box.querySelector('[data-source-retry="'
                   + button.getAttribute('data-source-retry') + '"]');
@@ -51595,7 +51608,7 @@
                 else { box.tabIndex = -1; box.focus({ preventScroll: true }); }
               }
             } else {
-              requestSurgeSourceRetry(button.getAttribute('data-source-retry').split(','));
+              requestSurgeSourceRetry(button.getAttribute('data-source-retry').split(','), button);
             }
           });
         });
