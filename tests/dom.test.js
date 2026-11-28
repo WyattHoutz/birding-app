@@ -244,6 +244,198 @@ test('F1462 actual Recent refresh preserves non-refreshed raw evidence and scope
   } finally {app.window.close();}
 });
 
+test('F1545 actual chooser search constructs only matching result controls', async () => {
+  const app = await boot(), A = app.window.__app;
+  try {
+    await A.ensureActiveCountyCatalog();
+    A.openRegionChooser();
+    await new Promise(resolve => setTimeout(resolve, 40));
+    const saved = JSON.stringify([A.getHome(), A.tempHome(), A.activeScope()]);
+    const create = app.document.createElement.bind(app.document);
+    let buttons = 0;
+    app.document.createElement = function (tag, ...args) {
+      if (tag === 'button') buttons++;
+      return create(tag, ...args);
+    };
+    const search = app.$('regionChooserSearch');
+    for (const query of ['no-such-jurisdiction', 'British Columbia', 'US-WA-033']) {
+      buttons = 0;
+      search.value = query;
+      const started = performance.now();
+      search.oninput();
+      const matches = app.$('regionChooserResults').children.length;
+      console.log('F1545 chooser workload', JSON.stringify({query, buttons, matches,
+        elapsedMs: performance.now() - started}));
+      assert.ok(buttons <= matches + 1, 'nonmatching catalog rows must not allocate interactive DOM');
+      assert.equal(JSON.stringify([A.getHome(), A.tempHome(), A.activeScope()]), saved);
+    }
+    app.click(app.$('regionChooserClose'));
+    assert.equal(app.$('regionChooser').hidden, true);
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
+test('F1546 F1547 active Home shape and editor are shared by main and submenu consumers', async () => {
+  for (const kind of ['home', 'temp', 'unset']) {
+    const app = await boot({home: kind !== 'unset', storage: kind === 'temp' ? {
+      'ebird_home_lat:shared-v1': '19.65', 'ebird_home_lng:shared-v1': '-155.99',
+      ebird_temp_home_v1: JSON.stringify({lat:47.8,lng:-122.3,label:'Saved trip'})
+    } : undefined});
+    const A = app.window.__app;
+    try {
+      await A.reconcileSavedBase();
+      A.headerScopeRefresh();
+      const saved = JSON.stringify([A.getHome(), A.tempHome(), A.activeScope(), A.personalPeriod()]);
+      for (const section of [null, 'sec-spLookupBtn', 'sec-rankBtn', 'sec-quickBtn']) {
+        if (section && !app.$(section)) continue;
+        if (kind === 'unset' && section === 'sec-quickBtn') continue;
+        if (section) A.showSection(section, {load:false}); else A.showMenu();
+        const shortcut = app.$(section ? 'navHome' : 'hdrHome');
+        assert.ok(shortcut, 'shared submenu Home action must exist');
+        assert.equal(shortcut.dataset.savedBaseKind, kind === 'temp' ? 'temp' : 'home');
+        assert.match(shortcut.getAttribute('aria-label'), kind === 'temp' ? /Temp Home.*Active/ : /Home/);
+        const icon = shortcut.querySelector('svg');
+        assert.equal(icon.getAttribute('aria-hidden'), 'true');
+        assert.equal(icon.querySelector('rect') !== null, kind === 'temp', 'away uses a suitcase, not a house');
+        app.click(shortcut);
+        const editor = app.$(kind === 'temp' ? 'settingsTempHomeEditor' : 'settingsHomeEditor');
+        await waitFor(() => app.document.activeElement === editor.querySelector('input'), 'active shortcut focus');
+        assert.equal(editor.open, true);
+        assert.equal(JSON.stringify([A.getHome(), A.tempHome(), A.activeScope(), A.personalPeriod()]), saved);
+        if (section) {
+          app.click(app.$('navBack'));
+          assert.equal(app.$(section).hidden, false, kind+' editor Back restores '+section);
+          assert.equal(app.document.activeElement, shortcut, 'editor Back restores shortcut focus');
+        }
+      }
+      if (kind === 'temp') {
+        assert.equal(await A.clearTempHome(), true);
+        assert.equal(app.$('hdrHome').dataset.savedBaseKind, 'home');
+        assert.equal(app.$('navHome').dataset.savedBaseKind, 'home');
+      }
+      assert.deepEqual(app.state.errors, []);
+    } finally { app.window.close(); }
+  }
+});
+
+test('F1546 saved Temp activation updates both shortcuts only after persistence and survives reload', async () => {
+  const app=await boot({storage:{
+    'ebird_home_lat:shared-v1':'19.65','ebird_home_lng:shared-v1':'-155.99'
+  }});
+  const A=app.window.__app, proto=app.window.Storage.prototype, original=proto.setItem;
+  let storage;
+  try {
+    const point={lat:47.8,lng:-122.3,label:'Verified saved trip'}, before=JSON.stringify(A.getHome());
+    proto.setItem=function(key,value) {
+      if (key==='ebird_temp_home_v1') throw new app.window.DOMException('Synthetic quota','QuotaExceededError');
+      return original.call(this,key,value);
+    };
+    assert.equal(await A.saveTempHome(point),false);
+    for(const id of ['hdrHome','navHome']) assert.equal(app.$(id).dataset.savedBaseKind,'home');
+    assert.equal(A.tempHome(),null);
+    proto.setItem=original;
+    assert.equal(await A.saveTempHome(point),true);
+    for(const id of ['hdrHome','navHome']) {
+      assert.equal(app.$(id).dataset.savedBaseKind,'temp');
+      assert.match(app.$(id).getAttribute('aria-label'),/Temp Home \(Active\)/);
+    }
+    assert.equal(JSON.stringify(A.getHome()),before);
+    storage=Object.fromEntries(Array.from({length:app.window.localStorage.length},(_,i)=>{
+      const key=app.window.localStorage.key(i);return [key,app.window.localStorage.getItem(key)];
+    }));
+  } finally {proto.setItem=original;app.window.close();}
+  const reloaded=await boot({storage});
+  try {
+    await reloaded.window.__app.reconcileSavedBase();
+    for(const id of ['hdrHome','navHome']) assert.equal(reloaded.$(id).dataset.savedBaseKind,'temp');
+  } finally {reloaded.window.close();}
+});
+
+test('F1548 final heartbeat evidence reconciles delayed lifecycle without rewriting an initial observation', async () => {
+  const app = await boot(), A = app.window.__app, date = app.window.Date, original = date.now;
+  const base = original();
+  try {
+    date.now = () => base;
+    A.sleepReset();
+    date.now = () => base + 31000;
+    A.heartbeat();
+    const initial = JSON.stringify(app.window.__dbg.buf);
+    assert.match(initial, /native-background overlap=0ms.*provisional/);
+    A.noteNativeLifecycle({events:[
+      {sequence:1,phase:'background',at_ms:base+10000,uptime_ms:10000},
+      {sequence:2,phase:'foreground',at_ms:base+30000,uptime_ms:30000}
+    ]});
+    let gaps = JSON.parse(A.dbgContext().match(/Heartbeat observations.*: (\[[^\n]+\])/)[1]);
+    assert.equal(gaps[0].native_background_ms, 20000);
+    assert.equal(gaps[0].lifecycle_evidence, 'recorded-events-reconciled');
+    assert.equal(JSON.stringify(app.window.__dbg.buf).includes('provisional'), true);
+    assert.equal(A.noteNativeLifecycle({events:[
+      {sequence:1,phase:'background',at_ms:base+10000,uptime_ms:10000}
+    ]}), false);
+    gaps = JSON.parse(A.dbgContext().match(/Heartbeat observations.*: (\[[^\n]+\])/)[1]);
+    assert.equal(gaps[0].native_background_ms, 20000, 'older delivery cannot erase final evidence');
+    date.now = () => base+62000; A.heartbeat();
+    date.now = () => base+93000; A.heartbeat();
+    A.noteNativeLifecycle({events:[
+      {sequence:1,phase:'background',at_ms:base+10000,uptime_ms:10000},
+      {sequence:2,phase:'foreground',at_ms:base+30000,uptime_ms:30000},
+      {sequence:3,phase:'background',at_ms:base+31000,uptime_ms:31000},
+      {sequence:4,phase:'foreground',at_ms:base+62000,uptime_ms:62000}
+    ]});
+    gaps = JSON.parse(A.dbgContext().match(/Heartbeat observations.*: (\[[^\n]+\])/)[1]);
+    assert.deepEqual(gaps.map(gap=>gap.native_background_ms), [20000,30000,0],
+      'partially backgrounded, fully backgrounded and foreground-only gaps stay distinct');
+  } finally { date.now = original; app.window.close(); }
+});
+
+test('F1548 actual cache diagnostics name instrumented coverage without inferring loss', async () => {
+  const app = await boot(), A = app.window.__app;
+  try {
+    for (let i=0; i<3; i++) assert.equal(await A.zcPut('birdcast:F1548-'+i, {rows:[i]}), true);
+    const report = A.zcActivityReport().join('\n');
+    assert.match(report, /WROTE 3, instrumented hits 0; heuristic only, typed\/mirror reads not fully observed; loss unverified/);
+    assert.deepEqual(Array.from((await A.zcGet('birdcast:F1548-0')).rows), [0]);
+    assert.doesNotMatch(A.zcActivityReport().join('\n'), /WROTE 3, instrumented hits 0/);
+  } finally { app.window.close(); }
+});
+
+test('F1548 actual ranking admission reports sanitized deterministic owner reasons', async () => {
+  const app = await boot(), A = app.window.__app;
+  try {
+    for (const [field, value, reason] of [
+      ['ownerProfile','different-private-profile','profile'],
+      ['ownerRevision',A.identityRevision()+1,'identity-revision'],
+      ['ownerGeneration',-1,'identity-generation'],
+      ['ownerScope','different-private-scope','scope'],
+      ['ownerCancel',-1,'work-cancellation'],
+      ['alive',()=>false,'caller-not-live']
+    ]) {
+      await assert.rejects(A.fetchRank({region:'US-WA',max:500,metric:'spp',[field]:value},
+        A.personalBoardPeriod(),'',false), /superseded/);
+      const line = app.window.__dbg.buf.filter(row=>row.msg.startsWith('Leaderboard ownership rejected:')).at(-1).msg;
+      assert.deepEqual(JSON.parse(line.slice(line.indexOf('{'))).reasons, [reason]);
+      assert.doesNotMatch(line, /different-private/);
+    }
+    assert.deepEqual(app.state.errors, []);
+  } finally { app.window.close(); }
+});
+
+test('F1548 actual lazy snapshot diagnostics distinguish ABA Mega eligibility from Chase state', async () => {
+  for (const report of ['wa','lower48']) {
+    const app = await boot({report,sample:false,fetch:url=>/alert\/summary/.test(url)
+      ? otherStateMegaAlertHtml() : []});
+    const A=app.window.__app;
+    try {
+      await A.lazyRefreshMegaSnapshot(null,true);
+      const messages=app.window.__dbg.buf.map(row=>row.msg).join('\n');
+      assert.match(messages, report==='wa'
+        ? /ABA Mega snapshot \(not Chase\): missing; eligible scope/
+        : /ABA Mega snapshot \(not Chase\): durable snapshot not applicable to this scope/);
+      assert.match(messages, /saved Chase state is separate/);
+    } finally { app.window.close(); }
+  }
+});
+
 test('F1536 main header combines year-region chooser and routes Home to the active editor without saving', async () => {
   for (const kind of ['home','temp','unset']) {
     const app = await boot({home:kind !== 'unset',storage:kind === 'temp'
@@ -1044,6 +1236,7 @@ test('F1543 returning Home survives a period change but rejects changed geograph
         : fetch(url, init);
       A.setActiveReport('wa');
       await waitFor(() => release, 'held Washington boundary: ' + change);
+      for (const id of ['hdrHome','navHome']) assert.equal(app.$(id).dataset.savedBaseKind,'temp');
       const pending = A.reconcileSavedBase();
       if (change === 'period') A.setPersonalPeriod('all');
       if (change === 'region') A.setActiveReport('u-bc');
@@ -1059,6 +1252,10 @@ test('F1543 returning Home survives a period change but rejects changed geograph
         assert.ok(decision, 'a period-only refresh still owns the geographic decision');
         assert.equal(decision.choice, 'home');
         assert.equal(A.tempHome(), null, 'period-only refresh cannot strand Temp Home');
+        for (const id of ['hdrHome','navHome']) {
+          assert.equal(app.$(id).dataset.savedBaseKind,'home');
+          assert.match(app.$(id).getAttribute('aria-label'),/Home \(Active\)/);
+        }
         assert.equal(JSON.stringify(A.getHome()), originalHome);
       } else {
         assert.equal(decision, null, change + ': reject stale boundary completion');
@@ -48886,8 +49083,9 @@ test('F10/F728/F1502/F1536: shared year-region links preserve chooser and contex
     app.open(/Settings/);
     const before=context();
     assert.equal(app.$('navPeriod'),null,'section navbar has no year button');
-    assert.equal(app.document.querySelectorAll('#navbar .hdrscope').length,0,
-      'the wide labelled pair must not return to section headers');
+    assert.deepEqual([...app.document.querySelectorAll('#navbar .hdrscope')].map(button=>button.id),['navHome'],
+      'only the icon-only shared Home action accompanies the compact year-region link');
+    assert.equal(app.$('navHome').textContent.trim(),'','Home must not reintroduce a wide labelled pair');
     assert.equal(sel.textContent,(time==='all'?'All':year)+' '+(county||
       (report==='lower48'?'LOWER48':report?'US-WA':'Region')),
       'one compact text link shows the four-digit year/All and effective region code');
@@ -62776,7 +62974,7 @@ test('F304 clears Mega origin on ordinary lookup, Close, scope and report change
   app.window.close();
 });
 
-test('the Mega index routes every row and species name to exact-code Stakeout and Back', async () => {
+test('F1547 the Mega index routes every row and species name to exact-code Stakeout and Back', async () => {
   const app = await boot({
     fetch(url) {
       if (/data\/obs\/.*\/recent\//.test(url)) return [];
@@ -62833,6 +63031,14 @@ test('the Mega index routes every row and species name to exact-code Stakeout an
   await settleMegaEntry(app, 'tersan');
   assert.equal(doc.getElementById('sec-spLookupBtn').hidden, false);
   assert.match(doc.getElementById('navBack').getAttribute('aria-label'), /Mega rarities/);
+  const origin=JSON.stringify(A.megaViewState().origin);
+  app.click(app.$('navHome'));
+  assert.equal(app.$('settingsPanel').hidden,false);
+  assert.equal(JSON.stringify(A.megaViewState().origin),origin,'Home editor preserves the exact Mega origin');
+  A.navBack();
+  assert.equal(app.$('sec-spLookupBtn').hidden,false,'editor Back returns to Stakeout, not its parent Mega');
+  assert.equal(doc.activeElement,app.$('navHome'));
+  assert.equal(JSON.stringify(A.megaViewState().origin),origin);
   A.navBack();
   assert.equal(doc.getElementById('sec-abaBtn').hidden, false,
     'Back returns to the matching still-current Mega list');

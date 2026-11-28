@@ -907,7 +907,7 @@
       margin-left: 0; white-space: normal; overflow-wrap: anywhere; }
     header > #hdrHome { grid-column: 2; display: inline-flex;
       align-items: center; justify-content: center; }
-    #hdrHome svg { width: calc(22px * var(--s)); height: calc(22px * var(--s)); }
+    #hdrHome svg, #navHome svg { width: calc(22px * var(--s)); height: calc(22px * var(--s)); }
     html[data-display="large"] header > #hdrScope,
     html[data-display="high-visibility"] header > #hdrScope { grid-column: 3; }
     header .hdrscope span { display: block; }
@@ -1317,8 +1317,13 @@
     #navbar[hidden] { display: none; }  /* redundant now: see [hidden] above */
     #navbar button { padding: 8px 12px; font-size: calc(14px * var(--s)); }
     #navbar #navBack { flex: 0 0 auto; padding: 0; width: calc(38px * var(--s)); height: calc(38px * var(--s)); display: inline-flex; align-items: center; justify-content: center; font-size: calc(24px * var(--s)); line-height: 1; }
-    #navTitle { min-width: 0; font-weight: 800; font-size: calc(15px * var(--s)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .navregion { flex: 0 0 auto; max-width: 50%; min-width: 0; margin-left: auto; display: inline-flex; }
+    #navbar { gap: 3px; padding-inline: 8px; }
+    #navbar #navBack { width: 44px; min-width: 44px; }
+    #navbar #navMain { flex: 0 0 44px; min-width: 44px; min-height: 44px; padding: 0; }
+    #navTitle { flex: 1 1 auto; min-width: 1px; font-weight: 800; font-size: calc(15px * var(--s)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .navregion { flex: 0 0 auto; max-width: 44%; min-width: 44px; margin-left: auto; display: inline-flex; }
+    #navbar #navHome { flex: 0 0 auto; min-width: 44px; min-height: 44px; padding: 0;
+      display: inline-flex; align-items: center; justify-content: center; }
     #navbar #navRegion { max-width: 100%; min-width: 44px; min-height: 44px;
       padding: 2px 0; border: 0; background: none; box-shadow: none; color: var(--link);
       font-size: calc(11px * var(--s)); line-height: 1.2; text-align: right;
@@ -4340,6 +4345,8 @@
       <img class="brandmark small" src="assets/brand/mark.png" alt="" aria-hidden="true" width="26" height="26">
     </button>
     <span id="navTitle"></span>
+    <button type="button" id="navHome" class="hdrscope" data-saved-base-editor="active"
+            aria-label="Open Home settings" title="Home settings"></button>
     <span class="navregion">
       <button id="navRegion" type="button" aria-label="Choose report region"><span id="navScopeTag" class="tag">Choose region</span></button>
     </span>
@@ -6022,7 +6029,7 @@
       // Single source of truth for the shipped version. The footer and the debug
       // header both render from this, and tests/version.test.js asserts it
       // matches package.json so a release can't ship a mislabeled build.
-      var APP_VERSION = '2.16.0';
+      var APP_VERSION = '2.17.0';
       var K = { api: 'ebird_api_key', region: 'ebird_region', report: 'ebird_report', seen: 'ebird_seen', seenMeta: 'ebird_seen_meta', field: 'ebird_seen_field' };
       var IMPORT_PAYLOAD_KEYS = [K.seenMeta, K.seen, 'ebird_life_names', 'ebird_year_names'];
       var _importDraft = null, _importQueues = Object.create(null), _importGenerations = Object.create(null);
@@ -10151,7 +10158,16 @@
           + 'ms; monotonic=' + (monotonicGap == null ? 'unavailable' : Math.round(monotonicGap) + 'ms')
           + '; native-background overlap=' + Math.round(background)
           + 'ms; visibility=' + (document.hidden ? 'hidden' : 'visible')
-          + '; cause and provider time unverified.');
+          + '; cause and provider time unverified; overlap provisional at observation time.');
+      }
+      function reconciledHeartbeatGaps() {
+        return _heartbeatGaps.map(function (gap) {
+          return Object.assign({}, gap, {
+            native_background_ms: timingOverlap(nativeBackgroundIntervals(), gap.start, gap.end),
+            lifecycle_evidence: _nativeLifecycleObserved
+              ? 'recorded-events-reconciled' : 'unknown-no-native-evidence'
+          });
+        });
       }
       function heartbeatStart() {
         if (_beatTimer || typeof setInterval !== 'function') return;
@@ -12811,8 +12827,11 @@
         var context = megaWriteContext(current);
         entry = { promise: null, outcome: '', current: context.current };
         _megaLazyByKey[key] = entry;
-        dbg('net', 'mega snapshot is ' + (isFinite(age) ? Math.round(age) + 'h old' : 'missing')
-          + ' — refreshing it here rather than asking you to open another section');
+        var scoped = !report.isRarityTracker && /^US-[A-Z]{2}$/.test(region);
+        dbg('net', 'ABA Mega snapshot (not Chase): '
+          + (scoped ? isFinite(age) ? Math.round(age) + 'h old; eligible scope' : 'missing; eligible scope'
+            : 'durable snapshot not applicable to this scope')
+          + '; refreshing source evidence; saved Chase state is separate');
         var url = 'https://ebird.org/alert/summary?sid=' + encodeURIComponent(sid)
           + '&sortBy=obsDt&o=desc';
         var releaseProgress = holdProgress('Refreshing Bird Gen Mega snapshot');
@@ -12831,7 +12850,6 @@
             if (_megaLazyByKey[key] === entry) delete _megaLazyByKey[key];
             return false;
           }
-          var scoped = !report.isRarityTracker && /^US-[A-Z]{2}$/.test(region);
           var rows = scoped
             ? list.filter(function (o) { return o.subnational1Code === region; })
             : list;
@@ -22901,6 +22919,7 @@
       }
       function savedBaseAnchors() { return BL.anchorsFor(null, { home: activeSavedBase() }); }
       function savedBaseChanged() {
+        refreshSavedBaseShortcuts();
         reconcileSavedBase(false);
         resetTransientAnchor();
         clearChaseCache();
@@ -30649,11 +30668,8 @@
           .forEach(function (k) {
             var s = _zcStats[k];
             var ratio = s.out ? (s.raw / s.out) : 0;
-            // ⚠️ A leak, stated rather than left to be spotted: entries are
-            // being stored and nothing is reading them back. Either the key
-            // varies between write and read, or the section never asks.
             var leak = (s.put >= 3 && s.hit === 0) ? '   <-- WROTE ' + s.put
-              + ', READ 0 — key may vary between write and read' : '';
+              + ', instrumented hits 0; heuristic only, typed/mirror reads not fully observed; loss unverified' : '';
             lines.push('  ' + String(s.hit).padStart(4) + ' hit '
               + String(s.miss).padStart(4) + ' miss '
               + String(s.put).padStart(4) + ' put'
@@ -38247,7 +38263,10 @@
       function cancelObsoleteRankReads() {
         Object.keys(_rankActiveReads || {}).forEach(function (key) {
           var read = _rankActiveReads[key];
-          if (!rankRequestOwnerCurrent(read.request)) read.cancel();
+          if (!rankRequestOwnerCurrent(read.request)) {
+            rankSupersededError(read.request, 'transport-cancel', true);
+            read.cancel();
+          }
         });
       }
       function ownedRankRequest(rr) {
@@ -38267,11 +38286,24 @@
       function rankRequestCurrent(rr) {
         return rankRequestOwnerCurrent(rr) && (!rr.alive || rr.alive());
       }
+      function rankSupersededError(rr, stage, ownerOnly) {
+        var reasons = [];
+        if (rr.ownerProfile !== bcProfile()) reasons.push('profile');
+        if (rr.ownerRevision !== identityRevision()) reasons.push('identity-revision');
+        if (rr.ownerGeneration !== _identityGeneration) reasons.push('identity-generation');
+        if (rr.ownerScope !== activeScope().cacheIdentity) reasons.push('scope');
+        if (rr.ownerCancel !== _workCancelGeneration) reasons.push('work-cancellation');
+        if (!ownerOnly && rr.alive && !rr.alive()) reasons.push('caller-not-live');
+        dbg('info', 'Leaderboard ownership rejected: ' + JSON.stringify({
+          stage: stage, reasons: reasons.length ? reasons : ['changed-before-diagnostic']
+        }));
+        return new Error('Leaderboard request was superseded by another account or view.');
+      }
       function rankConsumerResult(work, rr) {
         return work.then(async function (data) {
-          if (!rankRequestCurrent(rr)) throw new Error('Leaderboard request was superseded by another account or view.');
+          if (!rankRequestCurrent(rr)) throw rankSupersededError(rr, 'consumer-before-history');
           await drainRankingHistoryWrites();
-          if (!rankRequestCurrent(rr)) throw new Error('Leaderboard request was superseded by another account or view.');
+          if (!rankRequestCurrent(rr)) throw rankSupersededError(rr, 'consumer-after-history');
           return data;
         });
       }
@@ -38305,7 +38337,7 @@
         return loadRankCache().then(function () { return fetchRankLoaded(rr, year, name, force); });
       }
       function fetchRankLoaded(rr, year, name, force) {
-        if (!rankRequestCurrent(rr)) return Promise.reject(new Error('Leaderboard request was superseded by another account.'));
+        if (!rankRequestCurrent(rr)) return Promise.reject(rankSupersededError(rr, 'http-admission'));
         // Key by region (not just URL) so the key states what the rows must BE,
         // and re-check the stored region on read: a cache entry that disagrees
         // with the request is treated as a miss instead of silently rendering
@@ -38331,7 +38363,7 @@
         _rankFetchGeneration[ck] = generation;
         var urls = rankingsUrlVariants(rr.region, year, rr.max, metric), lastErr = null;
         function attempt(i) {
-          if (!rankRequestOwnerCurrent(rr)) return Promise.reject(new Error('Leaderboard request was superseded by another account.'));
+          if (!rankRequestOwnerCurrent(rr)) return Promise.reject(rankSupersededError(rr, 'http-attempt', true));
           if (i >= urls.length) return Promise.reject(lastErr || new Error('Could not read the leaderboard.'));
           var controller = new AbortController(), timer, attemptStart = Date.now();
           var deadline = new Promise(function (resolve, reject) {
@@ -38347,14 +38379,14 @@
           });
           return Promise.race([fetchPublicHTML(urls[i], force, controller.signal), deadline])
             .finally(function () { clearTimeout(timer); delete _rankActiveReads[diagnosticId]; }).then(async function (html) {
-            if (!rankRequestOwnerCurrent(rr)) throw new Error('Leaderboard request was superseded by another account.');
+            if (!rankRequestOwnerCurrent(rr)) throw rankSupersededError(rr, 'http-response', true);
             rankDiagnostic('http-received', { run: diagnosticId, requested: rr.max || 500,
               characters: String(html || '').length, attempt: i + 1,
               elapsedMs: Date.now() - diagnosticStart });
             await rankSnapshotSave(html, 'http-response', metric, function () {
               return rankRequestOwnerCurrent(rr) && _rankFetchGeneration[ck] === generation;
             });
-            if (!rankRequestOwnerCurrent(rr)) throw new Error('Leaderboard request was superseded by another account.');
+            if (!rankRequestOwnerCurrent(rr)) throw rankSupersededError(rr, 'http-before-parse', true);
             var data = parseRankingsHTML(html, name, rr.rowLimit) || {};
             rankDiagnostic('http-parsed', Object.assign({ run: diagnosticId }, data.parseCounts));
             var source = rankPageIdentity(html);
@@ -38378,7 +38410,7 @@
               var saved = await rankCachePut(ck, data, function () {
                 return rankRequestOwnerCurrent(rr) && _rankFetchGeneration[ck] === generation;
               });
-              if (!rankRequestOwnerCurrent(rr)) throw new Error('Leaderboard request was superseded by another account.');
+              if (!rankRequestOwnerCurrent(rr)) throw rankSupersededError(rr, 'http-after-cache', true);
               recordRankBirdHistory(data, rr.region, year, metric, name);
               rankDiagnostic(saved === false ? 'snapshot-not-persisted' : 'snapshot-retained',
                 { run: diagnosticId, retained: data.rows.length, rowLimit: rr.rowLimit || TOP_BOARD_N });
@@ -39296,7 +39328,7 @@
         });
       }
       function rankBoardReadLoaded(rr, period, name, force, onStatus) {
-        if (!rankRequestCurrent(rr)) return Promise.reject(new Error('Leaderboard request was superseded.'));
+        if (!rankRequestCurrent(rr)) return Promise.reject(rankSupersededError(rr, 'board-admission'));
         var metric = rr.metric || 'spp';
         var url = rankingsUrl(rr.region, period, rr.max, metric);
         if (!force && !rr.authenticated && metric === 'spp' && rr.max === 500) {
@@ -58775,6 +58807,7 @@
       // because a bare code is an abbreviation and F189 is the standing lesson
       // that an unnamed control is a confusing one.
       function headerScopeRefresh() {
+        refreshSavedBaseShortcuts();
         var el = $('hdrScope');
         if (!el) return;
         var code = scopeCode();
@@ -60258,7 +60291,7 @@
           fgCancelObsolete();
         }
         if (_from === 'sec-spLookupBtn' && id !== 'sec-spLookupBtn'
-            && id !== 'sec-abaBtn') {
+            && id !== 'sec-abaBtn' && id !== 'settingsPanel') {
           clearMegaStakeContext();
         }
         // Leaving the section closes any sub-page it had open, or coming back
@@ -61876,6 +61909,10 @@
         button.classList.add('regioncurrent');
         return button;
       }
+      function regionChoiceSearchText(row) {
+        return [regionChoiceName(row), regionChoiceType(row), row.label, row.code,
+          row.value, row.searchAlias || ''].join(' ').toLowerCase();
+      }
       function regionChoiceButton(row, current) {
         var button = document.createElement('button');
         button.type = 'button';
@@ -61889,7 +61926,7 @@
         button.appendChild(document.createTextNode(' '));
         button.appendChild(kind);
         button.dataset.regionChoice = row.value;
-        button.dataset.searchText = [button.textContent, row.label, row.code, row.value, row.searchAlias || ''].join(' ').toLowerCase();
+        button.dataset.searchText = regionChoiceSearchText(row);
         if (current) {
           button.disabled = true;
           button.setAttribute('aria-current', 'true');
@@ -62062,13 +62099,11 @@
             return name === q || String(row.code).toLowerCase() === q ? 0
               : row.parentValue ? 2 : 1;
           }
-          rows.map(function (row) {
-            return { row: row, button: regionChoiceButton(row, row.value === current) };
-          }).filter(function (match) {
-            return match.button.dataset.searchText.indexOf(q) >= 0;
+          rows.filter(function (row) {
+            return regionChoiceSearchText(row).indexOf(q) >= 0;
           }).sort(function (a, b) {
-            return matchRank(a.row) - matchRank(b.row) || a.row.label.localeCompare(b.row.label);
-          }).forEach(function (match) { results.appendChild(match.button); });
+            return matchRank(a) - matchRank(b) || a.label.localeCompare(b.label);
+          }).forEach(function (row) { results.appendChild(regionChoiceButton(row, row.value === current)); });
           if (unsupportedMatches) {
             var unsupportedHost = $('regionChooserUnsupportedResults');
             var unsupportedTitle = document.createElement('p'), unsupportedNames = document.createElement('ul');
@@ -62236,10 +62271,11 @@
         $('regionChooserCountyListLabel').textContent = savedSearch.trim() ? 'Matching counties'
           : 'All counties' + (countyParent ? ' · ' + countyParent.label : '');
         rows.forEach(function (row) {
-          var button = regionChoiceButton(row, row.value === current);
           if (row.parentValue) {
-            if (savedSearch.trim() || countyParent && row.parentValue === countyParent.slug) countyHost.appendChild(button);
-          } else (row.value === 'aba' || row.value === 'lower48' ? broaderHost : allHost).appendChild(button);
+            if (savedSearch.trim() || countyParent && row.parentValue === countyParent.slug)
+              countyHost.appendChild(regionChoiceButton(row, row.value === current));
+          } else (row.value === 'aba' || row.value === 'lower48' ? broaderHost : allHost)
+            .appendChild(regionChoiceButton(row, row.value === current));
         });
         if (!countyHost.children.length) countyHost.textContent = 'No county views are configured or loaded yet.';
         var hint = $('regionChooserCatalogHint');
@@ -62259,12 +62295,12 @@
               $('regionChooserCountyList').open = false;
               $('regionChooserStateList').open = false;
             }
-            renderRegionChooser({ preserveSearch: true });
+            applyRegionChooserFilter();
           };
           $('regionChooserSearchForm').onsubmit = function (event) {
             event.preventDefault();
             search.blur();
-            renderRegionChooser({ preserveSearch: true });
+            applyRegionChooserFilter();
           };
           $('regionChooserClear').onclick = function () {
             search.value = '';
@@ -63208,7 +63244,8 @@
             settled: initial.settled, sourceStates: sourceStates, groupStates: groupStates,
             firstBlocker: initial.firstBlocker || null, latestBlocker: initial.latestBlocker || null }));
         }
-        add('Heartbeat observations (wall alignment; cause unverified): ' + JSON.stringify(_heartbeatGaps));
+        add('Heartbeat observations (wall alignment; reconciled against recorded events only; coverage incomplete; cause unverified): '
+          + JSON.stringify(reconciledHeartbeatGaps()));
         add('Native lifecycle evidence (background is not suspension): ' + JSON.stringify({
           observed: _nativeLifecycleObserved, clock: 'native-wall-and-system-uptime',
           events: _nativeLifecycleEvents
@@ -64292,7 +64329,7 @@
       // while that view is still current. Otherwise Back keeps its ordinary
       // meaning and returns to Contents.
       function navBack() {
-        if (_stakeOrigin) {
+        if (_stakeOrigin && visibleSectionId() === 'sec-spLookupBtn') {
           var origin = _stakeOrigin;
           var view = _megaViews[origin.viewKey];
           var returnToMega = !!(view && megaViewCurrent(view)
@@ -64314,6 +64351,13 @@
         var entry = navHistoryPop();
         if (entry) {
           showSection(entry.id, { record: false, scrollY: entry.scrollY });
+          if (_savedLocationReturn && entry.id === _savedLocationReturn.section
+              && _savedLocationReturn.profile === bcProfile()
+              && _savedLocationReturn.scope === activeScope().cacheIdentity) {
+            var target = $(_savedLocationReturn.id);
+            if (target) target.focus({ preventScroll: true });
+          }
+          _savedLocationReturn = null;
           return;
         }
         showMenu();
@@ -64924,6 +64968,25 @@
       });
 
       var _savedLocationEditorGeneration = 0;
+      var _savedLocationReturn = null;
+      function refreshSavedBaseShortcuts() {
+        var kind = savedBaseKind(), active = !!activeSavedBase();
+        var label = kind === 'temp' ? 'Temp Home (Active)' : active ? 'Home (Active)' : 'Home (Not set)';
+        ['hdrHome', 'navHome'].forEach(function (id) {
+          var button = $(id);
+          if (!button) return;
+          if (button.dataset.savedBaseKind !== kind || !button.firstElementChild) {
+            button.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"'
+              + ' stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">'
+              + (kind === 'temp' ? '<rect x="4" y="7" width="16" height="14" rx="2"/>'
+                + '<path d="M9 7V3h6v4M8 7v14M16 7v14"/>'
+                : '<path d="M3 10.5 12 3l9 7.5M5 9v12h5v-7h4v7h5V9"/>') + '</svg>';
+          }
+          button.dataset.savedBaseKind = kind;
+          button.setAttribute('aria-label', 'Open ' + label + ' settings');
+          button.title = label + ' settings';
+        });
+      }
       function openSavedLocationEditor(kind) {
         if (kind !== 'temp' && tempHome()) kind = 'temp';
         var generation = ++_savedLocationEditorGeneration;
@@ -64960,9 +65023,13 @@
         var link = event.target.closest && event.target.closest('[data-saved-base-editor]');
         if (!link) return;
         event.preventDefault();
+        if (link.id === 'navHome' && visibleSectionId() !== 'settingsPanel')
+          _savedLocationReturn = {id: link.id, section: visibleSectionId(),
+            profile: bcProfile(), scope: activeScope().cacheIdentity};
         openSavedLocationEditor(link.dataset.savedBaseEditor);
       });
       function renderSavedLocations() {
+        refreshSavedBaseShortcuts();
         var temporary = tempHome(), permanent = getHome();
         var homeEditor = $('settingsHomeEditor'), tempHomeEditor = $('settingsTempHomeEditor');
         if (!homeEditor || !$('homeSettingsTitle')) return;

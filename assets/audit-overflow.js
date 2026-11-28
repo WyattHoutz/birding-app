@@ -1411,6 +1411,11 @@ const AUDIT = `<script>
       finish(out);
       return;
     }
+    if (${process.env.AUDIT_FOCUS === 'hotfix'}) {
+      out.push(...await hotfixLayout(scan));
+      finish(out);
+      return;
+    }
     if (${process.env.AUDIT_FOCUS === 'maps'}) {
       out.push.apply(out, await mapLayout(scan, ${JSON.stringify(process.env.AUDIT_MAP_MUTATION || '')}));
       finish(out);
@@ -5428,6 +5433,7 @@ const AUDIT = `<script>
   const rankClimbLayout = ${require('./rank-climb-layout').toString()};
   const mapLayout = ${require('./map-layout').toString()};
   const nextReleaseLayout = ${require('./next-release-layout').toString()};
+  const hotfixLayout = ${require('./hotfix-layout').toString()};
   const alertLocationLayout = ${require('./alert-location-layout').toString()};
   const patchBoundaryLayout = ${require('./patch-boundary-layout').toString()};
   const coldPatchLayout = ${require('./cold-patch-layout').toString()};
@@ -5439,7 +5445,7 @@ const AUDIT = `<script>
   const prepareRankBirdReview = ${require('./rank-bird-review').toString()};
   const rankBirdLayout = ${require('./rank-bird-layout').toString()};
   async function finish(out) {
-    if (!${['batch','logout','forward','ticks','maps','rank-climb','next-release','scope-headers','release-review','bird-reports','top100-sync','rank-birds','alert-locations','patch-boundaries','cold-patches','saved-locations'].includes(process.env.AUDIT_FOCUS)}) {
+    if (!${['batch','logout','forward','ticks','maps','rank-climb','next-release','scope-headers','hotfix','release-review','bird-reports','top100-sync','rank-birds','alert-locations','patch-boundaries','cold-patches','saved-locations'].includes(process.env.AUDIT_FOCUS)}) {
     if (!out.some(function (result) { return result.fixtureError; })) {
       try { out.push(...await coldPatchLayout(scan,preparePersonalFixture,auditStage)); }
       catch(error) { out.push({label:'F1532 cold patches',fixtureError:String(error.stack || error)}); }
@@ -5516,6 +5522,7 @@ const AUDIT = `<script>
       out.push.apply(out, await forwardLayout(scan, verifiedNotableFixture, ''));
       out.push.apply(out, await mapLayout(scan, ''));
       out.push.apply(out, await nextReleaseLayout(scan, ''));
+      out.push.apply(out, await hotfixLayout(scan));
       out.push.apply(out, await alertLocationLayout(scan, ''));
       out.push.apply(out, await patchBoundaryLayout(scan, ''));
       out.push.apply(out, await releaseReviewLayout(scan, '', auditStage));
@@ -5930,6 +5937,12 @@ server.listen(0, '127.0.0.1', () => {
         fixtureError:r.fixtureError,over:r.over,docScrollW:r.docScrollW,items:r.items})),null,2));
       process.exit(report.length===(process.env.AUDIT_FOCUS==='scope-headers'?1:6) && report.every(r=>r.nextReleaseGeometry
         && !r.fixtureError && r.over<=.5 && r.docScrollW<=WIDTH+.5) ? 0 : 1);
+    }
+    if (process.env.AUDIT_FOCUS === 'hotfix') {
+      console.log(JSON.stringify(report.map(r=>({label:r.label,hotfixGeometry:r.hotfixGeometry,
+        fixtureError:r.fixtureError,over:r.over,docScrollW:r.docScrollW})), null, 2));
+      process.exit(report.length===3 && report.every(r=>r.hotfixGeometry && !r.fixtureError
+        && r.over<=.5 && r.docScrollW<=WIDTH+.5) ? 0 : 1);
     }
     if (process.env.AUDIT_FOCUS === 'rank-climb') {
       console.log(JSON.stringify(report, null, 2));

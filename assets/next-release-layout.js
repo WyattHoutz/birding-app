@@ -55,7 +55,8 @@ async function nextReleaseLayout(scan, mutation, focus) {
     check(titleBox.width>0&&titleBox.right<=box.left+.5,
       'F1502 scope link must leave independent title space');
     check(box.height<=Math.max(back.height,44)+1,
-      'F1502 scope link must not make the compact navbar taller');
+      'F1502 scope link must not make the compact navbar taller: '+JSON.stringify({
+        scope:box.toJSON(),back:back.toJSON(),title:titleBox.toJSON()}));
     function checkText() {
       const rect=button.getBoundingClientRect(),range=document.createRange();
       range.selectNodeContents(tag);
