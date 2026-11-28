@@ -102,16 +102,17 @@ async function hotfixLayout(scan) {
     window.fetch = () => new Promise(() => {});
     try {
       const now = Date.now();
-      A.renderSurge([], [], [], [], [], {observations:'ok',favorites:'ok',suppressNotifications:true},
-        [], [{code:'coripl',name:'Common Ringed Plover',time:now,
-          when:new Date(now-60000).toISOString(),locId:'LF1545PAINT',locName:'Public marsh',
-          checklistId:'SF1545PAINT',lat:47.75,lng:-122.16,state:'US-WA'}]);
+      const inheritedFavoriteMembership = A.isSpeciesSeen('coripl', 'Common Ringed Plover');
+      A.renderSurge([], [], [{locId:'LF1545PAINT',loc:'Public marsh',
+        observers:10,baseline:2,ratio:5,latest:new Date(now-60000).toISOString(),
+        lat:47.75,lng:-122.16}], [], [], {observations:'ok',suppressNotifications:true});
       for (const action of ['open','refresh']) {
         A.cancelStalledWork();
         if (action === 'open') A.showMenu();
         else A.showSection('sec-surgeBtn', {load:false});
         const feed = document.getElementById('surgeFeed');
-        check(feed && feed.children.length, 'feedback control requires genuine retained alert cards');
+        check(feed && feed.querySelector('[data-alert-kind="hotspot"][data-hsloc="LF1545PAINT"]'),
+          'feedback control requires a genuinely qualified retained hotspot alert');
         const started = performance.now();
         document.getElementById(action === 'open' ? 'recentBirdGenOpen' : 'surgeBtn').click();
         const handlerMs = performance.now()-started;
@@ -126,7 +127,7 @@ async function hotfixLayout(scan) {
         await paint();
         check(!document.getElementById('sec-rankBtn').hidden, 'retired feedback cannot navigate back');
       }
-      return {timings,retainedCards:true,nativeWhiteScreenVerified:false};
+      return {timings,retainedCards:true,inheritedFavoriteMembership,nativeWhiteScreenVerified:false};
     } finally {
       A.cancelStalledWork(); window.fetch=fetch;
       A.LOADERS.surgeBtn.reachability=reachability;
