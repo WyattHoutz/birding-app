@@ -5941,7 +5941,7 @@ server.listen(0, '127.0.0.1', () => {
     if (process.env.AUDIT_FOCUS === 'hotfix') {
       console.log(JSON.stringify(report.map(r=>({label:r.label,hotfixGeometry:r.hotfixGeometry,
         fixtureError:r.fixtureError,over:r.over,docScrollW:r.docScrollW})), null, 2));
-      process.exit(report.length===3 && report.every(r=>r.hotfixGeometry && !r.fixtureError
+      process.exit(report.length===7 && report.every(r=>r.hotfixGeometry && !r.fixtureError
         && r.over<=.5 && r.docScrollW<=WIDTH+.5) ? 0 : 1);
     }
     if (process.env.AUDIT_FOCUS === 'rank-climb') {

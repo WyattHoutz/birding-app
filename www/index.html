@@ -1252,6 +1252,7 @@
     @keyframes pullspin { to { transform: translateX(-50%) translateY(70px) rotate(360deg); } }
     @media (prefers-reduced-motion: reduce) { .pullhint.spin { animation: none; } }
     .panel { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 16px; box-shadow: var(--shadow); margin-bottom: 14px; }
+    main[aria-busy="true"] > section.panel { display: none; }
     /* Second line of defence for the sideways drag. The clip on <html> above
        provably did NOT stop it on device — WKWebView still pans the visual
        viewport — and a headless Chromium sweep of all 25 panels at every text
@@ -4480,7 +4481,8 @@
     <div id="setupSheetActions"></div>
   </div>
 
-  <main>
+  <main aria-busy="true">
+    <p id="startupStatus" class="status" role="status">Opening Bird Chaser&#8230;</p>
     <div id="savedBaseRegionNotice" class="home-review" role="status" hidden>
       <span></span>
       <button type="button" class="secondary" data-saved-base-editor="temp">Review Temp Home</button>
@@ -5307,6 +5309,7 @@
     #debugPanel .dbgtools[hidden] { display: none; }
     #debugPanel .dbgtools button { background: #24463a; color: #e6fff4; border: 0;
                                    border-radius: 6px; padding: 8px 12px; font-size: 13px; }
+    #dbgTimingsToggle { min-width: 44px; min-height: 44px; }
     .diagnosticcapture { max-height: 16rem; overflow: auto; white-space: pre-wrap;
                          overflow-wrap: anywhere; -webkit-user-select: text; user-select: text; }
     html[data-report-export="true"] #debugPanel { display: none !important; }
@@ -5340,6 +5343,7 @@
       <button id="dbgClear" type="button">Clear</button>
       <button id="dbgSourceCapture" type="button" aria-pressed="false">Capture page fragments: Off</button>
       <button id="dbgSourceCopy" type="button">Copy page fragments</button>
+      <button id="dbgTimingsToggle" type="button" aria-pressed="false">Timing capture: Off</button>
       <strong>Personal-list diagnostics — read-only probes; normal refresh saves verified history</strong>
       <button id="dbgPersonalPath" type="button">Test personal list: direct path</button>
       <button id="dbgPersonalQuery" type="button">Test personal list: direct explicit year</button>
@@ -5347,6 +5351,7 @@
       <button id="dbgPersonalSession" type="button">Test owned list: direct session</button>
       <button id="dbgPersonalSessionBrowser" type="button">Test owned list: browser session</button>
     </div>
+    <p id="dbgTimingStatus" class="hint" hidden></p>
     <!-- A <pre>, NOT a <textarea>. A textarea is focusable, and on iOS focus
          raises the keyboard and resizes the visual viewport — which is the
          "screen resize issue" this panel kept causing. The old copy fallback
@@ -21105,7 +21110,7 @@
         });
         return row;
       }
-      function publicEvidenceMembership(row, scope) {
+      function publicEvidenceMembership(row, scope, membershipCache) {
         var code = (scope || activeScope()).effectiveRegion || '';
         row = publicEvidenceRecord(row) || {};
         var counties = ['co', 'sub2', 'county', 'countyCode', 'subnational2', 'subnational2Code']
@@ -21113,17 +21118,33 @@
           .filter(function (value, index, values) { return value && values.indexOf(value) === index; });
         if (counties.length > 1) return {state:'unknown',basis:'conflicting-administration'};
         if (counties.length) row = Object.assign({}, row, {county:counties[0]});
-        return code === 'aba' || code === 'lower48' ? BL.regionMembership(row, code)
+        var signature = null;
+        if (membershipCache) {
+          var values = [code].concat([
+            'lat', 'lng', 'lon', 'coordinatesMissing', 'coordinates_missing',
+            'county', 'subnational2Code', 'subnational2', 'state', 'subnational1Code',
+            'subnational1', 'country', 'countryCode'
+          ].map(function (key) { return row[key]; }));
+          if (values.every(function (value) {
+            return value == null || typeof value === 'string' || typeof value === 'boolean'
+              || typeof value === 'number' && Number.isFinite(value);
+          })) signature = JSON.stringify(values);
+          if (signature && membershipCache.has(signature)) return membershipCache.get(signature);
+        }
+        var membership = code === 'aba' || code === 'lower48' ? BL.regionMembership(row, code)
           : BL.administrativeMembership(row, code, _patchBoundaries[code]);
+        if (signature) membershipCache.set(signature, membership);
+        return membership;
       }
-      function publicEvidenceRows(rows, scope) {
+      function publicEvidenceRows(rows, scope, membershipCache) {
         scope = scope || activeScope();
         if (!boundedPublicRegion(scope.effectiveRegion)) return (rows || []).slice();
+        membershipCache = membershipCache || new Map();
         return (rows || []).filter(function (row) {
-          return row && publicEvidenceMembership(row, scope).state === 'inside';
+          return row && publicEvidenceMembership(row, scope, membershipCache).state === 'inside';
         });
       }
-      function publicEvidenceFromSource(rows, scope, sourceRegion) {
+      function publicEvidenceFromSource(rows, scope, sourceRegion, membershipCache) {
         var administrative = /^[A-Z]{2}-[A-Z0-9]+(?:-[A-Z0-9]+)?$/.test(sourceRegion || '');
         return publicEvidenceRows((rows || []).map(function (row) {
           row = publicEvidenceRecord(row);
@@ -21132,7 +21153,7 @@
           if (source.state !== 'unknown' || source.basis !== 'insufficient-administration') return row;
           var key = sourceRegion.split('-').length === 3 ? 'subnational2Code' : 'subnational1Code';
           return Object.assign({}, row, { [key]: sourceRegion });
-        }), scope);
+        }), scope, membershipCache);
       }
       function patchEvidenceAtPlaces(rows, places, scope, project) {
         if (!scope) return (rows || []).slice();
@@ -53715,6 +53736,8 @@
           favoriteRows, massRows) {
         var box = $('surgeResults');
         _recentBirdGenContext = recentBirdGenKey();
+        box._feedbackOwner = {context:_recentBirdGenContext,
+          personal:personalListRead(personalListOwner()),watch:JSON.stringify(watchCodes())};
         _recentBirdGenModel = { context: _recentBirdGenContext,
           args: [events, cascades, convergence, needs, merged, sourceState,
             topPatches, favoriteRows, massRows] };
@@ -54379,10 +54402,12 @@
         var next = Object.assign({}, value), unknown = 0;
         function project(rows, region) {
           rows = rows || [];
-          var admitted = publicEvidenceFromSource(rows, scope, region);
+          // Share only this synchronous batch; later scope/geometry changes get fresh verdicts.
+          var membershipCache = new Map();
+          var admitted = publicEvidenceFromSource(rows, scope, region, membershipCache);
           unknown += rows.filter(function (row) {
-            return publicEvidenceMembership(row, scope).state === 'unknown'
-              && !publicEvidenceFromSource([row], scope, region).length;
+            return publicEvidenceMembership(row, scope, membershipCache).state === 'unknown'
+              && !publicEvidenceFromSource([row], scope, region, membershipCache).length;
           }).length;
           return admitted;
         }
@@ -54855,6 +54880,36 @@
             partial: catalogKm + 0.01 < radius * 1.609344 };
         });
       }
+      var _birdGenFeedbackPending = {};
+      function birdGenFeedback(kind, start, prepare) {
+        var scope = activeScope(), navigation = _navGeneration;
+        var cancellation = _workCancelGeneration, context = surgeRetainedContext();
+        function current() {
+          return !!window.document && !_appUnloading && scopeCurrent(scope)
+            && navigation === _navGeneration && cancellation === _workCancelGeneration
+            && context === surgeRetainedContext();
+        }
+        var existing = _birdGenFeedbackPending[kind];
+        if (existing && existing.current()) return existing.promise;
+        var prepared = prepare && prepare();
+        var box = $('surgeResults'), rendered = box._feedbackOwner;
+        if (!rendered || rendered.context !== recentBirdGenKey()
+            || rendered.personal !== personalListRead(personalListOwner())
+            || rendered.watch !== JSON.stringify(watchCodes())) box.innerHTML = '';
+        var status = $('surgeStatus');
+        status.hidden = false;
+        status.textContent = 'Preparing Bird Gen\u2026';
+        var frame = window.requestAnimationFrame || function (fn) { setTimeout(fn, 0); };
+        var pending = { current: current };
+        _birdGenFeedbackPending[kind] = pending;
+        pending.promise = new Promise(function (resolve) {
+          frame(function () { frame(resolve); });
+        }).then(function () {
+          if (_birdGenFeedbackPending[kind] === pending) delete _birdGenFeedbackPending[kind];
+          return current() ? start(prepared) : false;
+        });
+        return pending.promise;
+      }
       function loadSurge(performanceLoadId, deepHistory, options) {
         options = options || {};
         var aggregate = getReport().isRarityTracker === true;
@@ -54904,7 +54959,8 @@
         var stopped = false, terminalOutcome = '', autoload = typeof performanceLoadId === 'string';
         var section = $('sec-surgeBtn');
         if (typeof performanceLoadId !== 'string') {
-          performanceLoadId = performanceStart(section, deepHistory ? 'deep-history' : 'refresh');
+          performanceLoadId = options.performanceLoadId
+            || performanceStart(section, deepHistory ? 'deep-history' : 'refresh');
         }
         var releasePerformance = performanceHold(section, performanceLoadId);
         function ownsView(ending) {
@@ -56955,7 +57011,7 @@
           try { dbg('info', 'chase repaint \u00b7 ' + _painted.join(', ') + ' \u00b7 on ' + visibleSectionId()); } catch (e) {}
         }
       }
-      function autoLoad(sec) {
+      function autoLoad(sec, feedbackLoadId) {
         if (_appUnloading || !window.document || !sec || sec._enabled === false || _autoLoaded[sec.id]) return;
         if (renderAggregateCapability(sec)) return;
         var spec = sec._loader;
@@ -57020,7 +57076,7 @@
         // live rather than cached, so this is the line that explains a cost
         // bucket appearing for a section the reader never chose.
         try { dbg('info', 'autoload ' + sec.id + ' \u00b7 on ' + visibleSectionId() + navWhy()); } catch (e) {}
-        var performanceLoadId = performanceStart(sec, 'autoload');
+        var performanceLoadId = feedbackLoadId || performanceStart(sec, 'autoload');
         var result;
         var loadScope = activeScope();
         sec._scopeLoad = loadScope;
@@ -58650,6 +58706,8 @@
         bindRegionPickers();
         renderKeyBanner();
         showMenu();
+        main.removeAttribute('aria-busy');
+        $('startupStatus').hidden = true;
       }
       // The Contents list is rebuilt whenever the region changes, because the
       // menu is that region's table of contents: a rarity tracker has no
@@ -59548,7 +59606,10 @@
           });
           $('recentBirdGenOpen').addEventListener('click', function () {
             var section = $('surgeBtn').closest('section');
-            showSection(section.id);
+            showSection(section.id, {load:false});
+            if (!_autoLoaded[section.id]) birdGenFeedback('open', function (loadId) {
+              return autoLoad(section, loadId);
+            }, function () { return performanceStart(section, 'autoload'); });
           });
         }
         if (_recentBirdGenFullJob && !_recentBirdGenFullJob.current()
@@ -63485,6 +63546,67 @@
       // the clipboard. Verdicts lead, because "what did each section decide"
       // is the question a log is opened to answer; the traffic is evidence for
       // it, not a substitute.
+      var _phaseCapture = {enabled:false,epoch:0,nextId:0,samples:[]};
+      var _debugCopyGeneration = 0;
+      function phaseTimingStart(phase) {
+        if (!_phaseCapture.enabled) return null;
+        try {
+          return {phase:phase,started:performance.now(),epoch:_phaseCapture.epoch,
+            navigation:_navGeneration,scope:_scopeGeneration,visibility:document.visibilityState};
+        } catch (e) { return null; }
+      }
+      function phaseTimingFinish(span, outcome, counts) {
+        if (!span || !_phaseCapture.enabled || span.epoch !== _phaseCapture.epoch) return;
+        try {
+          var elapsed = performance.now() - span.started;
+          if (!Number.isFinite(elapsed) || elapsed < 0) return;
+          var sample = {id:++_phaseCapture.nextId,phase:span.phase,
+            elapsedMs:Math.round(elapsed*10)/10,outcome:outcome,
+            navigation:span.navigation,scope:span.scope,visibility:span.visibility,
+            endVisibility:document.visibilityState};
+          ['rows','parts','chars'].forEach(function (key) {
+            var value = counts && counts[key];
+            if (typeof value === 'number' && Number.isFinite(value) && value >= 0)
+              sample[key] = Math.floor(value);
+          });
+          _phaseCapture.samples.push(sample);
+          if (_phaseCapture.samples.length > 64) _phaseCapture.samples.shift();
+        } catch (e) {}
+      }
+      function phaseTimed(phase, fn, count) {
+        return function () {
+          if (!_phaseCapture.enabled) return fn.apply(this, arguments);
+          var span=phaseTimingStart(phase), args=arguments, result;
+          function finished(value) {
+            var counts;
+            try { counts=count && count(args,value); } catch (e) {}
+            phaseTimingFinish(span,'ok',counts);
+            return value;
+          }
+          function failed(error) { phaseTimingFinish(span,'failed'); throw error; }
+          try { result=fn.apply(this,args); } catch (error) { return failed(error); }
+          return result && typeof result.then === 'function'
+            ? result.then(finished,failed) : finished(result);
+        };
+      }
+      function phaseTimingText() {
+        if (!_phaseCapture.enabled && !_phaseCapture.samples.length) return '';
+        return '\nPHASE TIMINGS JSON\n' + JSON.stringify({
+          schema:1,enabled:_phaseCapture.enabled,clock:'monotonic',
+          interpretation:'Elapsed time, not CPU or physical paint. Nested spans overlap.',
+          samples:_phaseCapture.samples
+        }) + '\n';
+      }
+      function phaseTimingStatus() {
+        if (typeof document === 'undefined') return;
+        var status=$('dbgTimingStatus'), samples=_phaseCapture.samples;
+        if (!status) return;
+        status.hidden=!samples.length;
+        var last=samples[samples.length-1];
+        status.textContent=last ? samples.length+' timing samples; last '+last.phase
+          +': '+last.elapsedMs+' ms ('+last.outcome+'). Included in the next Copy all. '
+          +'Elapsed, not CPU; nested spans overlap.' : '';
+      }
       function dbgEntriesText(entries) {
         var scrub = window.__dbg && window.__dbg.scrubText;
         return (entries || []).map(function (e) {
@@ -63541,21 +63663,33 @@
       function openDebug(show) {
         var p = $('debugPanel'); if (!p) return;
         p.hidden = !show;
-        if (show) { window.__dbgLive = dbgRender; dbgRender(); } else { window.__dbgLive = null; }
+        if (show) { window.__dbgLive = dbgRender; dbgRender(); phaseTimingStatus(); }
+        else { window.__dbgLive = null; }
       }
       function dbgCopyLog() {
         // WHAT IS ON SCREEN, not a freshly built log. Dump replaces the panel
         // contents and freezes live updates; rebuilding here would have copied
         // the log back over the dump the reader had just asked for.
-        var el = $('dbgLog');
+        var el = $('dbgLog'), preparing=phaseTimingStart('debug.copy.prepare');
+        var btn = $('dbgCopy'), generation=++_debugCopyGeneration;
+        if (btn) btn.textContent='Copying\u2026';
         var text = ((el && el.textContent) || dbgText()) + coverageAuditText();
-        if (window.__dbg && window.__dbg.scrubText) text = window.__dbg.scrubText(text);
+        if (window.__dbg && window.__dbg.scrubText) {
+          text = phaseTimed('debug.copy.scrub',window.__dbg.scrubText).call(window.__dbg,text);
+        }
         if (el && el.textContent !== text) el.textContent = text;
-        var btn = $('dbgCopy');
+        phaseTimingFinish(preparing,'ok',{chars:text.length});
+        // Append numeric timing evidence only to the payload, never back into the live report.
+        text += phaseTimingText();
+        var clipboard=phaseTimingStart('debug.copy.clipboard');
         function done(ok) {
-          if (!btn) return;
+          phaseTimingFinish(clipboard,ok ? 'ok' : 'failed');
+          phaseTimingStatus();
+          if (!btn || generation !== _debugCopyGeneration) return;
           btn.textContent = ok ? '✓ Copied' : '✕ Copy failed — select by hand';
-          setTimeout(function () { btn.textContent = '📋 Copy all'; }, 1800);
+          setTimeout(function () {
+            if (generation === _debugCopyGeneration) btn.textContent = '📋 Copy all';
+          }, 1800);
         }
         // NOTHING HERE MAY FOCUS AN INPUT. The old fallback made the textarea
         // writable and focused it to run execCommand, so every copy raised the
@@ -63578,6 +63712,31 @@
         } catch (e) {}
         selectFallback();
       }
+      readSurgeRetainedCache=phaseTimed('retained.read',readSurgeRetainedCache);
+      surgeRetainedProjection=phaseTimed('retained.snapshot',surgeRetainedProjection,
+        function (_,value) { return {parts:value && value.parts && Object.keys(value.parts).length}; });
+      loadSurgeRetainedAsync=phaseTimed('retained.hydrate',loadSurgeRetainedAsync);
+      surgeRetainedModel=phaseTimed('retained.eligibility',surgeRetainedModel);
+      projectBirdGenPart=phaseTimed('retained.project',projectBirdGenPart,
+        function (args) { var value=args[1] || {}; return {rows:(value.evidenceRows || value.rows || []).length}; });
+      saveSurgeRetainedPart=phaseTimed('retained.save',saveSurgeRetainedPart);
+      zcPut=phaseTimed('cache.pack-write',zcPut);
+      renderSurge=phaseTimed('feed.render',renderSurge);
+      renderEventFeed=phaseTimed('feed.render',renderEventFeed,
+        function (args) { return {rows:((args[1] || {}).rows || []).length}; });
+      dbgText=phaseTimed('debug.format',dbgText);
+      dbgRender=phaseTimed('debug.render',dbgRender);
+      var timedShowSection=phaseTimed('navigation.setup',showSection);
+      showSection=function () {
+        var span=phaseTimingStart('navigation.next-frame'), result=timedShowSection.apply(this,arguments);
+        if (span && typeof requestAnimationFrame === 'function') {
+          var navigation=_navGeneration, scope=_scopeGeneration;
+          requestAnimationFrame(function () {
+            phaseTimingFinish(span,navigation===_navGeneration && scope===_scopeGeneration ? 'ok' : 'retired');
+          });
+        }
+        return result;
+      };
       function reportPdfName() {
         return 'Bird-Chaser-' + String(getReport().slug || 'report')
           .replace(/[^A-Za-z0-9._-]+/g, '-') + '-' + todayStr() + '.pdf';
@@ -64242,7 +64401,17 @@
       }
       $('spLookupFound').addEventListener('click', pickSpeciesFromRow);
       if ($('spCodesList')) $('spCodesList').addEventListener('click', pickSpeciesFromRow);
-      $('surgeBtn').addEventListener('click', loadSurge);
+      $('surgeBtn').addEventListener('click', function (event) {
+        var click = {type:event.type,currentTarget:event.currentTarget};
+        if (_surgeActiveLoad && _surgeActiveLoad.current()) {
+          $('surgeStatus').hidden = false;
+          $('surgeStatus').textContent = 'Joining the active Bird Gen source update\u2026';
+          return loadSurge(click);
+        }
+        return birdGenFeedback('refresh', function (loadId) {
+          return loadSurge(click, false, {performanceLoadId:loadId});
+        }, function () { return performanceStart($('sec-surgeBtn'), 'refresh'); });
+      });
       $('massBtn').addEventListener('click', function () { return loadEventFeed('mass'); });
       $('ppteBtn').addEventListener('click', function () { return loadEventFeed('ppte'); });
       $('reportingDay').addEventListener('click', function () { loadReportingActivity(1); });
@@ -64253,6 +64422,15 @@
       $('convoyBtn').addEventListener('click', loadConvoys);
       $('ebirdSignOut').addEventListener('click', logoutActiveProfile);
       $('dbgCopy').addEventListener('click', dbgCopyLog);
+      $('dbgTimingsToggle').addEventListener('click',function () {
+        _phaseCapture.enabled=!_phaseCapture.enabled;
+        _phaseCapture.epoch++;
+        if (_phaseCapture.enabled) _phaseCapture.samples=[];
+        this.setAttribute('aria-pressed',String(_phaseCapture.enabled));
+        this.textContent='Timing capture: '+(_phaseCapture.enabled ? 'On' : 'Off');
+        dbgRender();
+        phaseTimingStatus();
+      });
       $('dbgCopyReportImage').addEventListener('click', function () {
         runReportPdf('copy-image');
       });
@@ -64395,6 +64573,9 @@
         if (row) openMegaIndexRow(row, ev);
       });
       $('dbgClear').addEventListener('click', function () {
+        _phaseCapture.epoch++;
+        _phaseCapture.samples=[];
+        phaseTimingStatus();
         if (window.__dbg && window.__dbg.clear) window.__dbg.clear();
         try { clearRankSnapshots(); }
         catch (error) { dbg('error', 'Page fragments not cleared: ' + error.message); }

@@ -275,6 +275,232 @@ test('F1545 actual chooser search constructs only matching result controls', asy
   } finally { app.window.close(); }
 });
 
+test('F1545 retained-scale provincial projection evaluates repeated geography once per batch', async () => {
+  const boundary = f1544BoundaryDocument(), ring = Array.from({length:6000},(_,i)=>{
+    const angle=i*Math.PI*2/6000;
+    return [-123.4+Math.cos(angle),48.45+Math.sin(angle)];
+  });
+  ring.push(ring[0]);
+  boundary.features[0].geometry.coordinates = [ring];
+  const app = await boot({sample:false,nativeCompression:true,report:'u-f1545-cost',storage:{
+    ebird_custom_regions:JSON.stringify([{slug:'u-f1545-cost',label:'Synthetic BC',
+      stateCode:'CA-BC',lat:48.45,lng:-123.4}]),
+    'ebird_home_lat:shared-v1':'48.45','ebird_home_lng:shared-v1':'-123.4'
+  },fetch:url=>/geo\.statcan\.gc\.ca/.test(url)?boundary:[]});
+  const W=app.window,A=W.__app, original=W.BirdLogic.administrativeMembership;
+  try {
+    const loaded=await A.loadRegionBoundary('CA-BC','CA-BC');
+    await A.ensurePatchScope(A.activeScope());
+    let calls=0;
+    W.BirdLogic.administrativeMembership=function(...args){ calls++; return original(...args); };
+    const scope={effectiveRegion:'CA-BC',publicEvidence:true};
+    const rows=Array.from({length:3000},(_,i)=>({speciesCode:'control'+i,
+      lat:48.45+(i%16)*0.001,lng:-123.4,subnational1Code:'CA-BC'}));
+    const started=performance.now();
+    assert.deepEqual(A.patchEvidenceRows(rows,scope),rows);
+    console.log('F1545 provincial projection',JSON.stringify({rows:rows.length,
+      uniquePoints:16,membershipCalls:calls,elapsedMs:performance.now()-started}));
+    assert.equal(calls,16,'repeated species at the same geography must not repeat polygon traversal');
+    const row=rows[0];
+    assert.deepEqual(A.patchEvidenceRows([
+      row, {...row,subnational1Code:'CA-AB'}, {...row,countryCode:'US'},
+      {...row,countryCode:Infinity},
+      {...row,coordinatesMissing:true}, {...row,lat:null,lng:null}
+    ],scope),[row],'different or unavailable evidence must not borrow an inside verdict');
+    loaded.geometry.coordinates=[ring.map(point=>[point[0]+3,point[1]])];
+    assert.equal(A.patchEvidenceRows([row],scope).length,0,
+      'membership reuse must end with its batch, even when the next geometry changes in place');
+  } finally { W.BirdLogic.administrativeMembership=original; W.close(); }
+});
+
+test('F1545 cold startup exposes feedback rather than uninitialized report panels', async () => {
+  const initial = new JSDOM(HTML, {runScripts:'outside-only'});
+  try {
+    const W = initial.window, panels = [...W.document.querySelectorAll('main > section.panel')];
+    assert.ok(panels.length);
+    assert.ok(panels.every(panel => W.getComputedStyle(panel).display === 'none'),
+      'report panels must not paint before app initialization');
+    const status = W.document.getElementById('startupStatus');
+    assert.ok(status && !status.hidden && /Opening Bird Chaser/.test(status.textContent));
+  } finally { initial.window.close(); }
+  const app = await boot();
+  try {
+    assert.equal(app.$('startupStatus').hidden,true);
+    assert.notEqual(app.window.document.querySelector('main').getAttribute('aria-busy'),'true');
+    assert.equal(app.$('menuPanel').hidden,false);
+    app.window.__app.showSection('sec-spLookupBtn',{load:false});
+    assert.notEqual(app.window.getComputedStyle(app.$('sec-spLookupBtn')).display,'none',
+      'startup protection must release genuine navigation');
+  } finally { app.window.close(); }
+});
+
+test('F1545 Full feed and refresh preserve retained cards through the feedback paint', async () => {
+  const app = await boot({sample:false,nativeCompression:true});
+  const A = app.window.__app, W = app.window, frames = [];
+  try {
+    await seedSeen(app, []);
+    const now = Date.now();
+    await A.saveSurgeRetainedPart('favorite', {state:'ok',rows:[{
+      code:'margod',name:'Marbled Godwit',time:now,when:formatObsStamp(new Date(now-60000)),
+      locId:'LF1545PAINT',locName:'Public marsh',checklistId:'SF1545PAINT',
+      lat:47.75,lng:-122.16,state:'US-WA'
+    }]});
+    A.LOADERS.surgeBtn.reachability = false;
+    A.loadSurge();
+    A.showMenu();
+    W.requestAnimationFrame = callback => { frames.push(callback); return frames.length; };
+    const retained = app.$('surgeFeed');
+    assert.ok(retained && /Marbled Godwit/.test(retained.textContent));
+    const start = performance.now();
+    app.$('recentBirdGenOpen').click();
+    console.log('F1545 Full feed handler', performance.now()-start);
+    assert.equal(app.$('sec-surgeBtn').hidden,false);
+    assert.equal(app.$('surgeFeed'),retained,
+      'opening must not reconstruct retained cards before feedback can paint');
+    assert.equal(app.$('surgeStatus').hidden,false);
+    frames.shift()();
+    assert.equal(app.$('surgeFeed'),retained,
+      'the first frame must expose the shell and feedback before projection');
+    while (frames.length) frames.shift()();
+    await new Promise(resolve=>setTimeout(resolve,40));
+    assert.notEqual(app.$('surgeFeed'),retained,'the owned handoff must actually start after feedback');
+    A.cancelStalledWork();
+    const refreshed = app.$('surgeFeed');
+    app.$('surgeBtn').click();
+    assert.equal(app.$('surgeFeed'),refreshed,
+      'refresh feedback must paint before rebuilding retained alerts');
+    assert.equal(app.$('surgeStatus').hidden,false);
+    A.showSection('sec-rankBtn',{load:false});
+    const retiredFeed = app.$('surgeFeed');
+    const fetches = app.state.fetches.length;
+    for (let i=0;i<6;i++) {
+      while (frames.length) frames.shift()();
+      await new Promise(resolve=>setTimeout(resolve,10));
+    }
+    assert.equal(app.$('sec-rankBtn').hidden,false);
+    assert.equal(app.$('surgeFeed'),retiredFeed,
+      'a retired feedback handoff must not reconstruct the hidden feed');
+    assert.equal(app.state.fetches.length,fetches,
+      'a retired feedback handoff must not start source work');
+  } finally { W.close(); }
+});
+
+test('F1548 phase timing capture measures actual retained and Debug copy consumers without private payloads', async () => {
+  const app = await boot({sample:false,nativeCompression:true});
+  const W=app.window,A=W.__app;
+  let copied='',complete;
+  Object.defineProperty(W.navigator,'clipboard',{configurable:true,value:{
+    writeText(text) { copied=text; return new Promise(resolve=>{ complete=resolve; }); }
+  }});
+  try {
+    app.$('openDebugBtn').click();
+    app.$('dbgCopy').click();
+    assert.doesNotMatch(copied,/PHASE TIMINGS JSON/,'timing capture must default off');
+    complete();
+    await waitFor(()=>/Copied/.test(app.$('dbgCopy').textContent),'clipboard confirmation');
+    assert.ok(app.$('dbgTimingsToggle'),'the owner needs an explicit timing capture control');
+    app.$('dbgTimingsToggle').click();
+    W.__dbg.push('warn',['apiKey=TIMING-PRIVATE-SENTINEL']);
+    await A.saveSurgeRetainedPart('favorite',{state:'ok',rows:[{
+      code:'margod',name:'TIMING-PRIVATE-SENTINEL',lat:47.75,lng:-122.16,state:'US-WA'
+    }]});
+    await A.loadSurgeRetainedAsync();
+    A.showSection('sec-massBtn',{load:false});
+    await new Promise(resolve=>W.requestAnimationFrame(resolve));
+    app.$('openDebugBtn').click();
+    copied='';
+    app.$('dbgCopy').click();
+    const samples=JSON.parse(copied.split('PHASE TIMINGS JSON\n')[1]).samples;
+    assert.doesNotMatch(copied,/TIMING-PRIVATE-SENTINEL/,'copy must retain credential scrubbing');
+    assert.doesNotMatch(JSON.stringify(samples),/margod|47\.75|-122\.16|TIMING-PRIVATE/,
+      'timings must not serialize rows, coordinates or credentials');
+    for (const phase of ['retained.read','retained.snapshot','retained.hydrate',
+      'retained.project','retained.save','navigation.setup','navigation.next-frame',
+      'debug.format','debug.render','debug.copy.scrub','debug.copy.prepare']) {
+      assert.ok(samples.some(sample=>sample.phase===phase && sample.elapsedMs>=0),
+        'the actual consumer must measure '+phase);
+    }
+    assert.doesNotMatch(app.$('dbgCopy').textContent,/Copied/,'confirmation must wait for clipboard success');
+    complete();
+    await waitFor(()=>/debug.copy.clipboard/.test(app.$('dbgTimingStatus').textContent),
+      'completed clipboard timing');
+    app.$('dbgCopy').click();
+    assert.ok(JSON.parse(copied.split('PHASE TIMINGS JSON\n')[1]).samples
+      .some(sample=>sample.phase==='debug.copy.clipboard' && sample.outcome==='ok'));
+    complete();
+  } finally { W.close(); }
+});
+
+test('F1548 phase timing capture stays bounded and ignores deferred work after it is stopped', async () => {
+  const app=await boot({sample:false}),W=app.window,A=W.__app,frames=[];
+  let copied='';
+  Object.defineProperty(W.navigator,'clipboard',{configurable:true,value:{
+    writeText(text) { copied=text; return Promise.resolve(); }
+  }});
+  try {
+    assert.ok(app.$('dbgTimingsToggle'),'timing capture requires an explicit owner control');
+    app.$('dbgTimingsToggle').click();
+    W.requestAnimationFrame=callback=>{ frames.push(callback); return frames.length; };
+    A.showSection('sec-massBtn',{load:false});
+    for(let i=0;i<80;i++) A.loadSurgeRetained();
+    app.$('dbgCopy').click();
+    const before=JSON.parse(copied.split('PHASE TIMINGS JSON\n')[1]);
+    assert.ok(before.samples.length>0 && before.samples.length<=64,
+      'repeated real retained loads must not grow an unbounded diagnostic log');
+    app.$('dbgTimingsToggle').click();
+    const frozen=before.samples.map(sample=>sample.id);
+    for(const frame of frames.splice(0)) frame();
+    await Promise.resolve();
+    app.$('dbgCopy').click();
+    const after=JSON.parse(copied.split('PHASE TIMINGS JSON\n')[1]);
+    assert.equal(after.enabled,false);
+    assert.deepEqual(after.samples.map(sample=>sample.id),frozen,
+      'stopping must preserve captured evidence without admitting pending or new samples');
+    assert.equal(app.$('dbgTimingsToggle').getAttribute('aria-pressed'),'false');
+    app.$('dbgClear').click();
+    app.$('dbgCopy').click();
+    assert.doesNotMatch(copied,/PHASE TIMINGS JSON/,'Debug Clear must discard stopped timing evidence');
+  } finally { W.close(); }
+});
+
+test('F1548 phase timing copy failure preserves the existing fallback and reports failure honestly', async () => {
+  const app=await boot({sample:false}),W=app.window;
+  Object.defineProperty(W.navigator,'clipboard',{configurable:true,value:{
+    writeText() { return Promise.reject(new Error('clipboard refused')); }
+  }});
+  W.document.execCommand=()=>false;
+  try {
+    assert.ok(app.$('dbgTimingsToggle'),'timing capture requires an explicit owner control');
+    app.$('dbgTimingsToggle').click();
+    app.$('dbgCopy').click();
+    await waitFor(()=>/Copy failed/.test(app.$('dbgCopy').textContent),'honest copy failure');
+    assert.match(app.$('dbgTimingStatus').textContent,/debug.copy.clipboard.*failed/);
+  } finally { W.close(); }
+});
+
+test('F1548 phase timing copy confirmation belongs to the latest clipboard request', async () => {
+  const app=await boot({sample:false}),W=app.window,pending=[],resets=[];
+  const timeout=W.setTimeout.bind(W);
+  Object.defineProperty(W.navigator,'clipboard',{configurable:true,value:{
+    writeText() { return new Promise(resolve=>pending.push(resolve)); }
+  }});
+  W.setTimeout=(callback,delay,...args)=>delay===1800 ? resets.push(callback)
+    : timeout(callback,delay,...args);
+  try {
+    app.$('dbgCopy').click();
+    app.$('dbgCopy').click();
+    pending.shift()();
+    await Promise.resolve();
+    assert.match(app.$('dbgCopy').textContent,/Copying/,'an older completion must not confirm a newer copy');
+    pending.shift()();
+    await waitFor(()=>/Copied/.test(app.$('dbgCopy').textContent),'latest copy success');
+    app.$('dbgCopy').click();
+    for(const reset of resets.splice(0)) reset();
+    assert.match(app.$('dbgCopy').textContent,/Copying/,'an old label-reset timer must not overwrite a pending copy');
+    pending.shift()();
+  } finally { W.close(); }
+});
+
 test('F1546 F1547 active Home shape and editor are shared by main and submenu consumers', async () => {
   for (const kind of ['home', 'temp', 'unset']) {
     const app = await boot({home: kind !== 'unset', storage: kind === 'temp' ? {
@@ -13340,6 +13566,13 @@ function boot(opts = {}) {
         }
         window.localStorage.setItem(k, v);
       });
+      if (opts.storageWrites) {
+        const setItem = window.Storage.prototype.setItem;
+        window.Storage.prototype.setItem = function (key, value) {
+          setItem.call(this, key, value);
+          opts.storageWrites.push({ key, value: String(value) });
+        };
+      }
       if (Object.hasOwn(opts, 'location')) {
         Object.defineProperty(window.navigator, 'geolocation', {
           configurable: true,
@@ -22835,8 +23068,9 @@ test('F1445 shared chooser restores searchable King and Snohomish county scopes 
     function find(query, value) {
       app.$('regionChooserSearch').value = query;
       app.$('regionChooserSearch').dispatchEvent(new app.window.Event('input',{bubbles:true}));
-      const button = app.$('regionChooserBody').querySelector('[data-region-choice="'+value+'"]:not([hidden])');
+      const button = app.$('regionChooserResults').querySelector('[data-region-choice="'+value+'"]:not([hidden])');
       assert.ok(button,'the shared chooser must expose '+query);
+      assert.equal(button.closest('[hidden]'),null,'the searchable choice must be visible to the user');
       return button;
     }
     const beforeOpen = app.state.fetches.length;
@@ -22934,8 +23168,9 @@ test('F1445 cached county visits and loaded county references stay searchable wi
     A.openRegionChooser();
     const query = app.$('regionChooserSearch');
     query.value='Kings County';query.dispatchEvent(new app.window.Event('input'));
-    const choice = app.$('regionChooserCounties').querySelector('[data-region-choice="county:'+parent+':CA-PE-KI"]');
+    const choice = app.$('regionChooserResults').querySelector('[data-region-choice="county:'+parent+':CA-PE-KI"]');
     assert.ok(choice && !choice.hidden,'already loaded county references must join the shared chooser');
+    assert.equal(choice.closest('[hidden]'),null,'the loaded county result must be visible to the user');
     app.click(choice);
     assert.equal(A.activeScope().effectiveRegion,'CA-PE-KI');
     assert.match(app.$('menuCurrentRegion').textContent,/Kings.*CA-PE-KI/);
@@ -81327,7 +81562,8 @@ test('F247 previous debug sessions migrate automatically and erasure cancels pen
   const legacy = { entries: [{ t: '12:00', level: 'info', msg: 'legacy diagnostic '.repeat(30) }],
     verdicts: {}, startedAt: '2026-10-01T12:00:00Z' };
   let migrated = 0;
-  const app = await boot({ nativeCompression: true, storage: { [key]: JSON.stringify(legacy) },
+  const writes = [];
+  const app = await boot({ nativeCompression: true, storageWrites: writes, storage: { [key]: JSON.stringify(legacy) },
     Response: class {
       constructor(value) {
         if (typeof value === 'string' && value === JSON.stringify(legacy)) migrated++;
@@ -81340,8 +81576,11 @@ test('F247 previous debug sessions migrate automatically and erasure cancels pen
     await D.ready;
     assert.match(D.previous.entries[0].msg, /legacy diagnostic/);
     assert.equal(migrated, 1, 'the actual legacy record must reach native compression automatically');
-    assert.ok(W.localStorage.getItem(key).startsWith('z:'),
+    const migratedWrite = writes.find(write => write.key === key && write.value.startsWith('z:'));
+    assert.ok(migratedWrite,
       'legacy diagnostics must migrate without requiring a purge');
+    assert.deepEqual(JSON.parse(JSON.stringify(await W.__app.unpackJson(migratedWrite.value))),legacy,
+      'observe the actual migrated record before the current-session debounce can replace it');
     const NativeResponse = W.Response;
     W.Response = class {
       constructor(value) {

@@ -10,10 +10,54 @@ import tempfile
 
 APP = Path(__file__).resolve().parents[1]
 MUTATIONS = [
+    ("Debug Clear leaves stopped timing evidence behind",
+     "_phaseCapture.epoch++;\n        _phaseCapture.samples=[];",
+     "void 0;", "F1548 phase timing"),
+    ("phase timing runs without owner opt-in",
+     "{enabled:false,epoch:0,nextId:0,samples:[]}",
+     "{enabled:true,epoch:0,nextId:0,samples:[]}", "F1548 phase timing"),
+    ("phase timing grows without a bound",
+     "if (_phaseCapture.samples.length > 64) _phaseCapture.samples.shift();",
+     "if (false) _phaseCapture.samples.shift();", "F1548 phase timing"),
+    ("stopped timing capture admits deferred results",
+     "if (!span || !_phaseCapture.enabled || span.epoch !== _phaseCapture.epoch) return;",
+     "if (!span) return;", "F1548 phase timing"),
+    ("phase timing leaks raw consumer arguments",
+     "phaseTimingFinish(span,'ok',counts);",
+     "span.phase=JSON.stringify(Array.prototype.slice.call(args)); phaseTimingFinish(span,'ok',counts);",
+     "F1548 phase timing"),
+    ("old clipboard completion confirms a newer copy",
+     "if (!btn || generation !== _debugCopyGeneration) return;",
+     "if (!btn) return;", "F1548 phase timing"),
+    ("retained projection repeats polygon traversal for every species",
+     "if (signature && membershipCache.has(signature)) return membershipCache.get(signature);",
+     "if (false && signature && membershipCache.has(signature)) return membershipCache.get(signature);",
+     "F1545 retained-scale provincial"),
+    ("cold startup exposes raw report panels",
+     'main[aria-busy="true"] > section.panel',
+     'main[aria-busy="false"] > section.panel', "F1545 cold startup"),
+    ("startup protection never releases navigation",
+     "main.removeAttribute('aria-busy');",
+     "main.setAttribute('aria-busy', 'true');", "F1545 cold startup"),
     ("search rebuilds the catalog per keystroke",
      "search.oninput = function () {",
      "search.oninput = function () { renderRegionChooser({ preserveSearch: true }); return;",
      "F1545 actual chooser"),
+    ("feed work runs before feedback paint",
+     "function birdGenFeedback(kind, start, prepare) {",
+     "function birdGenFeedback(kind, start, prepare) { return start(prepare && prepare());",
+     "F1545 Full feed"),
+    ("a retired feedback handoff starts work",
+     "return current() ? start(prepared) : false;",
+     "return start(prepared);", "F1545 Full feed"),
+    ("county results disappear from direct search",
+     "return regionChoiceSearchText(row).indexOf(q) >= 0;",
+     "return !row.parentValue && regionChoiceSearchText(row).indexOf(q) >= 0;",
+     "F1445 shared chooser|F1445 cached county"),
+    ("previous diagnostics no longer migrate",
+     "return persistence.getJson(key, {\n            migrate: true, shouldWrite: function () {",
+     "return persistence.getJson(key, {\n            migrate: false, shouldWrite: function () {",
+     "F247 previous debug sessions"),
     ("Home always claims a house",
      "var kind = savedBaseKind(), active = !!activeSavedBase();",
      "var kind = 'home', active = !!activeSavedBase();", "F1546 F1547"),
@@ -102,7 +146,9 @@ def main():
             candidate.write_text(source.replace(old, new, 1), encoding="utf-8")
             result = run(www, pattern)
             output = result.stdout + result.stderr
-            if result.returncode != 1 or pattern not in output or "SyntaxError" in output:
+            if (result.returncode != 1
+                    or not any(name in output for name in pattern.split("|"))
+                    or "SyntaxError" in output):
                 print(output)
                 raise RuntimeError("Mutation did not fail through its consumer: " + label)
             print("CAUGHT: " + label, flush=True)
